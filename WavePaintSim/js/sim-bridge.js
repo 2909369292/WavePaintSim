@@ -31,7 +31,8 @@ const refs = {};
 
 function createWavePaintSignal(name, values, type, kind, width = 1) {
   const safeValues = Array.isArray(values) ? values.slice() : [];
-  return {
+  const SignalCtor = window.Signal;
+  const signal = SignalCtor ? new SignalCtor(name, type, safeValues.length || 24) : {
     id: `seed_${name}`,
     name,
     type,
@@ -61,6 +62,35 @@ function createWavePaintSignal(name, values, type, kind, width = 1) {
     groupPath: null,
     __simInjected: false
   };
+  signal.id ||= `seed_${name}`;
+  signal.name = name;
+  signal.type = type;
+  signal.kind = kind;
+  signal.width = width;
+  signal.msb = width > 1 ? String(width - 1) : "";
+  signal.lsb = width > 1 ? "0" : "";
+  signal.color = null;
+  signal.fill = null;
+  signal.values = safeValues;
+  signal.labels = Array.from({ length: safeValues.length }, (_, index) => width > 1 ? safeValues[index] : "");
+  signal.segmentStyles = Array.from({ length: safeValues.length }, () => ({ color: null, hatched: false, fill: null }));
+  signal.driveStrengths = Array.from({ length: safeValues.length }, () => 0);
+  signal.clockMarkers = Array.from({ length: safeValues.length }, () => false);
+  signal.waveDromColorCodes = Array.from({ length: safeValues.length }, () => null);
+  signal.edgeArrow = null;
+  signal.riseTime = null;
+  signal.fallTime = null;
+  signal.subSteps = 1;
+  signal.isClockPattern = kind === "clock";
+  signal.clockHighSamples = 1;
+  signal.clockLowSamples = 1;
+  signal.showClockMarkers = false;
+  signal.uiRowHeightHint = 0;
+  signal.groupName = null;
+  signal.groupColor = null;
+  signal.groupPath = null;
+  signal.__simInjected = false;
+  return signal;
 }
 
 function defaultStimulusSpecs() {
@@ -132,7 +162,10 @@ function normalizeSignalType(width) {
 
 function toNativeSignal(output, index, template, timeSteps) {
   const width = Math.max(1, Number(output?.width) || 1);
-  const base = cloneNativeSignal(template) || createWavePaintSignal(output?.name || `signal_${index + 1}`, [], normalizeSignalType(width), width > 1 ? "vector" : "logic", width);
+  const SignalCtor = window.Signal;
+  const base = SignalCtor
+    ? new SignalCtor(output?.name || `signal_${index + 1}`, normalizeSignalType(width), timeSteps)
+    : (cloneNativeSignal(template) || createWavePaintSignal(output?.name || `signal_${index + 1}`, [], normalizeSignalType(width), width > 1 ? "vector" : "logic", width));
   const values = Array.from({ length: timeSteps }, (_, cell) => normalizeVectorValue(output?.values?.[cell], width));
   const labels = Array.from({ length: timeSteps }, (_, cell) => width > 1 ? formatVectorValue(values[cell], width, output?.radix || "hexadecimal") : "");
   base.id = output?.id || `sim_${index}`;
