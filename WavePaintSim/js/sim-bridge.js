@@ -1,3 +1,4 @@
+import { renderWaveScene } from "./renderer.js";
 import { buildAutoTestbench, buildPlaceholderOutputsFromPorts, buildSimulationPayload, parseVerilogDesign, vcdToProjectOutputs } from "./sim.js";
 import { formatVectorValue, normalizeVectorValue } from "./model.js";
 
@@ -21,6 +22,7 @@ const state = {
   active: 0,
   design: null,
   outputs: [],
+  resultView: "placeholder",
   lastTestbench: "",
   lastBindings: []
 };
@@ -35,12 +37,14 @@ function initRefs() {
   refs.panel = el("sim-panel");
   refs.toggleBtn = el("sim-toggle-btn");
   refs.header = el("sim-panel-header");
-  refs.resultList = el("result-list");
   refs.sourceFiles = el("source-files");
   refs.sourceEditor = el("verilog-source");
   refs.portPreview = el("port-preview");
   refs.modulePreview = el("module-preview");
   refs.status = el("sim-status");
+  refs.resultPanel = el("sim-result-panel");
+  refs.resultMeta = el("sim-result-meta");
+  refs.resultWave = el("sim-result-wave");
   refs.addFile = el("sim-addfile");
   refs.removeFile = el("sim-removefile");
   refs.parseBtn = el("sim-parse");
@@ -59,6 +63,7 @@ function syncEditor() {
   file.content = String(refs.sourceEditor.value || "");
   state.design = null;
   state.outputs = [];
+  state.resultView = "empty";
 }
 
 function readWaveDocument() {
@@ -120,6 +125,7 @@ function parseDesign() {
   syncEditor();
   const design = parseVerilogDesign(sourceText());
   state.design = design;
+  state.resultView = "placeholder";
   refs.portPreview.textContent = design.topModule?.ports?.length
     ? `${design.topName}: ${design.topModule.ports.map((port) => `${port.direction} ${port.name}[${port.width}]`).join(", ")}`
     : `No ports found in ${design.topName}.`;
@@ -135,6 +141,7 @@ function buildTbPreview() {
   syncEditor();
   const design = state.design || parseVerilogDesign(sourceText());
   state.design = design;
+  state.resultView = "placeholder";
   const project = readWaveDocument();
   const result = buildAutoTestbench(design, project);
   if (!result.ok) {
@@ -179,6 +186,7 @@ async function runSimulation() {
       const error = text.replace(/^(IVERILOG-ERROR|VVP-ERROR|SIM-ERROR):\s*/, "").trim();
       refs.modulePreview.textContent = error || "Simulation failed.";
       state.outputs = [];
+      state.resultView = "empty";
       render();
       setStatus(error || "Simulation failed.");
       return;
@@ -186,6 +194,7 @@ async function runSimulation() {
 
     const { parsed, outputs } = vcdToProjectOutputs(text, project);
     state.outputs = outputs;
+    state.resultView = "simulation";
     state.lastTestbench = tbResult.source;
     state.lastBindings = tbResult.bindings;
     refs.modulePreview.textContent = [
@@ -212,31 +221,41 @@ function summarizeOutputs(outputs) {
   }).join("; ");
 }
 
-function renderResults(outputs) {
-  if (!refs.resultList) return;
-  refs.resultList.replaceChildren(...(outputs || []).map((signal) => {
-    const row = document.createElement("button");
-    row.type = "button";
-    row.className = "signal-chip";
-    const width = Math.max(1, Number(signal.width) || 1);
-    const finalValue = signal.values?.[signal.values.length - 1];
-    const text = width > 1
-      ? formatVectorValue(finalValue, width, "hexadecimal")
-      : normalizeVectorValue(finalValue, 1);
-    row.textContent = `${signal.name}: ${text}`;
-    return row;
-  }));
+function renderResultWave(design, project) {
+  if (!refs.resultPanel || !refs.resultWave) return;
+  const outputs = state.resultView === "simulation" && state.outputs && state.outputs.length
+    ? state.outputs
+    : state.resultView === "placeholder"
+      ? buildPlaceholderOutputsFromPorts(design.topModule?.ports || [], project.timeSteps)
+      : [];
+  const hasWave = Array.isArray(outputs) && outputs.length > 0;
+  refs.resultPanel.classList.toggle("hidden", !hasWave);
+  if (refs.resultMeta) {
+    refs.resultMeta.textContent = hasWave ? `${outputs.length} result signal(s)` : "waiting for simulation";
+  }
+  if (!hasWave) {
+    refs.resultWave.replaceChildren();
+    return;
+  }
+  renderWaveScene({
+    ...project,
+    signals: [],
+    outputs,
+    selectedSignalId: project.selectedSignalId || outputs[0]?.id || null
+  }, refs.resultWave);
 }
 
 function render() {
   const project = readWaveDocument();
   const design = state.design || parseVerilogDesign(sourceText());
   state.design = design;
-  const outputs = state.outputs && state.outputs.length
-    ? state.outputs
-    : buildPlaceholderOutputsFromPorts(design.topModule?.ports || [], project.timeSteps);
-  renderResults(outputs);
-  setStatus(outputs.length ? `${outputs.length} output signal(s) ready.` : "No output signals.");
+  renderResultWave(design, project);
+  const outputCount = state.resultView === "simulation" && state.outputs && state.outputs.length
+    ? state.outputs.length
+    : state.resultView === "placeholder"
+      ? (design.topModule?.ports || []).filter((port) => port.direction === "output" || port.direction === "inout").length
+      : 0;
+  setStatus(outputCount ? `${outputCount} output signal(s) ready.` : "No output signals.");
   if (refs.toggleBtn) refs.toggleBtn.style.display = refs.panel?.classList.contains("collapsed") ? "block" : "none";
 }
 

@@ -65,13 +65,13 @@
         /* 仿真工具面板 */
                 /* 右侧仿真栏 */
         #main-area { transition: padding-right 0.2s ease; }
-        body.sim-open #main-area { padding-right: 292px; }
+        body.sim-open #main-area { padding-right: 252px; }
         #sim-panel {
             position: fixed;
             right: 0;
             top: 92px;
             bottom: 0;
-            width: 292px;
+            width: 252px;
             background: #f8faf8;
             border-left: 1px solid var(--border-color, #ccc);
             z-index: 100;
@@ -132,6 +132,40 @@
         .sim-btns { display: flex; gap: 6px; flex-wrap: wrap; }
         .sim-btns button { cursor: pointer; }
         .sim-status { font-size: 12px; color: #456; }
+        .sim-result-panel {
+            position: fixed;
+            left: 12px;
+            right: 264px;
+            bottom: 12px;
+            z-index: 95;
+            background: rgba(248, 250, 248, 0.98);
+            border: 1px solid var(--border-color, #ccc);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.16);
+            border-radius: 12px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            min-height: 220px;
+        }
+        .sim-result-panel.hidden { display: none; }
+        .sim-result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 12px;
+            background: #eef5ee;
+            border-bottom: 1px solid var(--border-color, #ccc);
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .sim-result-meta { font-weight: 400; color: #456; }
+        #sim-result-wave {
+            flex: 1;
+            min-height: 180px;
+            overflow: auto;
+            background: #fbfcfe;
+        }
         #sim-toggle-btn { position: fixed; right: 0; top: 4px; z-index: 110; cursor: pointer; }</style>
     <script>
         (function () {
@@ -369,10 +403,6 @@
         </div>
         <div class="sim-panel-body">
             <div>
-                <div class="sim-sec-title">Result Summary</div>
-                <div id="result-list" class="signal-list"></div>
-            </div>
-            <div>
                 <div class="sim-sec-title">Verilog / SV</div>
                 <div class="source-toolbar">
                     <div id="source-files" class="source-files"></div>
@@ -423,6 +453,13 @@
                 </div>
             </div>
         </div>
+    </div>
+    <div id="sim-result-panel" class="sim-result-panel hidden">
+        <div class="sim-result-header">
+            <span>Simulation Waveform</span>
+            <span id="sim-result-meta" class="sim-result-meta"></span>
+        </div>
+        <div id="sim-result-wave"></div>
     </div>
     <div id="wp-modal-overlay" class="wp-modal-overlay hidden">
         <div id="wp-modal" class="wp-modal" role="dialog" aria-modal="true" aria-labelledby="wp-modal-title">
