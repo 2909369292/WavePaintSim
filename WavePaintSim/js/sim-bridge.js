@@ -1,4 +1,3 @@
-import { renderWaveScene } from "./renderer.js";
 import { buildAutoTestbench, buildSimulationPayload, parseVerilogDesign, vcdToProjectOutputs } from "./sim.js";
 import { formatVectorValue, normalizeVectorValue } from "./model.js";
 
@@ -57,7 +56,8 @@ function createWavePaintSignal(name, values, type, kind, width = 1) {
     uiRowHeightHint: 0,
     groupName: null,
     groupColor: null,
-    groupPath: null
+    groupPath: null,
+    __simInjected: false
   };
 }
 
@@ -77,6 +77,75 @@ function seedDefaultStimuli() {
   dw.m_subStepCount = 1;
   window.drawWaveform?.();
   window.updateSidePanels?.();
+}
+
+function isInjectedSignal(signal) {
+  return !!signal?.__simInjected;
+}
+
+function stripInjectedSignals(signals) {
+  return (Array.isArray(signals) ? signals : []).filter((signal) => !isInjectedSignal(signal));
+}
+
+function cloneNativeSignal(signal) {
+  if (!signal || typeof signal !== "object") return null;
+  if (typeof structuredClone === "function") return structuredClone(signal);
+  return JSON.parse(JSON.stringify(signal));
+}
+
+function normalizeSignalType(width) {
+  const SignalType = window.SignalType || { Bit: 0, Vector: 1 };
+  return width > 1 ? SignalType.Vector : SignalType.Bit;
+}
+
+function toNativeSignal(output, index, template, timeSteps) {
+  const width = Math.max(1, Number(output?.width) || 1);
+  const base = cloneNativeSignal(template) || createWavePaintSignal(output?.name || `signal_${index + 1}`, [], normalizeSignalType(width), width > 1 ? "vector" : "logic", width);
+  const values = Array.from({ length: timeSteps }, (_, cell) => normalizeVectorValue(output?.values?.[cell], width));
+  const labels = Array.from({ length: timeSteps }, (_, cell) => width > 1 ? formatVectorValue(values[cell], width, output?.radix || "hexadecimal") : "");
+  base.id = output?.id || `sim_${index}`;
+  base.name = output?.name || `signal_${index + 1}`;
+  base.type = normalizeSignalType(width);
+  base.kind = width > 1 ? "vector" : "logic";
+  base.width = width;
+  base.msb = width > 1 ? String(width - 1) : "";
+  base.lsb = width > 1 ? "0" : "";
+  base.values = values;
+  base.labels = labels;
+  base.segmentStyles = Array.from({ length: timeSteps }, () => ({ color: null, hatched: false, fill: null }));
+  base.driveStrengths = Array.from({ length: timeSteps }, () => (window.DriveStrength?.Strong ?? 0));
+  base.clockMarkers = Array.from({ length: timeSteps }, () => false);
+  base.waveDromColorCodes = Array.from({ length: timeSteps }, () => null);
+  base.edgeArrow = null;
+  base.riseTime = null;
+  base.fallTime = null;
+  base.subSteps = 1;
+  base.isClockPattern = false;
+  base.clockHighSamples = 1;
+  base.clockLowSamples = 1;
+  base.showClockMarkers = false;
+  base.uiRowHeightHint = 0;
+  base.groupName = "sim";
+  base.groupColor = "#0f766e";
+  base.groupPath = "sim.outputs";
+  base.__simInjected = true;
+  return base;
+}
+
+function replaceInjectedOutputs(outputs) {
+  const dw = window.document_wave;
+  if (!dw || !Array.isArray(dw.m_signals)) return;
+  const baseSignals = stripInjectedSignals(dw.m_signals);
+  const timeSteps = Math.max(
+    4,
+    Number(dw?.m_sampleCount || dw?.m_timeSteps || 0) ||
+      baseSignals.reduce((max, sig) => Math.max(max, Array.isArray(sig?.values) ? sig.values.length : 0), 0) ||
+      24
+  );
+  const template = baseSignals[0] || null;
+  const injected = (Array.isArray(outputs) ? outputs : []).map((output, index) => toNativeSignal(output, index, template, timeSteps));
+  dw.m_signals = [...baseSignals, ...injected];
+  dw.m_sampleCount = Math.max(dw.m_sampleCount || 0, timeSteps);
 }
 
 function el(id) {
@@ -116,7 +185,7 @@ function syncEditor() {
 
 function readWaveDocument() {
   const dw = window.document_wave;
-  const signals = Array.isArray(dw?.m_signals) ? dw.m_signals : [];
+  const signals = stripInjectedSignals(dw?.m_signals || []);
   const timeSteps = Math.max(
     4,
     Number(dw?.m_sampleCount || dw?.m_timeSteps || 0) ||
@@ -149,41 +218,6 @@ function readWaveDocument() {
     }),
     outputs: []
   };
-}
-
-function ensureOverlay() {
-  if (!refs.waveView) return null;
-  let overlay = document.getElementById("sim-wave-overlay");
-  if (!overlay) {
-    overlay = document.createElement("div");
-    overlay.id = "sim-wave-overlay";
-    overlay.style.position = "absolute";
-    overlay.style.inset = "0";
-    overlay.style.display = "none";
-    overlay.style.overflow = "auto";
-    overlay.style.background = "#fbfcfe";
-    refs.waveView.style.position = "relative";
-    refs.waveView.appendChild(overlay);
-  }
-  return overlay;
-}
-
-function showUnifiedWave(project, outputs) {
-  const overlay = ensureOverlay();
-  if (!overlay || !refs.waveCanvas) return;
-  refs.waveCanvas.style.display = "none";
-  overlay.style.display = "block";
-  renderWaveScene({
-    ...project,
-    outputs,
-    selectedSignalId: project.selectedSignalId || outputs[0]?.id || null
-  }, overlay);
-}
-
-function restoreWavePaint() {
-  const overlay = document.getElementById("sim-wave-overlay");
-  if (overlay) overlay.style.display = "none";
-  if (refs.waveCanvas) refs.waveCanvas.style.display = "";
 }
 
 function inferWidth(sig, values) {
@@ -274,6 +308,7 @@ async function runSimulation() {
 
     const { parsed, outputs } = vcdToProjectOutputs(text, project);
     state.outputs = outputs;
+    replaceInjectedOutputs(outputs);
     state.lastTestbench = tbResult.source;
     state.lastBindings = tbResult.bindings;
     refs.modulePreview.textContent = [
@@ -304,8 +339,9 @@ function render() {
   const project = readWaveDocument();
   const design = state.design || parseVerilogDesign(sourceText());
   state.design = design;
-  if (state.outputs && state.outputs.length) showUnifiedWave(project, state.outputs);
-  else restoreWavePaint();
+  replaceInjectedOutputs(state.outputs);
+  window.drawWaveform?.();
+  window.updateSidePanels?.();
   const outputCount = state.outputs && state.outputs.length ? state.outputs.length : 0;
   setStatus(outputCount ? `${outputCount} output signal(s) ready.` : "No output signals.");
   if (refs.toggleBtn) refs.toggleBtn.style.display = refs.panel?.classList.contains("collapsed") ? "block" : "none";
