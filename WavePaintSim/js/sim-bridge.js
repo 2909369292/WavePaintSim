@@ -22,7 +22,9 @@ const state = {
   design: null,
   outputs: [],
   lastTestbench: "",
-  lastBindings: []
+  lastBindings: [],
+  readyTimer: null,
+  ready: false
 };
 
 const refs = {};
@@ -91,6 +93,22 @@ function ensureDefaultStimuli() {
   dw.m_subStepCount = Math.max(1, Number(dw.m_subStepCount || 1) || 1);
   window.drawWaveform?.();
   window.updateSidePanels?.();
+}
+
+function wavepaintReady() {
+  return !!(window.document_wave && typeof window.drawWaveform === "function" && typeof window.updateSidePanels === "function");
+}
+
+function onWavepaintReady() {
+  if (state.ready) return;
+  if (!wavepaintReady()) return;
+  state.ready = true;
+  if (state.readyTimer) {
+    clearInterval(state.readyTimer);
+    state.readyTimer = null;
+  }
+  ensureDefaultStimuli();
+  render();
 }
 
 function isInjectedSignal(signal) {
@@ -253,6 +271,7 @@ function sourceText() {
 }
 
 function parseDesign() {
+  onWavepaintReady();
   syncEditor();
   const design = parseVerilogDesign(sourceText());
   state.design = design;
@@ -268,6 +287,7 @@ function parseDesign() {
 }
 
 function buildTbPreview() {
+  onWavepaintReady();
   syncEditor();
   const design = state.design || parseVerilogDesign(sourceText());
   state.design = design;
@@ -289,6 +309,7 @@ function buildTbPreview() {
 }
 
 async function runSimulation() {
+  onWavepaintReady();
   syncEditor();
   const design = state.design || parseVerilogDesign(sourceText());
   state.design = design;
@@ -350,6 +371,7 @@ function summarizeOutputs(outputs) {
 }
 
 function render() {
+  if (!wavepaintReady()) return;
   const project = readWaveDocument();
   const design = state.design || parseVerilogDesign(sourceText());
   state.design = design;
@@ -434,11 +456,13 @@ function bindEvents() {
 function init() {
   initRefs();
   if (!refs.panel || !refs.sourceEditor) return;
-  ensureDefaultStimuli();
   bindEvents();
   renderFileTabs();
   document.body.classList.add("sim-open");
-  render();
+  onWavepaintReady();
+  if (!state.readyTimer) {
+    state.readyTimer = window.setInterval(onWavepaintReady, 100);
+  }
 }
 
 if (document.readyState === "loading") {
