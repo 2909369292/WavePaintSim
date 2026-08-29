@@ -41,7 +41,7 @@ namespace WaveWorkbench
             root = Path.Combine(Path.GetTempPath(), "WavePaintSim_" + Environment.UserName);
             if (Directory.Exists(root)) try { Directory.Delete(root, true); } catch { }
             Directory.CreateDirectory(root);
-            foreach (var dir in new[] { "js", "css" }) Directory.CreateDirectory(Path.Combine(root, dir));
+            foreach (var dir in new[] { "js", "css", "img", "lib" }) Directory.CreateDirectory(Path.Combine(root, dir));
             foreach (var resource in asm.GetManifestResourceNames())
             {
                 if (resource == "ivl.zip") continue;
@@ -50,6 +50,8 @@ namespace WaveWorkbench
                 if (resource.StartsWith("root_")) relative = resource.Substring(5);
                 else if (resource.StartsWith("js_")) { subdir = "js"; relative = resource.Substring(3); }
                 else if (resource.StartsWith("css_")) { subdir = "css"; relative = resource.Substring(4); }
+                else if (resource.StartsWith("img_")) { subdir = "img"; relative = resource.Substring(4); }
+                else if (resource.StartsWith("lib_")) { subdir = "lib"; relative = resource.Substring(4); }
                 string destination = subdir.Length == 0 ? Path.Combine(root, relative) : Path.Combine(root, subdir, relative);
                 using (var input = asm.GetManifestResourceStream(resource))
                 using (var output = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None))

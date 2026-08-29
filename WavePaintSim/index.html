@@ -65,13 +65,13 @@
         /* 仿真工具面板 */
                 /* 右侧仿真栏 */
         #main-area { transition: padding-right 0.2s ease; }
-        body.sim-open #main-area { padding-right: 360px; }
+        body.sim-open #main-area { padding-right: 292px; }
         #sim-panel {
             position: fixed;
             right: 0;
-            top: 40px;
+            top: 92px;
             bottom: 0;
-            width: 360px;
+            width: 292px;
             background: #f8faf8;
             border-left: 1px solid var(--border-color, #ccc);
             z-index: 100;
@@ -84,16 +84,18 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 6px 10px;
+            padding: 8px 10px;
             font-weight: 600;
             border-bottom: 1px solid var(--border-color, #ccc);
             cursor: pointer;
+            background: #eef5ee;
         }
-        .sim-panel-body { flex: 1; overflow: auto; padding: 8px; display: grid; gap: 10px; }
+        .sim-panel-body { flex: 1; overflow: auto; padding: 10px; display: grid; gap: 12px; align-content: start; }
         .sim-sec-title { margin: 0 0 4px; font-size: 12px; color: #666; }
-        .source-toolbar { display: flex; gap: 6px; align-items: flex-start; justify-content: space-between; }
+        .source-toolbar { display: grid; gap: 8px; align-items: start; }
         .source-files { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
-        .source-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+        .source-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+        .source-actions button { width: 100%; }
         .source-chip {
             border: 1px solid #cfd8cf;
             background: #fff;
@@ -103,7 +105,7 @@
             cursor: pointer;
         }
         .source-chip.active { border-color: #4CAF50; background: #e8f5e9; color: #2e7d32; }
-        #verilog-source, #sim-tbout {
+        #verilog-source {
             width: 100%;
             box-sizing: border-box;
             font-family: Consolas, monospace;
@@ -115,7 +117,6 @@
             resize: vertical;
         }
         #verilog-source { height: 180px; }
-        #sim-tbout { height: 84px; }
         .helper-box { display: grid; gap: 6px; }
         .helper { min-height: 28px; padding: 6px 8px; border: 1px solid #d8e0d8; background: #fff; border-radius: 8px; font-size: 12px; white-space: pre-wrap; }
         .signal-list { display: grid; gap: 6px; }
@@ -130,7 +131,6 @@
         .signal-chip.active { border-color: #4CAF50; background: #e8f5e9; color: #2e7d32; }
         .sim-btns { display: flex; gap: 6px; flex-wrap: wrap; }
         .sim-btns button { cursor: pointer; }
-        .sim-wavedisp { min-height: 120px; border: 1px solid #d8e0d8; background: #fff; border-radius: 8px; padding: 6px; overflow: auto; }
         .sim-status { font-size: 12px; color: #456; }
         #sim-toggle-btn { position: fixed; right: 0; top: 4px; z-index: 110; cursor: pointer; }</style>
     <script>
@@ -369,7 +369,7 @@
         </div>
         <div class="sim-panel-body">
             <div>
-                <div class="sim-sec-title">Result</div>
+                <div class="sim-sec-title">Result Summary</div>
                 <div id="result-list" class="signal-list"></div>
             </div>
             <div>
@@ -390,11 +390,7 @@
                     <div id="module-preview" class="helper"></div>
                 </div>
             </div>
-            <div>
-                <div class="sim-sec-title">Waveform</div>
-                <div id="sim-wavedisp" class="sim-wavedisp"></div>
-                <div id="sim-status" class="sim-status"></div>
-            </div>
+            <div id="sim-status" class="sim-status"></div>
             <div class="sim-btns"><button id="sim-collapse">收起</button></div>
         </div>
     </div>    <div id="wavedrom-debug-panel" class="wavedrom-debug-panel hidden">

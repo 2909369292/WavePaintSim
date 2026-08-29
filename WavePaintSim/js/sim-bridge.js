@@ -1,6 +1,5 @@
 import { buildAutoTestbench, buildPlaceholderOutputsFromPorts, buildSimulationPayload, parseVerilogDesign, vcdToProjectOutputs } from "./sim.js";
 import { formatVectorValue, normalizeVectorValue } from "./model.js";
-import { renderWaveScene } from "./renderer.js";
 
 const DEFAULT_SOURCE = `module counter(
   input clk,
@@ -41,7 +40,6 @@ function initRefs() {
   refs.sourceEditor = el("verilog-source");
   refs.portPreview = el("port-preview");
   refs.modulePreview = el("module-preview");
-  refs.waveDisp = el("sim-wavedisp");
   refs.status = el("sim-status");
   refs.addFile = el("sim-addfile");
   refs.removeFile = el("sim-removefile");
@@ -220,28 +218,14 @@ function renderResults(outputs) {
     const row = document.createElement("button");
     row.type = "button";
     row.className = "signal-chip";
-    row.textContent = signal.name + (signal.width > 1 ? ` [${signal.width}]` : "");
+    const width = Math.max(1, Number(signal.width) || 1);
+    const finalValue = signal.values?.[signal.values.length - 1];
+    const text = width > 1
+      ? formatVectorValue(finalValue, width, "hexadecimal")
+      : normalizeVectorValue(finalValue, 1);
+    row.textContent = `${signal.name}: ${text}`;
     return row;
   }));
-}
-
-function renderWave(outputs) {
-  if (!refs.waveDisp) return;
-  if (!outputs || !outputs.length) {
-    refs.waveDisp.textContent = "(no signals)";
-    return;
-  }
-  renderWaveScene(
-    {
-      signals: [],
-      outputs,
-      timeSteps: state.design?.topModule ? readWaveDocument().timeSteps : outputs[0].values.length,
-      zoom: 1,
-      selectedSignalId: null
-    },
-    refs.waveDisp,
-    {}
-  );
 }
 
 function render() {
@@ -252,7 +236,7 @@ function render() {
     ? state.outputs
     : buildPlaceholderOutputsFromPorts(design.topModule?.ports || [], project.timeSteps);
   renderResults(outputs);
-  renderWave(outputs);
+  setStatus(outputs.length ? `${outputs.length} output signal(s) ready.` : "No output signals.");
   if (refs.toggleBtn) refs.toggleBtn.style.display = refs.panel?.classList.contains("collapsed") ? "block" : "none";
 }
 
