@@ -48,73 +48,6 @@
         body:not(.loading) #app-loader {
             display: none;
         }
-        /* 汉化版：完全隐藏打开时的教程/引导弹窗 */
-        .wp-tutorial-overlay,
-        .wp-tutorial-tooltip,
-        .wp-tutorial-quickstart,
-        .wp-tutorial-highlight,
-        .wp-tutorial-arrow,
-        .tutorial-dot,
-        .tutorial-step-dots,
-        .tutorial-progress,
-        .tutorial-progress-bar {
-            display: none !important;
-            visibility: hidden !important;
-            pointer-events: none !important;
-        }
-        /* 仿真工具面板 */
-        #sim-panel {
-            position: fixed;
-            left: 0;
-            top: 40px;
-            bottom: 0;
-            width: 360px;
-            background: var(--panel-bg, #f5f5f5);
-            border-right: 1px solid var(--border-color, #ccc);
-            z-index: 100;
-            display: flex;
-            flex-direction: column;
-            box-shadow: 2px 0 8px rgba(0,0,0,0.15);
-        }
-        #sim-panel.collapsed { display: none; }
-        .sim-panel-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 6px 10px;
-            font-weight: 600;
-            border-bottom: 1px solid var(--border-color, #ccc);
-            cursor: pointer;
-        }
-        .sim-panel-body { flex: 1; overflow: auto; padding: 8px; }
-        .sim-sec-title { margin: 8px 0 4px; font-size: 12px; color: #666; }
-        #sim-code, #sim-tbout {
-            width: 100%;
-            box-sizing: border-box;
-            font-family: Consolas, monospace;
-            font-size: 12px;
-            border: 1px solid #ccc;
-            padding: 4px;
-            background: #fff;
-            color: #111;
-            resize: vertical;
-        }
-        #sim-code { height: 180px; }
-        #sim-tbout { height: 160px; }
-        .sim-btns { margin: 6px 0; display: flex; gap: 6px; flex-wrap: wrap; }
-        .sim-btns button { cursor: pointer; }
-        .sim-sigs { display: flex; flex-wrap: wrap; gap: 4px; }
-        .sim-sig-chip {
-            border: 1px solid #4CAF50;
-            background: #e8f5e9;
-            color: #2e7d32;
-            border-radius: 10px;
-            padding: 1px 8px;
-            font-size: 12px;
-            cursor: pointer;
-        }
-        .sim-sig-chip.used { background: #c8e6c9; }
-        #sim-toggle-btn { position: fixed; left: 0; top: 4px; z-index: 110; cursor: pointer; }
     </style>
     <script>
         (function () {
@@ -375,30 +308,6 @@
             </div>
         </div>
     </div>
-    <button id="sim-toggle-btn" title="仿真工具">仿真</button>
-    <div id="sim-panel" class="sim-panel">
-        <div class="sim-panel-header" id="sim-panel-header">
-            <span>Verilog 仿真工具</span>
-            <span>▾</span>
-        </div>
-        <div class="sim-panel-body">
-            <div class="sim-sec-title">DUT 代码（多文件）</div>
-            <div id="sim-files"></div>
-            <div class="sim-btns">
-                <button id="sim-addfile">+ 添加文件</button>
-                <button id="sim-parse">1 解析端口</button>
-                <button id="sim-tb">2 生成TB</button>
-                <button id="sim-run">3 编译仿真</button>
-            </div>
-            <div class="sim-sec-title">识别信号</div>
-            <div id="sim-sigs" class="sim-sigs"></div>
-            <div class="sim-sec-title">生成 / 结果</div>
-            <textarea id="sim-tbout" readonly spellcheck="false" style="height:64px;width:100%;box-sizing:border-box;font:12px Consolas;border:1px solid #bbb"></textarea>
-            <div id="sim-status" class="sim-status"></div>
-            <div id="sim-wavedisp" class="sim-wavedisp"></div>
-            <div class="sim-btns"><button id="sim-collapse">收起</button></div>
-        </div>
-    </div>
     <div id="wp-modal-overlay" class="wp-modal-overlay hidden">
         <div id="wp-modal" class="wp-modal" role="dialog" aria-modal="true" aria-labelledby="wp-modal-title">
             <div id="wp-modal-header" class="wp-modal-header">
@@ -435,8 +344,5 @@
         <!-- Step/Sub-step commit-on-blur patch (avoids waveform flicker while typing) -->
         <script src="js/step-commit-patch.js"></script>
         <!-- 汉化补丁：翻译 wpPrompt 弹窗动态文本 -->
-        <script src="js/zh-lang-patch.js"></script>
-        <script src="js/simtool.js"></script>
-        <script src="js/sim-panel.js"></script>
-    </body>
+        <script src="js/zh-lang-patch.js"></script>`n</body>
 </html>
