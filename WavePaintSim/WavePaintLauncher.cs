@@ -19,9 +19,9 @@ namespace WaveWorkbench
         static HttpListener server;
         static volatile int lastActivity;
         static bool everSeen;
-        static string portFile = Path.Combine(Path.GetTempPath(), "WaveWorkbench_port_" + Process.GetCurrentProcess().Id + ".txt");
-        static string logFile = Path.Combine(Path.GetTempPath(), "WaveWorkbench_sim.log");
-        static string snapshotRoot = Path.Combine(Path.GetTempPath(), "WaveWorkbench_snapshots");
+        static string portFile = Path.Combine(Path.GetTempPath(), "WavePaintSim_port_" + Process.GetCurrentProcess().Id + ".txt");
+        static string logFile = Path.Combine(Path.GetTempPath(), "WavePaintSim_sim.log");
+        static string snapshotRoot = Path.Combine(Path.GetTempPath(), "WavePaintSim_snapshots");
 
         static string FindEdge()
         {
@@ -38,7 +38,7 @@ namespace WaveWorkbench
 
         static void ExtractResources(Assembly asm)
         {
-            root = Path.Combine(Path.GetTempPath(), "WaveWorkbench_" + Environment.UserName);
+            root = Path.Combine(Path.GetTempPath(), "WavePaintSim_" + Environment.UserName);
             if (Directory.Exists(root)) try { Directory.Delete(root, true); } catch { }
             Directory.CreateDirectory(root);
             foreach (var dir in new[] { "js", "css" }) Directory.CreateDirectory(Path.Combine(root, dir));
@@ -385,7 +385,7 @@ namespace WaveWorkbench
                 {
                     try
                     {
-                        if (!string.IsNullOrEmpty(process.MainWindowTitle) && process.MainWindowTitle.IndexOf("WaveWorkbench", StringComparison.OrdinalIgnoreCase) >= 0)
+                        if (!string.IsNullOrEmpty(process.MainWindowTitle) && (process.MainWindowTitle.IndexOf("WavePaint", StringComparison.OrdinalIgnoreCase) >= 0 || process.MainWindowTitle.IndexOf("WaveWorkbench", StringComparison.OrdinalIgnoreCase) >= 0))
                             return true;
                     }
                     catch { }
@@ -405,7 +405,7 @@ namespace WaveWorkbench
         static int Main()
         {
             try { ExtractResources(Assembly.GetExecutingAssembly()); }
-            catch (Exception ex) { System.Windows.Forms.MessageBox.Show("Extract failed: " + ex.Message, "WaveWorkbench"); return 1; }
+            catch (Exception ex) { System.Windows.Forms.MessageBox.Show("Extract failed: " + ex.Message, "WavePaintSim"); return 1; }
             lastActivity = Environment.TickCount;
             int port = FreePort();
             StartServer(port);
@@ -413,7 +413,7 @@ namespace WaveWorkbench
             if (edge == null)
             {
                 try { server.Stop(); } catch { }
-                System.Windows.Forms.MessageBox.Show("Microsoft Edge not found.", "WaveWorkbench");
+                System.Windows.Forms.MessageBox.Show("Microsoft Edge not found.", "WavePaintSim");
                 return 1;
             }
             string url = "http://127.0.0.1:" + port + "/index.html";
@@ -425,7 +425,7 @@ namespace WaveWorkbench
             catch (Exception ex)
             {
                 try { server.Stop(); } catch { }
-                System.Windows.Forms.MessageBox.Show("Failed to launch Edge: " + ex.Message, "WaveWorkbench");
+                System.Windows.Forms.MessageBox.Show("Failed to launch Edge: " + ex.Message, "WavePaintSim");
                 return 1;
             }
 
