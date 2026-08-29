@@ -61,20 +61,34 @@ function createWavePaintSignal(name, values, type, kind, width = 1) {
   };
 }
 
-function seedDefaultStimuli() {
-  const dw = window.document_wave;
-  if (!dw || !Array.isArray(dw.m_signals) || dw.m_signals.length) return;
+function defaultStimulusSpecs() {
   const SignalType = window.SignalType || { Bit: 0, Vector: 1 };
-  const clk = "010101010101010101010101".split("");
-  const rst = "001111111111111111111111".split("");
-  const en = "000101010001010100010101".split("");
-  dw.m_signals = [
-    createWavePaintSignal("clk", clk, SignalType.Bit, "clock", 1),
-    createWavePaintSignal("rst_n", rst, SignalType.Bit, "logic", 1),
-    createWavePaintSignal("en", en, SignalType.Bit, "logic", 1)
+  return [
+    createWavePaintSignal("clk", "010101010101010101010101".split(""), SignalType.Bit, "clock", 1),
+    createWavePaintSignal("rst_n", "001111111111111111111111".split(""), SignalType.Bit, "logic", 1),
+    createWavePaintSignal("en", "000101010001010100010101".split(""), SignalType.Bit, "logic", 1)
   ];
-  dw.m_sampleCount = Math.max(24, clk.length);
-  dw.m_subStepCount = 1;
+}
+
+function signalNameKey(signal) {
+  return String(signal?.name || "").trim().toLowerCase();
+}
+
+function ensureDefaultStimuli() {
+  const dw = window.document_wave;
+  if (!dw) return;
+  const current = Array.isArray(dw.m_signals) ? dw.m_signals : [];
+  const defaults = defaultStimulusSpecs();
+  const names = new Set(current.map(signalNameKey));
+  const merged = [...current];
+  for (const signal of defaults) {
+    if (names.has(signalNameKey(signal))) continue;
+    merged.push(signal);
+  }
+  if (!merged.length) return;
+  dw.m_signals = merged;
+  dw.m_sampleCount = Math.max(24, ...merged.map((signal) => Array.isArray(signal?.values) ? signal.values.length : 0));
+  dw.m_subStepCount = Math.max(1, Number(dw.m_subStepCount || 1) || 1);
   window.drawWaveform?.();
   window.updateSidePanels?.();
 }
@@ -420,7 +434,7 @@ function bindEvents() {
 function init() {
   initRefs();
   if (!refs.panel || !refs.sourceEditor) return;
-  seedDefaultStimuli();
+  ensureDefaultStimuli();
   bindEvents();
   renderFileTabs();
   document.body.classList.add("sim-open");
