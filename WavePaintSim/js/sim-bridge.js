@@ -28,6 +28,57 @@ const state = {
 
 const refs = {};
 
+function createWavePaintSignal(name, values, type, kind, width = 1) {
+  const safeValues = Array.isArray(values) ? values.slice() : [];
+  return {
+    id: `seed_${name}`,
+    name,
+    type,
+    kind,
+    width,
+    msb: width > 1 ? String(width - 1) : "",
+    lsb: width > 1 ? "0" : "",
+    color: null,
+    fill: null,
+    values: safeValues,
+    labels: Array.from({ length: safeValues.length }, (_, index) => width > 1 ? safeValues[index] : ""),
+    segmentStyles: Array.from({ length: safeValues.length }, () => ({ color: null, hatched: false, fill: null })),
+    driveStrengths: Array.from({ length: safeValues.length }, () => 0),
+    clockMarkers: Array.from({ length: safeValues.length }, () => false),
+    waveDromColorCodes: Array.from({ length: safeValues.length }, () => null),
+    edgeArrow: null,
+    riseTime: null,
+    fallTime: null,
+    subSteps: 1,
+    isClockPattern: kind === "clock",
+    clockHighSamples: 1,
+    clockLowSamples: 1,
+    showClockMarkers: false,
+    uiRowHeightHint: 0,
+    groupName: null,
+    groupColor: null,
+    groupPath: null
+  };
+}
+
+function seedDefaultStimuli() {
+  const dw = window.document_wave;
+  if (!dw || !Array.isArray(dw.m_signals) || dw.m_signals.length) return;
+  const SignalType = window.SignalType || { Bit: 0, Vector: 1 };
+  const clk = "010101010101010101010101".split("");
+  const rst = "001111111111111111111111".split("");
+  const en = "000101010001010100010101".split("");
+  dw.m_signals = [
+    createWavePaintSignal("clk", clk, SignalType.Bit, "clock", 1),
+    createWavePaintSignal("rst_n", rst, SignalType.Bit, "logic", 1),
+    createWavePaintSignal("en", en, SignalType.Bit, "logic", 1)
+  ];
+  dw.m_sampleCount = Math.max(24, clk.length);
+  dw.m_subStepCount = 1;
+  window.drawWaveform?.();
+  window.updateSidePanels?.();
+}
+
 function el(id) {
   return document.getElementById(id);
 }
@@ -36,14 +87,13 @@ function initRefs() {
   refs.panel = el("sim-panel");
   refs.toggleBtn = el("sim-toggle-btn");
   refs.header = el("sim-panel-header");
+  refs.waveView = el("wave-view");
+  refs.waveCanvas = el("wave-canvas");
   refs.sourceFiles = el("source-files");
   refs.sourceEditor = el("verilog-source");
   refs.portPreview = el("port-preview");
   refs.modulePreview = el("module-preview");
   refs.status = el("sim-status");
-  refs.resultPanel = el("sim-result-panel");
-  refs.resultMeta = el("sim-result-meta");
-  refs.resultWave = el("sim-result-wave");
   refs.addFile = el("sim-addfile");
   refs.removeFile = el("sim-removefile");
   refs.parseBtn = el("sim-parse");
@@ -99,6 +149,41 @@ function readWaveDocument() {
     }),
     outputs: []
   };
+}
+
+function ensureOverlay() {
+  if (!refs.waveView) return null;
+  let overlay = document.getElementById("sim-wave-overlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "sim-wave-overlay";
+    overlay.style.position = "absolute";
+    overlay.style.inset = "0";
+    overlay.style.display = "none";
+    overlay.style.overflow = "auto";
+    overlay.style.background = "#fbfcfe";
+    refs.waveView.style.position = "relative";
+    refs.waveView.appendChild(overlay);
+  }
+  return overlay;
+}
+
+function showUnifiedWave(project, outputs) {
+  const overlay = ensureOverlay();
+  if (!overlay || !refs.waveCanvas) return;
+  refs.waveCanvas.style.display = "none";
+  overlay.style.display = "block";
+  renderWaveScene({
+    ...project,
+    outputs,
+    selectedSignalId: project.selectedSignalId || outputs[0]?.id || null
+  }, overlay);
+}
+
+function restoreWavePaint() {
+  const overlay = document.getElementById("sim-wave-overlay");
+  if (overlay) overlay.style.display = "none";
+  if (refs.waveCanvas) refs.waveCanvas.style.display = "";
 }
 
 function inferWidth(sig, values) {
@@ -215,31 +300,12 @@ function summarizeOutputs(outputs) {
   }).join("; ");
 }
 
-function renderResultWave(design, project) {
-  if (!refs.resultPanel || !refs.resultWave) return;
-  const outputs = state.outputs && state.outputs.length ? state.outputs : [];
-  const hasWave = Array.isArray(outputs) && outputs.length > 0;
-  refs.resultPanel.classList.toggle("hidden", !hasWave);
-  if (refs.resultMeta) {
-    refs.resultMeta.textContent = hasWave ? `${outputs.length} result signal(s)` : "waiting for simulation";
-  }
-  if (!hasWave) {
-    refs.resultWave.replaceChildren();
-    return;
-  }
-  renderWaveScene({
-    ...project,
-    signals: [],
-    outputs,
-    selectedSignalId: project.selectedSignalId || outputs[0]?.id || null
-  }, refs.resultWave);
-}
-
 function render() {
   const project = readWaveDocument();
   const design = state.design || parseVerilogDesign(sourceText());
   state.design = design;
-  renderResultWave(design, project);
+  if (state.outputs && state.outputs.length) showUnifiedWave(project, state.outputs);
+  else restoreWavePaint();
   const outputCount = state.outputs && state.outputs.length ? state.outputs.length : 0;
   setStatus(outputCount ? `${outputCount} output signal(s) ready.` : "No output signals.");
   if (refs.toggleBtn) refs.toggleBtn.style.display = refs.panel?.classList.contains("collapsed") ? "block" : "none";
@@ -318,6 +384,7 @@ function bindEvents() {
 function init() {
   initRefs();
   if (!refs.panel || !refs.sourceEditor) return;
+  seedDefaultStimuli();
   bindEvents();
   renderFileTabs();
   document.body.classList.add("sim-open");
