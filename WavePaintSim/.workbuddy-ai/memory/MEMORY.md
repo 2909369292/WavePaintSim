@@ -46,14 +46,19 @@
 
 ## ★★「仿真结果恒为 0」的真根因（2026-08-30 第二轮，实证已复现）
 
-> **本节推翻下面「stride 是头号嫌疑」的旧结论，以本节为准。**
 > 实证工具：`node tools/e2e-sim.mjs` —— 绕开 GUI，stub 浏览器环境后加载真实 `sim-bridge.js`，
 > 跑真实 iverilog+vvp（自动解压 `ivl.zip` 到系统临时目录并缓存）。**它执行真实仿真，不是黄金快照。**
+> ✅ **2026-08-30 已修复并提交**（commit `5340a8f`）。
 
 **仿真引擎本身完全正常。** DFF 用例输出 `q = x000011111100000`，标准触发器行为。
 链路 [5]~[10]（payload → iverilog → vvp → VCD 解析 → 回填）无问题，问题全在**激励侧 [1]~[3]**。
 
-### 根因 A（主因）：未绑定输入端口默认激励是「全 0」，而复位是低有效
+> ⚠⚠ **纠错（务必记住）**：本节一度误判「stride 不是主因」，那是因为第一版用例
+> 把用户绘制的值**填满了整个 2 倍长度的信号**，掩盖了「后半段根本没被绘制」这一关键事实。
+> **前任的原始判断是对的。** 教训：构造用例时必须忠实模拟真实绘制行为
+> （`writeValue` 用 `wpf.stride()`，只写 `index = step`，不会自动填满被撑长的后半段）。
+
+### 根因 2：未绑定输入端口默认激励是「全 0」，而复位是低有效（✅ 已修复）
 
 默认 RTL 就是 `counter`（`js/sim-bridge.js:4-17`），带 `input rst_n`，
 `always @(posedge clk or negedge rst_n) if (!rst_n) q <= 4'd0;`
@@ -64,7 +69,7 @@ values: Array.from({...}, () => (defWidth > 1 ? "0".repeat(defWidth) : "0"))
 ```
 → `rst_n` 恒 0 → **复位一直有效** → `q` 恒 0。**已复现：`q = 0000 × 16`。**
 
-### 根因 B：激励全 x → 输出全 x（用户同样看成"没变化 / 恒 0"）
+### 根因 3：无复位沿 → x 自我传播（✅ 已修复，补上了前任漏掉的 X-4）
 
 `defaultInputValues`（`js/sim.js:50-54`）给「添加端口信号到画布」的新信号填**全 "x"**。
 用户不画波形就点 Sim → TB 只有 `clk = 1'bx;` → 输出恒 x。
@@ -72,37 +77,58 @@ values: Array.from({...}, () => (defWidth > 1 ? "0".repeat(defWidth) : "0"))
 ⚠ 即使画全了也不够：`counter` 的 `q` 无初值，**没有复位释放沿时 x 会自我传播**（`x+1 = x`）。
 所以 `rst_n` 恒 1 同样输出全 x。**必须有 0→1 的复位沿，计数器才起步。**
 
-### 根因 C：fuzzy 匹配误配（已实证）
+### 根因 4：fuzzy 匹配误配（⚠ 未修复，风险仍在）
 
 `matchSignalsToPorts`（`js/sim.js:487-492`）用 `a.includes(b) || b.includes(a)`：
 - 实测 `sys_clk`→`clk`、`enable`→`en` 均命中 `[fuzzy]`（侥幸正确）
 - 端口 `d` 会匹配 `data`/`addr`/`valid` 中任一 —— **误配风险真实存在**
 
-### 修复方案（按优先级，均未实施）
+### 修复状态（2026-08-30 末）
 
-1. **未绑定默认激励分类处理**：低有效复位（名字匹配 `rst_n|reset_n|rstn|nreset|rst_b` 等，
-   含 `_n` 后缀 / `n` 前缀）默认给 **1**（释放复位）；其余给 0。**这是根治恒 0 的关键。**
-   顺带补上前任漏掉的 **X-4**：激励全 x 时按端口语义给默认值。
-2. **unbound 告警**：存在未绑定输入端口时，在 TB 预览与仿真结果区显著列出端口名，
-   不要静默跑出全 0。
-3. **结果诊断**：输出全 0 或全 x 时提示可能原因（复位恒有效 / 激励全 x / 无复位沿）。
-4. **修 stride 口径**（3 处，见下）+ 补 子步数=0 与 =2 的回归用例。
+| # | 项 | 状态 |
+|---|---|---|
+| 1 | 未绑定默认激励按端口语义取值（低有效复位给 1，其余给 0） | ✅ 已实施 |
+| 2 | 补 X-4：复位端口从未画出复位沿时，TB 开头自动补上电复位脉冲 | ✅ 已实施 |
+| 3 | 修 stride 口径（`canvasSubSteps` / `readWaveDocument` 的 `subSteps` / `toNativeSignal`） | ✅ 已实施 |
+| 4 | 回归防护：regression.mjs 新增 3 项复位语义用例；e2e-sim.mjs 新增「真实用户流程」用例 | ✅ 已实施 |
+| 5 | **unbound 告警**：存在未绑定输入端口时显著列出端口名，不要静默跑出全 0 | ⬜ 未做 |
+| 6 | **结果诊断**：输出全 0 / 全 x 时提示可能原因 | ⬜ 未做 |
+| 7 | **修 fuzzy 误配**（根因 4）：`a.includes(b) \|\| b.includes(a)` 会误配短端口名 | ⬜ 未做 |
+
+实施要点（`js/sim.js` 新增）：
+- `resetPolarity(name)`：`rst_n/reset_n/rst_b/rstn/nreset/n_rst` → `low`；`rst/reset` → `high`；其余 `null`
+- `resetInactiveLevel(name)`：低有效复位返回 `"1"`，其余 `"0"`
+- `ensureResetPulse(values, portName)`：仅当复位信号从未出现有效电平时，
+  把前 2 格设为有效电平、其余设为无效电平；**用户画了复位沿则完全不改动**
+  （只影响生成的 TB，不改动画布原始波形）
 
 ---
 
-## ⚠ 已知 Bug：两侧 stride 口径不一致（2026-08-30 查实，未修；第二轮修正定性）
+## ⚠ 根因 1（主因）：两侧 stride 口径不一致（2026-08-30 查实，**已修复**）
 
-> ⚠ **修正：这是真 bug，但**不是**「恒为 0」的原因。实证症状只是「错位半格」。**
+> ✅ 已修复：`canvasSubSteps()` 改为 `Math.max(0, ...)`；`toNativeSignal` 的
+> `subSteps` 不再硬编码 1。见 commit `5340a8f`。
 
-`readWaveDocument` 在不同画布形态下的实测表现：
+**这正是用户「恒为 0」的主因**，触发路径是用户最常用的操作：点「添加端口信号到画布」。
 
-| 画布形态 | 结果 |
-|---|---|
-| 子步数=0，values 长度 = timeSteps | ✅ 正确（`sampleMainValue` 走 `length <= timeSteps` 直取分支） |
-| 子步数=2，values 长度 = timeSteps×3 | ✅ 正确（两侧 stride 都是 3） |
-| **子步数=0 但 values 长度 = timeSteps×2** | ❌ **错位半格**（stride bug 发作），**结果非全 0** |
+完整因果链（实测）：
+1. `canvasSubSteps()` 用 `Math.max(1, ...)` 把子步数 0 当成 1
+   → `canvasEffectiveCount()` = 主步数 × 2
+2. `addPortSignalsToCanvas` 按这个长度建信号：**24 步的画布建出 len=48 的信号**
+3. 用户绘制走 `feature-common` 的 `wpf.stride()` = `max(1, m_subStepCount+1)` = **1**，
+   只写 `index = step`，即 **只写满前半段 0..23**
+4. 仿真 `readWaveDocument` 用 stride = **2** 采样：cell → `index = cell*2`
+   → cell 12 以后全部落进未绘制的后半段，采到 **x**
 
-即：只在「通过 `addPortSignalsToCanvas` 添加信号」（`canvasEffectiveCount()` 按 2 倍长度建信号）时发作。
+实测画布信号（24 步）：
+```
+clk len=48 = 010101010101010101010101xxxxxxxxxxxxxxxxxxxxxxxx
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^ 用户从没写到这里
+```
+激励几乎全 x → 输出恒 x/恒 0。
+
+**为什么早期用例没暴露**：若把用户绘制的值填满整个 2 倍长度（模拟方式不对），
+采样结果反而"正确"，问题被掩盖。**构造用例必须忠实模拟第 3 步。**
 
 绘制侧与仿真侧对「每个主步占几个 values 下标」的算法**不一致**：
 
