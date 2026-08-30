@@ -175,6 +175,18 @@ function parseListIdentifiers(text) {
     .filter(Boolean);
 }
 
+function uniqueByName(items) {
+  const seen = new Set();
+  const result = [];
+  for (const item of items || []) {
+    const key = normalizeSignalName(item?.name);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(item);
+  }
+  return result;
+}
+
 function splitTopLevelCommas(text) {
   const items = [];
   let depth = 0;
@@ -207,12 +219,41 @@ function parseAnsiPortList(block) {
       const rangeMatch = /\[[^\]]*\]/.exec(item);
       if (rangeMatch) currentRange = parseRange(rangeMatch[0]);
     }
-    if (!currentDirection) continue;
+    if (!currentDirection) {
+      const interfaceMatch = /^([A-Za-z_][A-Za-z0-9_$.]*)\s+([A-Za-z_][A-Za-z0-9_$,\s]*)$/.exec(item);
+      if (interfaceMatch && !/^(logic|reg|wire|bit|signed|unsigned|var|const|ref|event|shortint|int|integer|time|string|byte)$/i.test(interfaceMatch[1])) {
+        const interfaceType = interfaceMatch[1];
+        const interfaceNames = parseListIdentifiers(interfaceMatch[2]);
+        for (const name of interfaceNames) {
+          ports.push({
+            direction: "interface",
+            interfaceType,
+            name,
+            msb: "",
+            lsb: "",
+            width: 1
+          });
+        }
+      }
+      continue;
+    }
     const rangeMatch = /\[[^\]]*\]/.exec(item);
     const widthInfo = rangeMatch ? parseRange(rangeMatch[0]) : currentRange;
     const namesSection = item.replace(/\[[^\]]*\]/g, " ").replace(/^(?:logic|reg|wire|bit|signed|unsigned)\b/g, " ");
     const names = parseListIdentifiers(namesSection);
     if (rangeMatch) currentRange = widthInfo;
+    const interfaceMatch = /^([A-Za-z_][A-Za-z0-9_$.]*)\s+([A-Za-z_][A-Za-z0-9_$,\s]*)$/.exec(item);
+    if (!rangeMatch && names.length === 1 && interfaceMatch && !/^(logic|reg|wire|bit|signed|unsigned|var|const|ref|event|shortint|int|integer|time|string|byte)$/i.test(interfaceMatch[1])) {
+      ports.push({
+        direction: currentDirection || "interface",
+        interfaceType: interfaceMatch[1],
+        name: names[0],
+        msb: "",
+        lsb: "",
+        width: 1
+      });
+      continue;
+    }
     for (const name of names) {
       ports.push({
         direction: currentDirection,
@@ -224,6 +265,40 @@ function parseAnsiPortList(block) {
     }
   }
   return ports;
+}
+
+function parseInterfaceMembers(body) {
+  const members = [];
+  for (const port of parseDirectionDeclarations(body)) {
+    members.push({ ...port, kind: "port" });
+  }
+  for (const decl of parseDeclarations(body)) {
+    members.push({
+      direction: "signal",
+      name: decl.name,
+      msb: decl.msb,
+      lsb: decl.lsb,
+      width: decl.width,
+      kind: decl.kind
+    });
+  }
+  return uniqueByName(members);
+}
+
+function parseInterfaceDeclarations(source) {
+  const interfaces = {};
+  const text = stripComments(source);
+  const pattern = /\binterface\s+([A-Za-z_][A-Za-z0-9_$]*)\b(?:\s*#\s*\([^;{}]*?\))?(?:\s*\([^;{}]*?\))?\s*;([\s\S]*?)\bendinterface\b/g;
+  let match;
+  while ((match = pattern.exec(text)) !== null) {
+    const name = match[1];
+    const body = match[2] || "";
+    interfaces[name] = {
+      name,
+      members: parseInterfaceMembers(body)
+    };
+  }
+  return interfaces;
 }
 
 function parseModuleHeader(header) {
@@ -329,6 +404,7 @@ function parseInstances(body) {
 export function parseVerilogDesign(source) {
   const text = stripComments(source);
   const modules = [];
+  const interfaces = parseInterfaceDeclarations(text);
   const modulePattern = /\bmodule\s+[A-Za-z_][A-Za-z0-9_$]*[\s\S]*?endmodule\b/g;
   let match;
   while ((match = modulePattern.exec(text)) !== null) {
@@ -371,6 +447,7 @@ export function parseVerilogDesign(source) {
   return {
     source: text,
     modules,
+    interfaces,
     topModule,
     moduleCount: modules.length,
     topName: topModule ? topModule.name : "top"
@@ -383,6 +460,7 @@ export function parseVerilogPorts(source) {
   return {
     moduleName: design.topName,
     ports: top ? top.ports : [],
+    interfaces: design.interfaces || {},
     modules: design.modules,
     topModule: top,
     instances: top ? top.instances : [],
@@ -497,6 +575,15 @@ export function buildAutoTestbench(design, project = {}) {
     return {
       ok: false,
       error: "No module found.",
+      source: ""
+    };
+  }
+
+  const interfacePorts = (top.ports || []).filter((port) => port.direction === "interface" || port.interfaceType);
+  if (interfacePorts.length) {
+    return {
+      ok: false,
+      error: `Interface ports detected: ${interfacePorts.map((port) => port.name).join(", ")}.`,
       source: ""
     };
   }

@@ -159,6 +159,42 @@ function signalKey(signal) {
   return normalizeSignalName(signal?.name);
 }
 
+function expandRTLPorts(design) {
+  const ports = design?.topModule?.ports || [];
+  const interfaces = design?.interfaces || {};
+  const expanded = [];
+
+  for (const port of ports) {
+    if (!port.interfaceType && port.direction !== "interface") {
+      expanded.push(port);
+      continue;
+    }
+    const interfaceType = String(port.interfaceType || "").trim();
+    const iface = interfaces[interfaceType] || interfaces[normalizeSignalName(interfaceType)] || null;
+    const members = Array.isArray(iface?.members) ? iface.members : [];
+    if (!members.length) {
+      expanded.push({ ...port, direction: "stimulus" });
+      continue;
+    }
+    for (const member of members) {
+      const memberDirection = String(member.direction || "").toLowerCase();
+      if (memberDirection === "output") continue;
+      expanded.push({
+        direction: memberDirection === "input" || memberDirection === "inout" ? memberDirection : "input",
+        name: `${port.name}_${member.name}`,
+        width: Math.max(1, Number(member.width) || 1),
+        msb: member.msb,
+        lsb: member.lsb,
+        interfaceType,
+        interfaceInstance: port.name,
+        interfaceMember: member.name
+      });
+    }
+  }
+
+  return expanded;
+}
+
 function createDefaultPortStimulus(port, timeSteps) {
   const width = Math.max(1, Number(port?.width) || 1);
   const name = port?.name || "signal";
@@ -206,7 +242,7 @@ function normalizeSignalLengths(signal, timeSteps) {
 
 function syncDesignStimuliToWaveDocument(design) {
   const dw = window.document_wave;
-  const ports = design?.topModule?.ports || [];
+  const ports = expandRTLPorts(design).filter((port) => port.direction !== "output" && port.direction !== "inout");
   if (!dw || !Array.isArray(dw.m_signals) || !ports.length) return false;
 
   const current = Array.isArray(dw.m_signals) ? dw.m_signals : [];
@@ -412,6 +448,7 @@ function initRefs() {
   refs.addFile = el("sim-addfile");
   refs.removeFile = el("sim-removefile");
   refs.parseBtn = el("sim-parse");
+  refs.autoPortsBtn = el("sim-autoports");
   refs.tbBtn = el("sim-tb");
   refs.runBtn = el("sim-run");
   refs.collapseBtn = el("sim-collapse");
@@ -630,6 +667,19 @@ function render() {
   if (refs.toggleBtn) refs.toggleBtn.style.display = refs.panel?.classList.contains("collapsed") ? "block" : "none";
 }
 
+function autoAddRtlPorts() {
+  const design = state.design || parseVerilogDesign(sourceText());
+  state.design = design;
+  const changed = syncDesignStimuliToWaveDocument(design);
+  const ports = expandRTLPorts(design).filter((port) => port.direction !== "output" && port.direction !== "inout");
+  refs.modulePreview.textContent = [
+    `auto ports: ${ports.length}`,
+    ...ports.map((port) => `${port.name}[${port.width || 1}]`)
+  ].join("\n");
+  setStatus(changed ? `Added ${ports.length} RTL input(s).` : `No RTL input changes.`);
+  render();
+}
+
 function setStatus(text) {
   if (refs.status) refs.status.textContent = String(text || "");
 }
@@ -692,6 +742,7 @@ function bindEvents() {
   refs.addFile?.addEventListener("click", addFile);
   refs.removeFile?.addEventListener("click", removeFile);
   refs.parseBtn?.addEventListener("click", parseDesign);
+  refs.autoPortsBtn?.addEventListener("click", autoAddRtlPorts);
   refs.tbBtn?.addEventListener("click", buildTbPreview);
   refs.runBtn?.addEventListener("click", runSimulation);
   refs.tbCopy?.addEventListener("click", copyTb);
