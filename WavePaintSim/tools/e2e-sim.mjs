@@ -87,14 +87,15 @@ function applyUserFlow(bridge, dw, design, timeSteps, paint) {
   let index = 0;
   for (const port of design.topModule.ports) {
     if (port.direction === "output") continue; // 输出由仿真回填
-    const model = simNs.createSignalFromPort(port, null, "stimulus", timeSteps);
+    // 与 addPortSignalsToCanvas 共用 createPortStimulus，保证预填逻辑一致
+    const model = simNs.createPortStimulus(port, timeSteps);
     dw.m_signals.push(bridge.toNativeSignal(model, index++, null, effectiveCount, { injected: false }));
   }
   // 绘制侧 stride：feature-common.js wpf.stride() = max(1, m_subStepCount + 1)
   const drawStride = Math.max(1, dw.m_subStepCount + 1);
   for (const sig of dw.m_signals) {
     const painted = paint[sig.name];
-    if (!painted) continue; // 用户没画 → 保持全 x
+    if (!painted) continue; // 用户没画 → 保留工具预填的典型波形（或 x）
     for (let step = 0; step < timeSteps; step += 1) {
       const v = painted[step];
       const native = v === "x" ? -1 : v === "1" ? 1 : 0;
@@ -149,6 +150,21 @@ const cases = [
       return q.values.some((v) => !/^0+$/.test(v) && !/^x+$/i.test(v))
         ? null
         : `q 无有效变化：${q.values.join(",")}`;
+    }
+  },
+  {
+    // P1 新增功能：clk / rst_n 由工具预填典型波形，用户只需画自己关心的信号
+    title: "COUNTER：预填波形（clk/rst_n 自动，用户只画 en）",
+    rtl: COUNTER,
+    timeSteps: 24,
+    userFlow: { en: high24 },
+    expect: (out) => {
+      const q = out.find((o) => o.name === "q");
+      if (!q) return "没有输出 q";
+      const nums = q.values.map((v) => parseInt(v, 2));
+      if (nums.every((n) => n === 0)) return "q 恒为 0 —— 预填波形未生效";
+      if (q.values.every((v) => /^x+$/i.test(v))) return "q 恒为 x —— 预填波形未生效";
+      return nums[nums.length - 1] > nums[0] ? null : `q 未计数：${q.values.join(",")}`;
     }
   },
   {

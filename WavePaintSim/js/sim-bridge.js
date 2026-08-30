@@ -1,4 +1,4 @@
-import { buildAutoTestbench, buildSimulationPayload, createSignalFromPort, parseVerilogDesign, vcdToProjectOutputs } from "./sim.js";
+import { buildAutoTestbench, buildSimulationPayload, createPortStimulus, createSignalFromPort, diagnoseSimulation, parseVerilogDesign, vcdToProjectOutputs } from "./sim.js";
 import { formatVectorValue, normalizeVectorValue } from "./model.js";
 
 const DEFAULT_SOURCE = `module counter(
@@ -441,11 +441,15 @@ function buildTbPreview() {
   state.lastTestbench = result.source;
   state.lastBindings = result.bindings;
   updateTbViewer();
+  const notes = diagnoseSimulation([], result.bindings);
   refs.modulePreview.textContent = [
     `bindings: ${result.bindings.length}`,
-    ...result.bindings.map((binding) => `${binding.port.name} -> ${binding.signal ? binding.signal.name : "<unbound>"} (${binding.strategy})`)
+    ...result.bindings.map((binding) => `${binding.port.name} -> ${binding.signal ? binding.signal.name : "<unbound>"} (${binding.strategy})`),
+    ...(notes.length ? ["", ...notes] : [])
   ].join("\n");
-  setStatus(`Built TB for ${design.topName}.`);
+  setStatus(notes.length
+    ? `Built TB for ${design.topName}（有 ${notes.length} 条提醒，见详情）`
+    : `Built TB for ${design.topName}.`);
   render();
 }
 
@@ -492,12 +496,18 @@ async function runSimulation() {
     state.lastTestbench = tbResult.source;
     state.lastBindings = tbResult.bindings;
     updateTbViewer();
+    // 结果诊断：输出全 0 / 全 x 或存在未绑定端口时，直接给出可操作的提示，
+    // 避免用户面对「静默的全 0」无从下手。
+    const notes = diagnoseSimulation(outputs, tbResult.bindings);
     refs.modulePreview.textContent = [
       `Simulation done: ${outputs.length} signals, tmax ${parsed.tmax}`,
-      `Final: ${summarizeOutputs(outputs)}`
+      `Final: ${summarizeOutputs(outputs)}`,
+      ...(notes.length ? ["", ...notes] : [])
     ].join("\n");
     render();
-    setStatus(`Done: ${outputs.length} signal(s).`);
+    setStatus(notes.length
+      ? `Done: ${outputs.length} signal(s)，但有 ${notes.length} 条提醒，请查看详情。`
+      : `Done: ${outputs.length} signal(s).`);
   } catch (error) {
     const message = String(error);
     const friendly = /fetch/i.test(message)
@@ -545,7 +555,8 @@ function addPortSignalsToCanvas() {
     if (port.direction === "output") { skipped += 1; continue; } // 输出由仿真回填
     const key = signalNameKey(port);
     if (!key || names.has(key)) { skipped += 1; continue; }
-    const signal = createSignalFromPort(port, null, "stimulus", timeSteps);
+    // 时钟/复位这类通用信号由 createPortStimulus 预填典型波形，其余保持未定义(x)
+    const signal = createPortStimulus(port, timeSteps);
     const native = toNativeSignal(signal, baseCount + added, template, effectiveCount, {
       kind: signal.kind,
       injected: false,

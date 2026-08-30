@@ -516,26 +516,138 @@ function ensureResetPulse(values, portName) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// 常见信号的典型波形：添加端口信号到画布时直接预填，省去从零绘制，
+// 也顺带避免「激励全 x → 输出恒 x/恒 0」这个最容易踩的坑。
+//
+// 只覆盖公认的通用信号（时钟 / 复位），其余一律返回 null 保持未定义(x)，
+// 不臆造任何用户数据——数据类端口该长什么样只有用户知道。
+//
+//   clock                → 方波 0101...（半周期 1 个时间单位，占空比 50%）
+//   低有效复位 rst_n     → 前 2 格 0（复位），之后 1（释放）
+//   高有效复位 rst       → 前 2 格 1（复位），之后 0（释放）
+// ---------------------------------------------------------------------------
+export function typicalWaveform(port, timeSteps) {
+  const steps = Math.max(1, Number(timeSteps) || 24);
+  const width = Math.max(1, Number(port?.width) || 1);
+  const fill = (ch) => (width > 1 ? ch.repeat(width) : ch);
+  const name = String(port?.name || "");
+
+  const polarity = resetPolarity(name);
+  if (polarity) {
+    const active = polarity === "low" ? "0" : "1";
+    const idle = polarity === "low" ? "1" : "0";
+    return Array.from({ length: steps }, (_, index) => fill(index < 2 ? active : idle));
+  }
+  if (isClockName(name)) {
+    return Array.from({ length: steps }, (_, index) => fill(index % 2 === 1 ? "1" : "0"));
+  }
+  return null;
+}
+
+// 创建「端口 → 画布激励信号」，并对时钟/复位这类通用信号预填典型波形。
+// 单一真相源：addPortSignalsToCanvas 与 tools/e2e-sim.mjs 的用例模拟都走这里，
+// 避免两边逻辑漂移导致测试测了个寂寞。
+export function createPortStimulus(port, timeSteps) {
+  const signal = createSignalFromPort(port, null, "stimulus", timeSteps);
+  const typical = typicalWaveform(port, timeSteps);
+  if (typical) signal.values = typical;
+  return signal;
+}
+
+// ---------------------------------------------------------------------------
+// 仿真结果诊断：把「静默跑出全 0 / 全 x」变成可操作的提示。
+// 返回若干条中文说明；没有问题则返回空数组。
+// ---------------------------------------------------------------------------
+const isAllZero = (sig) => Array.isArray(sig?.values) && sig.values.length
+  && sig.values.every((v) => /^0+$/.test(String(v).trim()));
+const isAllX = (sig) => Array.isArray(sig?.values) && sig.values.length
+  && sig.values.every((v) => /^x+$/i.test(String(v).trim()));
+
+export function diagnoseSimulation(outputs, bindings) {
+  const notes = [];
+  const list = Array.isArray(bindings) ? bindings : [];
+  const inputs = list.filter((b) => b?.port && b.port.direction !== "output" && b.port.direction !== "inout");
+
+  const unbound = inputs.filter((b) => b.strategy === "unbound" || b.strategy === "unbound-default");
+  if (unbound.length) {
+    notes.push(`⚠ 未绑定输入端口：${unbound.map((b) => b.port.name).join(", ")}`
+      + ` —— 已按默认电平驱动（低有效复位=1，其余=0）。若结果不符预期，`
+      + `请在画布添加同名信号并绘制波形。`);
+  }
+
+  const blank = inputs.filter((b) => b.signal && isAllX(b.signal));
+  if (blank.length) {
+    notes.push(`⚠ 激励未绘制（全 x）：${blank.map((b) => b.signal.name).join(", ")}`
+      + ` —— DUT 输入为 x 时输出通常也是 x 或 0。`);
+  }
+
+  const outs = Array.isArray(outputs) ? outputs : [];
+  const zero = outs.filter(isAllZero);
+  const unknown = outs.filter(isAllX);
+  if (zero.length) {
+    notes.push(`⚠ 输出恒为 0：${zero.map((o) => o.name).join(", ")}`
+      + ` —— 常见原因是复位一直有效（低有效复位被驱动为 0），或使能/数据未给出有效值。`);
+  }
+  if (unknown.length) {
+    notes.push(`⚠ 输出恒为 x：${unknown.map((o) => o.name).join(", ")}`
+      + ` —— 常见原因是缺少复位释放沿。请把复位信号画成「前 2 格有效、之后释放」，`
+      + `并确认时钟已绘制。`);
+  }
+  return notes;
+}
+
+// 端口 ↔ 画布信号绑定。分两轮：先精确匹配，再克制的模糊匹配。
+//
+// 模糊匹配只用来消化命名风格差异（rst_n <-> rstn、sys_clk <-> clk、enable <-> en），
+// 因此加了三重约束，避免误配：
+//   1. 单个字符的端口名（d / q 等）不参与模糊匹配 —— 否则 data/addr/valid 都会被 d 命中；
+//   2. 两者长度比过低时不配对 —— 避免 clk 之类的短名混进长信号名；
+//   3. 每个信号只能被一个端口占用（一对一），且在所有候选中取最相似者，
+//      而不是像旧实现那样简单地 find 第一个。
 export function matchSignalsToPorts(signals, ports) {
+  const list = Array.isArray(signals) ? signals : [];
   const signalMap = new Map();
-  for (const signal of signals || []) {
+  for (const signal of list) {
     signalMap.set(normalizeSignalName(signal.name), signal);
   }
 
-  return (ports || []).map((port) => {
+  const claimed = new Set(); // 已占用的信号，保证一对一
+  const bindings = (Array.isArray(ports) ? ports : []).map((port) => {
     const exact = signalMap.get(normalizeSignalName(port.name));
-    if (exact) return { port, signal: exact, matched: true, strategy: "name" };
-    // 名字模糊匹配（rst_n <-> rstn 等），避免把多个端口错误共用同一个信号
-    const fuzzy = (signals || []).find((signal) => {
-      if (signal.role === "result") return false;
-      const a = normalizeSignalName(signal.name);
-      const b = normalizeSignalName(port.name);
-      return a && b && (a.includes(b) || b.includes(a));
-    }) || null;
-    if (fuzzy) return { port, signal: fuzzy, matched: true, strategy: "fuzzy" };
-    // 不再共用 fallback：未绑定端口由 buildAutoTestbench 生成独立默认 0 激励
+    if (exact) {
+      claimed.add(exact);
+      return { port, signal: exact, matched: true, strategy: "name" };
+    }
     return { port, signal: null, matched: false, strategy: "unbound" };
   });
+
+  for (const binding of bindings) {
+    if (binding.matched) continue;
+    const target = normalizeSignalName(binding.port.name);
+    if (!target) continue;
+    let best = null;
+    let bestScore = 0;
+    for (const signal of list) {
+      if (signal.role === "result" || claimed.has(signal)) continue;
+      const candidate = normalizeSignalName(signal.name);
+      if (!candidate) continue;
+      const shorter = Math.min(candidate.length, target.length);
+      const longer = Math.max(candidate.length, target.length);
+      if (shorter < 2) continue;          // 约束 1：单字符不模糊匹配
+      if (shorter / longer < 0.3) continue; // 约束 2：长度差距过大
+      if (!(candidate.includes(target) || target.includes(candidate))) continue;
+      const score = shorter / longer;
+      if (score > bestScore) { bestScore = score; best = signal; } // 约束 3：取最相似
+    }
+    if (best) {
+      claimed.add(best);
+      binding.signal = best;
+      binding.matched = true;
+      binding.strategy = "fuzzy";
+    }
+  }
+  return bindings;
 }
 
 export function buildAutoTestbench(design, project = {}) {

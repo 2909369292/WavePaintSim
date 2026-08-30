@@ -252,6 +252,128 @@ test("用户已画出复位沿时完全尊重原波形（不额外插脉冲）",
   assert.ok(firstReset > firstRelease, "复位低脉冲应出现在起始高电平之后（未被前插）");
 });
 
+test("常见信号预填典型波形：clock 方波 / 复位 前有效后释放", () => {
+  // 时钟：半周期 1 个时间单位，占空比 50%
+  assert.deepEqual(sim.typicalWaveform({ name: "clk", width: 1 }, 8), "01010101".split(""));
+  assert.deepEqual(sim.typicalWaveform({ name: "sys_clk", width: 1 }, 6), "010101".split(""));
+  // 低有效复位：前 2 格拉低，之后释放为高
+  assert.deepEqual(sim.typicalWaveform({ name: "rst_n", width: 1 }, 8), "00111111".split(""));
+  assert.deepEqual(sim.typicalWaveform({ name: "reset_n", width: 1 }, 8), "00111111".split(""));
+  assert.deepEqual(sim.typicalWaveform({ name: "nreset", width: 1 }, 8), "00111111".split(""));
+  // 高有效复位：前 2 格拉高，之后释放为低
+  assert.deepEqual(sim.typicalWaveform({ name: "rst", width: 1 }, 8), "11000000".split(""));
+  assert.deepEqual(sim.typicalWaveform({ name: "reset", width: 1 }, 8), "11000000".split(""));
+});
+
+test("非常见信号不臆造波形（返回 null，保持未定义）", () => {
+  for (const name of ["data", "addr", "en", "valid", "q", "dout"]) {
+    assert.equal(sim.typicalWaveform({ name, width: 1 }, 8), null, name + " 不应被预填");
+  }
+});
+
+test("createPortStimulus 对时钟/复位预填，对数据端口保持 x", () => {
+  const clk = sim.createPortStimulus({ name: "clk", width: 1, direction: "input" }, 8);
+  assert.deepEqual(clk.values, "01010101".split(""));
+  assert.equal(clk.kind, "clock", "clk 应识别为 clock 类型");
+  const data = sim.createPortStimulus({ name: "data", width: 1, direction: "input" }, 8);
+  assert.ok(data.values.every((v) => String(v).toLowerCase() === "x"), "数据端口应保持未定义");
+});
+
+test("diagnoseSimulation：未绑定端口 / 激励全 x / 输出全 0 / 输出全 x 均能给出提示", () => {
+  const ports = [
+    { name: "clk", direction: "input", width: 1 },
+    { name: "d", direction: "input", width: 1 },
+    { name: "q", direction: "output", width: 1 }
+  ];
+  const qNormal = { name: "q", values: ["1", "0", "1", "0"] };
+
+  // 1) 有输入端口没绑上
+  const b1 = sim.matchSignalsToPorts([{ name: "clk", values: "0101".split("") }], ports);
+  const n1 = sim.diagnoseSimulation([qNormal], b1);
+  assert.ok(n1.some((t) => t.includes("未绑定")), "应提示未绑定端口：" + n1.join(" | "));
+  assert.ok(n1.some((t) => t.includes("d")), "提示应点名端口 d：" + n1.join(" | "));
+
+  // 2) 激励全是 x（用户没画）
+  const b2 = sim.matchSignalsToPorts(
+    [{ name: "clk", values: "xxxx".split("") }, { name: "d", values: "xxxx".split("") }], ports);
+  const n2 = sim.diagnoseSimulation([qNormal], b2);
+  assert.ok(n2.some((t) => t.includes("全 x")), "应提示激励未绘制：" + n2.join(" | "));
+
+  // 3) 输出恒 0
+  const n3 = sim.diagnoseSimulation([{ name: "q", values: ["0", "0", "0", "0"] }], b2);
+  assert.ok(n3.some((t) => t.includes("恒为 0")), "应提示输出恒 0：" + n3.join(" | "));
+
+  // 4) 输出恒 x
+  const n4 = sim.diagnoseSimulation([{ name: "q", values: ["x", "x", "x", "x"] }], b2);
+  assert.ok(n4.some((t) => t.includes("恒为 x")), "应提示输出恒 x：" + n4.join(" | "));
+});
+
+test("diagnoseSimulation：一切正常时不产生噪音提示", () => {
+  const ports = [
+    { name: "clk", direction: "input", width: 1 },
+    { name: "d", direction: "input", width: 1 },
+    { name: "q", direction: "output", width: 1 }
+  ];
+  const bindings = sim.matchSignalsToPorts(
+    [{ name: "clk", values: "0101".split("") }, { name: "d", values: "0011".split("") }], ports);
+  const notes = sim.diagnoseSimulation([{ name: "q", values: ["0", "1", "0", "1"] }], bindings);
+  assert.equal(notes.length, 0, "正常情况下不应有提示：" + notes.join(" | "));
+});
+
+test("端口绑定：单字符端口名不再误配（d 不应命中 data/addr/valid）", () => {
+  const ports = [
+    { name: "d", direction: "input", width: 1 },
+    { name: "q", direction: "output", width: 1 }
+  ];
+  const signals = [
+    { name: "data", values: ["1"] },
+    { name: "addr", values: ["1"] },
+    { name: "valid", values: ["1"] }
+  ];
+  const bindings = sim.matchSignalsToPorts(signals, ports);
+  const d = bindings.find((b) => b.port.name === "d");
+  assert.equal(d.matched, false, "端口 d 不应被模糊匹配到 data/addr/valid");
+  assert.equal(d.strategy, "unbound");
+});
+
+test("端口绑定：命名风格差异仍能模糊匹配（sys_clk→clk、enable→en）", () => {
+  const ports = [
+    { name: "clk", direction: "input", width: 1 },
+    { name: "en", direction: "input", width: 1 },
+    { name: "q", direction: "output", width: 1 }
+  ];
+  const signals = [
+    { name: "sys_clk", values: ["1"] },
+    { name: "enable", values: ["1"] }
+  ];
+  const bindings = sim.matchSignalsToPorts(signals, ports);
+  const clk = bindings.find((b) => b.port.name === "clk");
+  const en = bindings.find((b) => b.port.name === "en");
+  assert.equal(clk.matched, true, "sys_clk 应匹配到 clk");
+  assert.equal(clk.signal.name, "sys_clk");
+  assert.equal(en.matched, true, "enable 应匹配到 en");
+  assert.equal(en.signal.name, "enable");
+});
+
+test("端口绑定：一个信号只能被一个端口占用（一对一）", () => {
+  const ports = [
+    { name: "clk", direction: "input", width: 1 },
+    { name: "clock", direction: "input", width: 1 }
+  ];
+  const signals = [{ name: "sys_clk", values: ["1"] }];
+  const bindings = sim.matchSignalsToPorts(signals, ports);
+  const bound = bindings.filter((b) => b.matched);
+  assert.equal(bound.length, 1, "只有 1 个端口能占用 sys_clk，实际 " + bound.length);
+});
+
+test("端口绑定：精确匹配优先于模糊匹配", () => {
+  const ports = [{ name: "clk", direction: "input", width: 1 }];
+  const signals = [{ name: "sys_clk", values: ["1"] }, { name: "clk", values: ["1"] }];
+  const bindings = sim.matchSignalsToPorts(signals, ports);
+  assert.equal(bindings[0].strategy, "name", "有同名信号时应走精确匹配");
+  assert.equal(bindings[0].signal.name, "clk");
+});
+
 test("buildAutoTestbench 黄金快照一致", () => {
   const tb = sim.buildAutoTestbench(design, sampleProject());
   const src = String(tb.source || tb);
