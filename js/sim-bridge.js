@@ -89,7 +89,9 @@ function createWavePaintSignal(name, values, type, kind, width = 1) {
     groupName: null,
     groupColor: null,
     groupPath: null,
-    __simInjected: false
+    __simInjected: false,
+    __simAutoStimulus: false,
+    __simDefaultStimulus: false
   };
   signal.id ||= `seed_${name}`;
   signal.name = name;
@@ -119,7 +121,152 @@ function createWavePaintSignal(name, values, type, kind, width = 1) {
   signal.groupColor = null;
   signal.groupPath = null;
   signal.__simInjected = false;
+  signal.__simAutoStimulus = false;
+  signal.__simDefaultStimulus = false;
   return signal;
+}
+
+function normalizeSignalName(name) {
+  return String(name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^i_?/, "")
+    .replace(/^o_?/, "")
+    .replace(/^in_?/, "")
+    .replace(/^out_?/, "")
+    .replace(/_i$/, "")
+    .replace(/_o$/, "")
+    .replace(/_n$/, "_n");
+}
+
+function isClockPortName(name) {
+  return /\bclk\b|(^|_)clk(_|$)|clock/.test(normalizeSignalName(name));
+}
+
+function isResetPortName(name) {
+  return /\b(rst|reset|clr|clear)\b|(^|_)(rst|reset|clr|clear)(_|\b)/.test(normalizeSignalName(name));
+}
+
+function isEnablePortName(name) {
+  return /\b(en|enable)\b|(^|_)(en|enable)(_|\b)/.test(normalizeSignalName(name));
+}
+
+function isAutoSeedSignal(signal) {
+  return !!signal?.__simAutoStimulus || !!signal?.__simDefaultStimulus;
+}
+
+function signalKey(signal) {
+  return normalizeSignalName(signal?.name);
+}
+
+function createDefaultPortStimulus(port, timeSteps) {
+  const width = Math.max(1, Number(port?.width) || 1);
+  const name = port?.name || "signal";
+  const key = normalizeSignalName(name);
+  let kind = width > 1 ? "vector" : "logic";
+  let values;
+
+  if (isClockPortName(key)) {
+    kind = "clock";
+    values = Array.from({ length: timeSteps }, (_, index) => (index % 2 === 0 ? "0" : "1"));
+  } else if (isResetPortName(key)) {
+    const activeLow = /(^|_)rst_n(_|$)|(^|_)reset_n(_|$)|(_n$)/.test(key);
+    values = Array.from({ length: timeSteps }, (_, index) => (index < 2 ? (activeLow ? "0" : "1") : (activeLow ? "1" : "0")));
+  } else if (isEnablePortName(key)) {
+    values = Array.from({ length: timeSteps }, (_, index) => (index % 8 >= 4 ? "1" : "0"));
+  } else if (width > 1) {
+    values = Array.from({ length: timeSteps }, () => "0".repeat(width));
+  } else {
+    values = Array.from({ length: timeSteps }, () => "0");
+  }
+
+  const signal = createWavePaintSignal(name, values, width > 1 ? 1 : 0, kind, width);
+  signal.role = "stimulus";
+  signal.kind = kind;
+  signal.width = width;
+  signal.msb = width > 1 ? String(width - 1) : "";
+  signal.lsb = width > 1 ? "0" : "";
+  signal.__simAutoStimulus = true;
+  signal.__simDefaultStimulus = false;
+  signal.groupName = "rtl";
+  signal.groupColor = "#2563eb";
+  signal.groupPath = "sim.inputs";
+  return signal;
+}
+
+function normalizeSignalLengths(signal, timeSteps) {
+  const width = Math.max(1, Number(signal?.width) || 1);
+  const values = Array.isArray(signal?.values) ? signal.values : [];
+  signal.values = Array.from({ length: timeSteps }, (_, index) => normalizeVectorValue(values[index], width));
+  signal.labels = Array.from({ length: timeSteps }, (_, index) => width > 1 ? formatVectorValue(signal.values[index], width, signal.radix || "hexadecimal") : "");
+  signal.segmentStyles = Array.from({ length: timeSteps }, (_, index) => signal.segmentStyles?.[index] ? { ...signal.segmentStyles[index] } : { color: null, hatched: false, fill: null });
+  signal.driveStrengths = Array.from({ length: timeSteps }, (_, index) => signal.driveStrengths?.[index] ?? (window.DriveStrength?.Strong ?? 0));
+  signal.clockMarkers = Array.from({ length: timeSteps }, (_, index) => !!signal.clockMarkers?.[index]);
+}
+
+function syncDesignStimuliToWaveDocument(design) {
+  const dw = window.document_wave;
+  const ports = design?.topModule?.ports || [];
+  if (!dw || !Array.isArray(dw.m_signals) || !ports.length) return false;
+
+  const current = Array.isArray(dw.m_signals) ? dw.m_signals : [];
+  const timeSteps = Math.max(
+    4,
+    Number(dw?.m_sampleCount || dw?.m_timeSteps || 0) ||
+      current.reduce((max, sig) => Math.max(max, Array.isArray(sig?.values) ? sig.values.length : 0), 0) ||
+      24
+  );
+
+  const usedIds = new Set();
+  const resolvedPorts = [];
+
+  for (const port of ports) {
+    if (port.direction === "output" || port.direction === "inout") continue;
+    const exact = current.find((signal) => {
+      if (!signal || usedIds.has(signal.id)) return false;
+      return signalKey(signal) === normalizeSignalName(port.name);
+    }) || null;
+    if (exact?.id) {
+      usedIds.add(exact.id);
+      exact.role = "stimulus";
+      exact.width = Math.max(1, Number(port.width) || exact.width || 1);
+      exact.kind = exact.width > 1 ? "vector" : (isClockPortName(port.name) ? "clock" : "logic");
+      exact.msb = exact.width > 1 ? String(port.msb ?? exact.width - 1) : "";
+      exact.lsb = exact.width > 1 ? String(port.lsb ?? 0) : "";
+      exact.radix = exact.radix || "hexadecimal";
+      normalizeSignalLengths(exact, timeSteps);
+      if (isAutoSeedSignal(exact)) {
+        exact.__simAutoStimulus = true;
+        exact.__simDefaultStimulus = false;
+        exact.groupName = "rtl";
+        exact.groupColor = "#2563eb";
+        exact.groupPath = "sim.inputs";
+      }
+      resolvedPorts.push(exact);
+      continue;
+    }
+    resolvedPorts.push(createDefaultPortStimulus(port, timeSteps));
+  }
+
+  const keptManualSignals = current.filter((signal) => {
+    if (!signal || usedIds.has(signal.id)) return false;
+    if (signal.__simInjected) return false;
+    if (signal.__simAutoStimulus || signal.__simDefaultStimulus) return false;
+    return true;
+  });
+
+  const nextSignals = [...keptManualSignals, ...resolvedPorts];
+  const changed =
+    nextSignals.length !== current.length ||
+    nextSignals.some((signal, index) => signal !== current[index]);
+
+  if (changed) {
+    dw.m_signals = nextSignals;
+    dw.m_sampleCount = Math.max(24, timeSteps, ...nextSignals.map((signal) => Array.isArray(signal?.values) ? signal.values.length : 0));
+    window.drawWaveform?.();
+    window.updateSidePanels?.();
+  }
+  return changed;
 }
 
 function defaultStimulusSpecs() {
@@ -129,9 +276,9 @@ function defaultStimulusSpecs() {
   // 忠实时序（buildAutoTestbench）：1 格子 ≡ 1 时间单位，值在格子边界生效，clk 上升沿
   // 采到“当前格”的数据值（当前格语义）。默认 en="0111..." 使每个 clk 上升沿格子
   // （2,6,10,...）的 en 为 1 而 4,8,12,... 的 en 为 0，从而驱动计数 q=6。
-    createWavePaintSignal("clk", "101010101010101010101010".split(""), SignalType.Bit, "clock", 1),
-    createWavePaintSignal("rst_n", "001111111111111111111111".split(""), SignalType.Bit, "logic", 1),
-    createWavePaintSignal("en", "011101110111011101110111".split(""), SignalType.Bit, "logic", 1)
+    Object.assign(createWavePaintSignal("clk", "101010101010101010101010".split(""), SignalType.Bit, "clock", 1), { __simDefaultStimulus: true, groupName: "default", groupColor: "#2563eb", groupPath: "sim.inputs" }),
+    Object.assign(createWavePaintSignal("rst_n", "001111111111111111111111".split(""), SignalType.Bit, "logic", 1), { __simDefaultStimulus: true, groupName: "default", groupColor: "#2563eb", groupPath: "sim.inputs" }),
+    Object.assign(createWavePaintSignal("en", "011101110111011101110111".split(""), SignalType.Bit, "logic", 1), { __simDefaultStimulus: true, groupName: "default", groupColor: "#2563eb", groupPath: "sim.inputs" })
   ];
 }
 
@@ -472,14 +619,14 @@ function summarizeOutputs(outputs) {
 
 function render() {
   if (!wavepaintReady()) return;
-  const project = readWaveDocument();
   const design = state.design || parseVerilogDesign(sourceText());
   state.design = design;
+  const autoSynced = syncDesignStimuliToWaveDocument(design);
   replaceInjectedOutputs(state.outputs);
   window.drawWaveform?.();
   window.updateSidePanels?.();
   const outputCount = state.outputs && state.outputs.length ? state.outputs.length : 0;
-  setStatus(outputCount ? `${outputCount} output signal(s) ready.` : "No output signals.");
+  setStatus(`${autoSynced ? "RTL inputs added. " : ""}${outputCount ? `${outputCount} output signal(s) ready.` : "No output signals."}`);
   if (refs.toggleBtn) refs.toggleBtn.style.display = refs.panel?.classList.contains("collapsed") ? "block" : "none";
 }
 
