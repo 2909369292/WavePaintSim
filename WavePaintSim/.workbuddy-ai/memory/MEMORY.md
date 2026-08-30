@@ -44,6 +44,22 @@
   **几何越界返回全 `-1` 的哨兵对象，不是 null** —— 不要写"越界会崩"的断言。
 - 核心**无 DPR 缩放**（`devicePixelRatio` / `setTransform` 出现 0 次）。
 
+## 主题机制（2026-08-31 探明；默认已改为浅色）
+
+- 主题 = `body` 上的 `dark` class。**CSS 的 `:root` 默认就是浅色**
+  （`--bg-color:#f0f2f0`、`--canvas-bg:#ffffff`），`body.dark` 只是覆盖成深色。
+  画布要再叠加 `canvas-dark` class 才变深（`body.dark.canvas-dark`）。
+- **混淆核心是顶层脚本（非 IIFE 包裹）**，所以 `applyTheme`、`getCurrentTheme`
+  等顶层函数是全局的，可直接 `window.applyTheme('light')`。
+  `applyTheme(t)` 会 toggle `dark` class **并把主题写入 localStorage**（主题是持久化的）。
+- 与主题无关的另一套机制是 `WavePaintSkins`（波形配色：Black / Sunset / Forest，
+  **全是深色系**），也持久化在 localStorage，默认 `currentSkin = 'black'`。
+  它**只影响信号波形颜色，不影响背景**，别把两者搞混。
+- ✅ 默认浅色已实现（`js/feature-common.js`）：启动时调 `window.applyTheme('light')`，
+  用 `localStorage` 标记 `wpf.defaultLightThemeApplied` 保证**只干预一次** ——
+  是"改默认值"而非"锁死主题"，用户之后通过「主题」菜单的选择一律尊重。
+  核心主题初始化是异步的，故用 MutationObserver 观察 10s 窗口防止被改回深色。
+
 ## ★★「仿真结果恒为 0」的真根因（2026-08-30 第二轮，实证已复现）
 
 > 实证工具：`node tools/e2e-sim.mjs` —— 绕开 GUI，stub 浏览器环境后加载真实 `sim-bridge.js`，
@@ -77,7 +93,7 @@ values: Array.from({...}, () => (defWidth > 1 ? "0".repeat(defWidth) : "0"))
 ⚠ 即使画全了也不够：`counter` 的 `q` 无初值，**没有复位释放沿时 x 会自我传播**（`x+1 = x`）。
 所以 `rst_n` 恒 1 同样输出全 x。**必须有 0→1 的复位沿，计数器才起步。**
 
-### 根因 4：fuzzy 匹配误配（⚠ 未修复，风险仍在）
+### 根因 4：fuzzy 匹配误配（✅ 2026-08-31 已收紧）
 
 `matchSignalsToPorts`（`js/sim.js:487-492`）用 `a.includes(b) || b.includes(a)`：
 - 实测 `sys_clk`→`clk`、`enable`→`en` 均命中 `[fuzzy]`（侥幸正确）
@@ -91,9 +107,11 @@ values: Array.from({...}, () => (defWidth > 1 ? "0".repeat(defWidth) : "0"))
 | 2 | 补 X-4：复位端口从未画出复位沿时，TB 开头自动补上电复位脉冲 | ✅ 已实施 |
 | 3 | 修 stride 口径（`canvasSubSteps` / `readWaveDocument` 的 `subSteps` / `toNativeSignal`） | ✅ 已实施 |
 | 4 | 回归防护：regression.mjs 新增 3 项复位语义用例；e2e-sim.mjs 新增「真实用户流程」用例 | ✅ 已实施 |
-| 5 | **unbound 告警**：存在未绑定输入端口时显著列出端口名，不要静默跑出全 0 | ⬜ 未做 |
-| 6 | **结果诊断**：输出全 0 / 全 x 时提示可能原因 | ⬜ 未做 |
-| 7 | **修 fuzzy 误配**（根因 4）：`a.includes(b) \|\| b.includes(a)` 会误配短端口名 | ⬜ 未做 |
+| 5 | **unbound 告警**：存在未绑定输入端口时点名列出 | ✅ 已实施（`diagnoseSimulation`） |
+| 6 | **结果诊断**：输出全 0 / 全 x 时提示可能原因 | ✅ 已实施（同上） |
+| 7 | **修 fuzzy 误配**（根因 4） | ✅ 已实施（见根因 4） |
+
+截至 2026-08-31，1~7 全部完成。
 
 实施要点（`js/sim.js` 新增）：
 - `resetPolarity(name)`：`rst_n/reset_n/rst_b/rstn/nreset/n_rst` → `low`；`rst/reset` → `high`；其余 `null`
