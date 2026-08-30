@@ -1,4 +1,4 @@
-import { buildAutoTestbench, buildSimulationPayload, parseVerilogDesign, vcdToProjectOutputs } from "./sim.js";
+import { buildAutoTestbench, buildSimulationPayload, createSignalFromPort, parseVerilogDesign, vcdToProjectOutputs } from "./sim.js";
 import { formatVectorValue, normalizeVectorValue } from "./model.js";
 
 const DEFAULT_SOURCE = `module counter(
@@ -29,8 +29,37 @@ const state = {
 
 const refs = {};
 
+// 原版 WavePaint 的 Bit 值数字编码（window.__wpConstants.WaveValue 默认值）：
+//   0=低, 1=高, -1=未定义(x), 2=高阻(z), 3=上拉(u), 4=下拉(d)
+// 原版渲染 Bit 波形时只识别这些数字；若 values 是字符串 "0"/"1" 等，
+// 会被当作无效值而不绘制（波形空白）。
+function toNativeBitValue(value) {
+  const t = String(value ?? "").trim().toLowerCase();
+  if (t === "0") return 0;
+  if (t === "1") return 1;
+  if (t === "z") return 2;
+  if (t === "u") return 3;
+  if (t === "d") return 4;
+  return -1; // x / 未知 → UNDEFINED
+}
+
+// 反向：原版数字编码 → 字符串（供仿真/项目模型使用）
+function fromNativeBitValue(value) {
+  const n = Number(value);
+  if (Number.isFinite(n)) {
+    if (n === 0) return "0";
+    if (n === 1) return "1";
+    if (n === 2) return "z";
+    if (n === 3) return "u";
+    if (n === 4) return "d";
+    if (n === -1) return "x";
+  }
+  return String(value ?? "").trim();
+}
+
 function createWavePaintSignal(name, values, type, kind, width = 1) {
   const safeValues = Array.isArray(values) ? values.slice() : [];
+  const nativeValues = width > 1 ? safeValues : safeValues.map(toNativeBitValue);
   const SignalCtor = window.Signal;
   const signal = SignalCtor ? new SignalCtor(name, type, safeValues.length || 24) : {
     id: `seed_${name}`,
@@ -42,7 +71,7 @@ function createWavePaintSignal(name, values, type, kind, width = 1) {
     lsb: width > 1 ? "0" : "",
     color: null,
     fill: null,
-    values: safeValues,
+    values: nativeValues,
     labels: Array.from({ length: safeValues.length }, (_, index) => width > 1 ? safeValues[index] : ""),
     segmentStyles: Array.from({ length: safeValues.length }, () => ({ color: null, hatched: false, fill: null })),
     driveStrengths: Array.from({ length: safeValues.length }, () => 0),
@@ -71,7 +100,7 @@ function createWavePaintSignal(name, values, type, kind, width = 1) {
   signal.lsb = width > 1 ? "0" : "";
   signal.color = null;
   signal.fill = null;
-  signal.values = safeValues;
+  signal.values = nativeValues;
   signal.labels = Array.from({ length: safeValues.length }, (_, index) => width > 1 ? safeValues[index] : "");
   signal.segmentStyles = Array.from({ length: safeValues.length }, () => ({ color: null, hatched: false, fill: null }));
   signal.driveStrengths = Array.from({ length: safeValues.length }, () => 0);
@@ -93,36 +122,67 @@ function createWavePaintSignal(name, values, type, kind, width = 1) {
   return signal;
 }
 
-function defaultStimulusSpecs() {
-  const SignalType = window.SignalType || { Bit: 0, Vector: 1 };
-  return [
-    createWavePaintSignal("clk", "010101010101010101010101".split(""), SignalType.Bit, "clock", 1),
-    createWavePaintSignal("rst_n", "001111111111111111111111".split(""), SignalType.Bit, "logic", 1),
-    createWavePaintSignal("en", "000101010001010100010101".split(""), SignalType.Bit, "logic", 1)
-  ];
-}
-
 function signalNameKey(signal) {
   return String(signal?.name || "").trim().toLowerCase();
 }
 
-function ensureDefaultStimuli() {
+// 画布步数（用户设定的长度）：优先读步数输入框 #sample-spin（用户设定的画布长度），
+// 回退到 document_wave.m_sampleCount，再回退到已有信号最大长度。
+// 确保添加的端口信号长度始终与画布一致，而不是沿用已有信号的旧长度（如 15）。
+function canvasTimeSteps() {
+  const spinEl = document.querySelector("#sample-spin");
+  const spinValue = spinEl ? Number(spinEl.value) : NaN;
   const dw = window.document_wave;
-  if (!dw) return;
-  const current = Array.isArray(dw.m_signals) ? dw.m_signals : [];
-  const defaults = defaultStimulusSpecs();
-  const names = new Set(current.map(signalNameKey));
-  const merged = [...current];
-  for (const signal of defaults) {
-    if (names.has(signalNameKey(signal))) continue;
-    merged.push(signal);
+  // 回退值按数据模型换算回主步数（values 长度 = 主步数 × (子步+1)）
+  const stride = canvasSubSteps() + 1;
+  const existingMax = (Array.isArray(dw?.m_signals) ? dw.m_signals : [])
+    .reduce((max, sig) => Math.max(max, Array.isArray(sig?.values) ? Math.floor(sig.values.length / stride) : 0), 0);
+  const steps = (Number.isFinite(spinValue) && spinValue > 0 ? spinValue : 0)
+    || Number(dw?.m_sampleCount || 0)
+    || existingMax
+    || 24;
+  return Math.max(4, steps);
+}
+
+// 画布有效采样数 = 主步数 × (子步+1)，与 WavePaint 原版数据模型一致：
+// 每个时间步在 values 中占 (子步+1) 个下标，主值为该步第 1 个值。
+//
+// ⚠ 口径必须与 feature-common.js 的 wpf.subSteps() 完全一致（允许 0）。
+// 旧实现用 Math.max(1, ...) 把子步数 0 当成 1，导致：
+//   canvasEffectiveCount() 把新建信号撑成主步数的 2 倍 →
+//   用户绘制（writeValue 用 stride=1）只写满前半段，后半段留 x →
+//   仿真按 stride=2 采样时后半段全采到未绘制的 x → 激励几乎全 x → 输出恒 0/恒 x。
+function canvasSubSteps() {
+  const dw = window.document_wave;
+  return Math.max(0, Number(dw?.m_subStepCount) || 0);
+}
+
+function canvasEffectiveCount() {
+  return canvasTimeSteps() * (canvasSubSteps() + 1);
+}
+
+// 取某主步的有效值（兜底采样）：主值（每步第 1 个下标）优先；
+// 若主值为 x/未定义，则取该主步内第一个确定值；否则返回 -1(x)。
+// 解决"用户画在子步下标（奇数）时仿真采不到"导致的恒 0 问题。
+function sampleMainValue(rawValues, stride, mainStep, timeSteps) {
+  if (!Array.isArray(rawValues) || !rawValues.length) return -1;
+  // 旧信号（长度≈主步数）按下标直取
+  if (rawValues.length <= timeSteps) {
+    const v = rawValues[mainStep];
+    return (v === -1 || v === undefined || /^x+$/i.test(String(v ?? "").trim())) ? -1 : v;
   }
-  if (!merged.length) return;
-  dw.m_signals = merged;
-  dw.m_sampleCount = Math.max(24, ...merged.map((signal) => Array.isArray(signal?.values) ? signal.values.length : 0));
-  dw.m_subStepCount = Math.max(1, Number(dw.m_subStepCount || 1) || 1);
-  window.drawWaveform?.();
-  window.updateSidePanels?.();
+  const isX = (v) => (v === -1 || v === undefined || /^x+$/i.test(String(v ?? "").trim()));
+  const start = mainStep * stride;
+  let fallback = -1;
+  for (let k = 0; k < stride; k += 1) {
+    const idx = start + k;
+    if (idx >= rawValues.length) break;
+    const v = rawValues[idx];
+    if (isX(v)) continue;
+    if (k === 0) return v;          // 主值确定
+    if (fallback === -1) fallback = v; // 子步兜底
+  }
+  return fallback;
 }
 
 function wavepaintReady() {
@@ -137,7 +197,6 @@ function onWavepaintReady() {
     clearInterval(state.readyTimer);
     state.readyTimer = null;
   }
-  ensureDefaultStimuli();
   render();
 }
 
@@ -160,40 +219,52 @@ function normalizeSignalType(width) {
   return width > 1 ? SignalType.Vector : SignalType.Bit;
 }
 
-function toNativeSignal(output, index, template, timeSteps) {
+// 创建原版 Signal。length 为画布有效长度（主步数 × (子步+1)）；
+// output.values 按主步给出（长度 = 主步数），这里按模型铺开：每个主步的
+// (子步+1) 个格子都填该步的主值，与原版绘制/导出/仿真采样语义一致。
+function toNativeSignal(output, index, template, effectiveCount, options = {}) {
   const width = Math.max(1, Number(output?.width) || 1);
   const SignalCtor = window.Signal;
   const base = SignalCtor
-    ? new SignalCtor(output?.name || `signal_${index + 1}`, normalizeSignalType(width), timeSteps)
+    ? new SignalCtor(output?.name || `signal_${index + 1}`, normalizeSignalType(width), effectiveCount)
     : (cloneNativeSignal(template) || createWavePaintSignal(output?.name || `signal_${index + 1}`, [], normalizeSignalType(width), width > 1 ? "vector" : "logic", width));
-  const values = Array.from({ length: timeSteps }, (_, cell) => normalizeVectorValue(output?.values?.[cell], width));
-  const labels = Array.from({ length: timeSteps }, (_, cell) => width > 1 ? formatVectorValue(values[cell], width, output?.radix || "hexadecimal") : "");
+  const stride = Math.max(1, Number(options.stride) || (canvasSubSteps() + 1));
+  const sourceValues = Array.isArray(output?.values) ? output.values : [];
+  const rawValues = Array.from({ length: effectiveCount }, (_, cell) => {
+    const mainStep = Math.min(Math.floor(cell / stride), Math.max(0, sourceValues.length - 1));
+    return normalizeVectorValue(sourceValues[Math.max(0, mainStep)], width);
+  });
+  const values = width > 1 ? rawValues : rawValues.map(toNativeBitValue);
+  const labels = Array.from({ length: effectiveCount }, (_, cell) => width > 1 ? formatVectorValue(rawValues[cell], width, output?.radix || "hexadecimal") : "");
+  const kind = options.kind || (width > 1 ? "vector" : "logic");
   base.id = output?.id || `sim_${index}`;
   base.name = output?.name || `signal_${index + 1}`;
   base.type = normalizeSignalType(width);
-  base.kind = width > 1 ? "vector" : "logic";
+  base.kind = kind;
   base.width = width;
   base.msb = width > 1 ? String(width - 1) : "";
   base.lsb = width > 1 ? "0" : "";
   base.values = values;
   base.labels = labels;
-  base.segmentStyles = Array.from({ length: timeSteps }, () => ({ color: null, hatched: false, fill: null }));
-  base.driveStrengths = Array.from({ length: timeSteps }, () => (window.DriveStrength?.Strong ?? 0));
-  base.clockMarkers = Array.from({ length: timeSteps }, () => false);
-  base.waveDromColorCodes = Array.from({ length: timeSteps }, () => null);
+  base.segmentStyles = Array.from({ length: effectiveCount }, () => ({ color: null, hatched: false, fill: null }));
+  base.driveStrengths = Array.from({ length: effectiveCount }, () => (window.DriveStrength?.Strong ?? 0));
+  base.clockMarkers = Array.from({ length: effectiveCount }, () => false);
+  base.waveDromColorCodes = Array.from({ length: effectiveCount }, () => null);
   base.edgeArrow = null;
   base.riseTime = null;
   base.fallTime = null;
-  base.subSteps = 1;
-  base.isClockPattern = false;
+  // 与画布保持同一口径（旧实现硬编码 1，导致注入信号长度比原生信号多一倍）
+  base.subSteps = canvasSubSteps();
+  base.isClockPattern = kind === "clock";
   base.clockHighSamples = 1;
   base.clockLowSamples = 1;
   base.showClockMarkers = false;
   base.uiRowHeightHint = 0;
-  base.groupName = "sim";
-  base.groupColor = "#0f766e";
-  base.groupPath = "sim.outputs";
-  base.__simInjected = true;
+  // 去掉自动添加的 SIM 分组：仿真输出信号默认不分组（与激励信号一致）
+  base.groupName = options.groupName ?? null;
+  base.groupColor = options.groupColor ?? null;
+  base.groupPath = options.groupPath ?? null;
+  base.__simInjected = options.injected ?? true;
   return base;
 }
 
@@ -201,16 +272,13 @@ function replaceInjectedOutputs(outputs) {
   const dw = window.document_wave;
   if (!dw || !Array.isArray(dw.m_signals)) return;
   const baseSignals = stripInjectedSignals(dw.m_signals);
-  const timeSteps = Math.max(
-    4,
-    Number(dw?.m_sampleCount || dw?.m_timeSteps || 0) ||
-      baseSignals.reduce((max, sig) => Math.max(max, Array.isArray(sig?.values) ? sig.values.length : 0), 0) ||
-      24
-  );
+  // 输出信号 values 长度对齐数据模型：主步数 × (子步+1)
+  const effectiveCount = Math.max(4, canvasEffectiveCount());
   const template = baseSignals[0] || null;
-  const injected = (Array.isArray(outputs) ? outputs : []).map((output, index) => toNativeSignal(output, index, template, timeSteps));
+  const injected = (Array.isArray(outputs) ? outputs : []).map((output, index) => toNativeSignal(output, index, template, effectiveCount));
   dw.m_signals = [...baseSignals, ...injected];
-  dw.m_sampleCount = Math.max(dw.m_sampleCount || 0, timeSteps);
+  // m_sampleCount 语义是主步数，不能被有效长度污染
+  dw.m_sampleCount = Math.max(dw.m_sampleCount || 0, canvasTimeSteps());
 }
 
 function el(id) {
@@ -231,9 +299,33 @@ function initRefs() {
   refs.addFile = el("sim-addfile");
   refs.removeFile = el("sim-removefile");
   refs.parseBtn = el("sim-parse");
+  refs.addSignals = el("sim-addsignals");
   refs.tbBtn = el("sim-tb");
   refs.runBtn = el("sim-run");
   refs.collapseBtn = el("sim-collapse");
+  refs.tbSource = el("tb-source");
+  refs.tbCopy = el("sim-tb-copy");
+}
+
+function updateTbViewer() {
+  if (refs.tbSource) {
+    refs.tbSource.value = state.lastTestbench || "";
+  }
+}
+
+function copyTb() {
+  const text = state.lastTestbench || (refs.tbSource && refs.tbSource.value) || "";
+  if (!text) {
+    setStatus("No testbench to copy.");
+    return;
+  }
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+    navigator.clipboard.writeText(text)
+      .then(() => setStatus("TB copied to clipboard."))
+      .catch(() => setStatus("Copy failed."));
+  } else {
+    setStatus("Clipboard not available.");
+  }
 }
 
 function currentFile() {
@@ -246,28 +338,33 @@ function syncEditor() {
   file.content = String(refs.sourceEditor.value || "");
   state.design = null;
   state.outputs = [];
+  state.lastTestbench = "";
+  updateTbViewer();
 }
 
 function readWaveDocument() {
   const dw = window.document_wave;
   const signals = stripInjectedSignals(dw?.m_signals || []);
-  const timeSteps = Math.max(
-    4,
-    Number(dw?.m_sampleCount || dw?.m_timeSteps || 0) ||
-      signals.reduce((max, sig) => Math.max(max, Array.isArray(sig?.values) ? sig.values.length : 0), 0) ||
-      24
-  );
+  const timeSteps = canvasTimeSteps();
+  // 数据模型采样：每个主步占 (子步+1) 个 values 下标，主值 = 该步第 1 个值。
+  // 旧数据（长度恰好 = 主步数）按下标直取，保证向后兼容。
+  const stride = canvasSubSteps() + 1;
 
   return {
     name: "WavePaintSim",
     timeSteps,
-    subSteps: Math.max(1, Number(dw?.m_subStepCount || 1) || 1),
+    subSteps: canvasSubSteps(),
     zoom: 1,
     selectedSignalId: null,
     signals: signals.map((sig, index) => {
       const rawValues = Array.isArray(sig?.values) ? sig.values : [];
       const width = inferWidth(sig, rawValues);
-      const values = Array.from({ length: timeSteps }, (_, cell) => normalizeVectorValue(rawValues[cell], width));
+      const values = Array.from({ length: timeSteps }, (_, cell) => {
+        // 兜底采样：主值（每步第 1 个）优先；若主值为 x/空，取该主步内第一个确定值。
+        // 解决“用户画在子步下标（奇数）时仿真采不到”导致的恒 0 问题。
+        const raw = sampleMainValue(rawValues, stride, cell, timeSteps);
+        return width <= 1 ? fromNativeBitValue(raw) : normalizeVectorValue(raw, width);
+      });
       return {
         id: sig?.id || `sig_${index}`,
         name: sig?.name || `signal_${index + 1}`,
@@ -308,9 +405,17 @@ function parseDesign() {
   syncEditor();
   const design = parseVerilogDesign(sourceText());
   state.design = design;
-  refs.portPreview.textContent = design.topModule?.ports?.length
-    ? `${design.topName}: ${design.topModule.ports.map((port) => `${port.direction} ${port.name}[${port.width}]`).join(", ")}`
-    : `No ports found in ${design.topName}.`;
+  if (!design.modules || !design.modules.length) {
+    refs.portPreview.textContent = "⚠ 未识别到任何 module。请检查 RTL 语法：module/endmodule 是否匹配、模块名是否合法。";
+    refs.modulePreview.textContent = "Parse failed: no module found.";
+    setStatus("Parse failed: no module found.");
+    render();
+    return;
+  }
+  const topPorts = design.topModule?.ports || [];
+  refs.portPreview.textContent = topPorts.length
+    ? `${design.topName}: ${topPorts.map((port) => `${port.direction} ${port.name}[${port.width}]`).join(", ")}`
+    : `⚠ ${design.topName} 未解析到端口。请检查端口声明写法（ANSI 或非 ANSI 均可）。`;
   refs.modulePreview.textContent = [
     `modules: ${design.moduleCount}`,
     ...design.modules.map((moduleInfo) => `${moduleInfo.name}: ${moduleInfo.ports.length} ports, ${moduleInfo.instances.length} instances`)
@@ -329,10 +434,13 @@ function buildTbPreview() {
   if (!result.ok) {
     refs.modulePreview.textContent = result.error;
     setStatus(result.error);
+    state.lastTestbench = "";
+    updateTbViewer();
     return;
   }
   state.lastTestbench = result.source;
   state.lastBindings = result.bindings;
+  updateTbViewer();
   refs.modulePreview.textContent = [
     `bindings: ${result.bindings.length}`,
     ...result.bindings.map((binding) => `${binding.port.name} -> ${binding.signal ? binding.signal.name : "<unbound>"} (${binding.strategy})`)
@@ -351,8 +459,12 @@ async function runSimulation() {
   if (!tbResult.ok) {
     refs.modulePreview.textContent = tbResult.error;
     setStatus(tbResult.error);
+    state.lastTestbench = "";
+    updateTbViewer();
     return;
   }
+  state.lastTestbench = tbResult.source;
+  updateTbViewer();
 
   setStatus(`Running simulation for ${design.topName}...`);
   refs.modulePreview.textContent = "Running real simulation...";
@@ -379,6 +491,7 @@ async function runSimulation() {
     replaceInjectedOutputs(outputs);
     state.lastTestbench = tbResult.source;
     state.lastBindings = tbResult.bindings;
+    updateTbViewer();
     refs.modulePreview.textContent = [
       `Simulation done: ${outputs.length} signals, tmax ${parsed.tmax}`,
       `Final: ${summarizeOutputs(outputs)}`
@@ -386,9 +499,71 @@ async function runSimulation() {
     render();
     setStatus(`Done: ${outputs.length} signal(s).`);
   } catch (error) {
-    refs.modulePreview.textContent = String(error);
-    setStatus(String(error));
+    const message = String(error);
+    const friendly = /fetch/i.test(message)
+      ? "仿真请求失败：本地仿真服务无响应（Failed to fetch）。\n"
+        + "可能原因：\n"
+        + "  1. 应用进程已退出（窗口检测或异常导致）\n"
+        + "  2. iverilog 编译/仿真卡死或超时\n"
+        + "  3. RTL 含导致 iverilog 崩溃的内容\n"
+        + "请重启 WavePaintSim，或查看日志：%TEMP%\\WavePaintSim_sim.log"
+      : message;
+    refs.modulePreview.textContent = friendly;
+    setStatus(friendly);
   }
+}
+
+// 自动识别 RTL top module 的端口信号并添加到绘图区，方便用户直接绘制激励波形。
+// - input / inout 端口 → 作为激励信号添加到画布（可绘制，kind 保留 clock/logic/vector）
+// - output 端口 → 跳过（仿真后由仿真结果自动回填，避免与回填信号重名冲突）
+// - 画布上已存在同名信号 → 跳过（保留用户已绘制的波形）
+function addPortSignalsToCanvas() {
+  onWavepaintReady();
+  syncEditor();
+  const design = state.design || parseVerilogDesign(sourceText());
+  state.design = design;
+  const ports = design?.topModule?.ports || [];
+  if (!ports.length) {
+    setStatus(`No ports found in ${design.topName || "design"}.`);
+    return;
+  }
+  const dw = window.document_wave;
+  if (!dw || !Array.isArray(dw.m_signals)) {
+    setStatus("Canvas not ready.");
+    return;
+  }
+  const existing = dw.m_signals;
+  const names = new Set(existing.map((sig) => signalNameKey(sig)));
+  const timeSteps = canvasTimeSteps();              // 主步数（用于 project 模型信号）
+  const effectiveCount = canvasEffectiveCount();    // 画布 values 长度 = 主步数 × (子步+1)
+  const template = existing[0] || null;
+  let added = 0;
+  let skipped = 0;
+  const baseCount = existing.length;
+  for (let index = 0; index < ports.length; index += 1) {
+    const port = ports[index];
+    if (port.direction === "output") { skipped += 1; continue; } // 输出由仿真回填
+    const key = signalNameKey(port);
+    if (!key || names.has(key)) { skipped += 1; continue; }
+    const signal = createSignalFromPort(port, null, "stimulus", timeSteps);
+    const native = toNativeSignal(signal, baseCount + added, template, effectiveCount, {
+      kind: signal.kind,
+      injected: false,
+      groupName: null,
+      groupColor: null,
+      groupPath: null
+    });
+    existing.push(native);
+    names.add(key);
+    added += 1;
+  }
+  dw.m_sampleCount = Math.max(dw.m_sampleCount || 0, timeSteps);
+  window.drawWaveform?.();
+  window.updateSidePanels?.();
+  render();
+  setStatus(added
+    ? `Added ${added} port signal(s) to canvas${skipped ? `, skipped ${skipped} (output/existing).` : "."}`
+    : `No new signals added (${skipped} skipped).`);
 }
 
 function summarizeOutputs(outputs) {
@@ -478,8 +653,10 @@ function bindEvents() {
   refs.addFile?.addEventListener("click", addFile);
   refs.removeFile?.addEventListener("click", removeFile);
   refs.parseBtn?.addEventListener("click", parseDesign);
+  refs.addSignals?.addEventListener("click", addPortSignalsToCanvas);
   refs.tbBtn?.addEventListener("click", buildTbPreview);
   refs.runBtn?.addEventListener("click", runSimulation);
+  refs.tbCopy?.addEventListener("click", copyTb);
   refs.sourceEditor?.addEventListener("input", () => {
     syncEditor();
     render();

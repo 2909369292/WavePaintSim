@@ -15,16 +15,12 @@ function lowerName(name) {
 }
 
 function isClockName(name) {
-  return /\bclk\b|(^|_)clk(_|$)|clock/.test(lowerName(name));
+  const n = lowerName(name);
+  // 时钟名规范：clk 或 clkCore（目前仅这两种可能）。
+  // 保留对 *_clk*、*clock* 等命名的兼容（未来可通过读取 always 块敏感信号列表扩展，暂不做）。
+  return n === "clk" || n === "clkcore" || /\bclk\b|(^|_)clk(_|$)|clock/.test(n);
 }
 
-function isResetName(name) {
-  return /\b(rst|reset|clr|clear)\b|(^|_)(rst|reset|clr|clear)(_|\b)/.test(lowerName(name));
-}
-
-function isEnableName(name) {
-  return /\b(en|enable)\b|(^|_)(en|enable)(_|\b)/.test(lowerName(name));
-}
 
 function normalizeSignalValues(values, width, timeSteps) {
   const source = Array.isArray(values) ? values : [];
@@ -49,21 +45,12 @@ function inferPortKind(port, existingSignal) {
   return "logic";
 }
 
+// 激励端口初始值：统一为“空白/未定义”（x），不预置任何波形图案（时钟/复位/使能等），
+// 由用户自行绘制激励波形——功能纯粹，无隐藏的默认值逻辑。
 function defaultInputValues(port, kind, timeSteps) {
   const width = Math.max(1, Number(port?.width) || 1);
-  const name = lowerName(port?.name);
-  if (kind === "vector") return Array.from({ length: timeSteps }, () => "0".repeat(width));
-  if (kind === "clock") {
-    return Array.from({ length: timeSteps }, (_, index) => (index % 2 === 0 ? "0" : "1"));
-  }
-  if (isResetName(name)) {
-    const activeLow = /(^|_)rst_n(_|$)|(^|_)reset_n(_|$)|(_n$)/.test(name);
-    return Array.from({ length: timeSteps }, (_, index) => (index < 2 ? (activeLow ? "0" : "1") : (activeLow ? "1" : "0")));
-  }
-  if (isEnableName(name)) {
-    return Array.from({ length: timeSteps }, (_, index) => (index % 8 >= 4 ? "1" : "0"));
-  }
-  return Array.from({ length: timeSteps }, () => (width > 1 ? "0".repeat(width) : "0"));
+  const fill = width > 1 ? "x".repeat(width) : "x";
+  return Array.from({ length: timeSteps }, () => fill);
 }
 
 function defaultOutputValues(port, timeSteps) {
@@ -71,7 +58,7 @@ function defaultOutputValues(port, timeSteps) {
   return Array.from({ length: timeSteps }, () => (width > 1 ? "0".repeat(width) : "0"));
 }
 
-function createSignalFromPort(port, existingSignal, role, timeSteps) {
+export function createSignalFromPort(port, existingSignal, role, timeSteps) {
   const width = Math.max(1, Number(port?.width) || inferSignalWidth(existingSignal));
   const kind = inferPortKind(port, existingSignal);
   const name = port?.name || existingSignal?.name || "signal";
@@ -205,7 +192,9 @@ function parseAnsiPortList(block) {
       currentDirection = directionMatch[1];
       item = item.slice(directionMatch[0].length).trim();
       const rangeMatch = /\[[^\]]*\]/.exec(item);
-      if (rangeMatch) currentRange = parseRange(rangeMatch[0]);
+      // 新端口条目：有显式位宽则继承，否则重置为 1 位（避免错误继承上一端口的位宽，
+      // 如 `input [7:0] data_in, input en` 中 en 应为 1 位；而 `input [7:0] a, b` 中 b 仍共享位宽）
+      currentRange = rangeMatch ? parseRange(rangeMatch[0]) : { msb: "", lsb: "", width: 1 };
     }
     if (!currentDirection) continue;
     const rangeMatch = /\[[^\]]*\]/.exec(item);
@@ -230,8 +219,16 @@ function parseModuleHeader(header) {
   const trimmed = normalizeWhitespace(header);
   const nameMatch = /^module\s+([A-Za-z_][A-Za-z0-9_$]*)/.exec(trimmed);
   const name = nameMatch ? nameMatch[1] : "top";
-  const paramBlock = /#\s*\((.*)\)\s*\(/.exec(trimmed);
-  const portBlock = /\((.*)\)\s*;?$/.exec(trimmed);
+  const paramBlock = /#\s*\(([\s\S]*)\)\s*\(/.exec(trimmed);
+  let portBlock = null;
+  if (paramBlock) {
+    // 带 parameter 的模块：端口列表在参数块之后，从参数块最后的 '(' 开始解析，
+    // 避免贪婪匹配把 "#(...) (ports)" 混在一起导致端口全部丢失。
+    const afterParam = trimmed.slice(paramBlock.index + paramBlock[0].length - 1);
+    portBlock = /\(([\s\S]*)\)\s*;?$/.exec(afterParam);
+  } else {
+    portBlock = /\((.*)\)\s*;?$/.exec(trimmed);
+  }
   return {
     name,
     parameters: paramBlock ? paramBlock[1] : "",
@@ -477,6 +474,48 @@ function formatVerilogValue(value, width) {
   return `1'b${bit ? bit[0].toLowerCase() : "0"}`;
 }
 
+// ---------------------------------------------------------------------------
+// 复位端口识别：返回 "low"（低有效，如 rst_n / nreset）| "high"（高有效，如 rst）
+// | null（不是复位端口）。
+// 复位是时序电路进入已知状态的唯一途径，必须单独对待，不能按普通数据端口处理。
+// ---------------------------------------------------------------------------
+function resetPolarity(name) {
+  const n = String(name || "").toLowerCase().replace(/\s+/g, "");
+  if (!/(rst|reset)/.test(n)) return null;
+  // 低有效的常见写法：rst_n / reset_n / rst_b / rstn / nreset / n_rst
+  if (/_n$|_b$|^n_|nreset|nrst|rstn/.test(n)) return "low";
+  return "high";
+}
+
+// 复位端口的「无效（释放）」电平：低有效复位释放时为 1，高有效复位释放时为 0。
+function resetInactiveLevel(name) {
+  return resetPolarity(name) === "low" ? "1" : "0";
+}
+
+// ---------------------------------------------------------------------------
+// 时序电路初始化：若复位信号从未被拉到有效电平，在开头补一段复位脉冲。
+//
+// 原因：DUT 的 reg 无初值时保持 x，而 x 会自我传播（x + 1 === x）。
+// 没有复位沿，计数器/状态机永远出不了 x，用户看到的就是「输出恒 0 / 恒 x / 空白」。
+// 用户画了复位沿时完全尊重原波形，不做任何改动。
+// ---------------------------------------------------------------------------
+function ensureResetPulse(values, portName) {
+  const polarity = resetPolarity(portName);
+  if (!polarity) return values;
+  const activeLevel = polarity === "low" ? "0" : "1";
+  const inactiveLevel = polarity === "low" ? "1" : "0";
+  const source = Array.isArray(values) ? values : [];
+  if (!source.length) return values;
+  const hasActive = source.some((v) => String(v).trim().toLowerCase() === activeLevel);
+  if (hasActive) return values; // 用户已画出复位沿
+  // 前 2 格拉到有效电平（复位），其余释放。宽度 > 1 时按位重复。
+  return source.map((v, index) => {
+    const level = index < 2 ? activeLevel : inactiveLevel;
+    const width = String(v ?? "").length > 1 ? String(v).length : 1;
+    return width > 1 ? level.repeat(width) : level;
+  });
+}
+
 export function matchSignalsToPorts(signals, ports) {
   const signalMap = new Map();
   for (const signal of signals || []) {
@@ -486,8 +525,16 @@ export function matchSignalsToPorts(signals, ports) {
   return (ports || []).map((port) => {
     const exact = signalMap.get(normalizeSignalName(port.name));
     if (exact) return { port, signal: exact, matched: true, strategy: "name" };
-    const fallback = (signals || []).find((signal) => signal.role !== "result") || null;
-    return { port, signal: fallback, matched: false, strategy: fallback ? "fallback" : "none" };
+    // 名字模糊匹配（rst_n <-> rstn 等），避免把多个端口错误共用同一个信号
+    const fuzzy = (signals || []).find((signal) => {
+      if (signal.role === "result") return false;
+      const a = normalizeSignalName(signal.name);
+      const b = normalizeSignalName(port.name);
+      return a && b && (a.includes(b) || b.includes(a));
+    }) || null;
+    if (fuzzy) return { port, signal: fuzzy, matched: true, strategy: "fuzzy" };
+    // 不再共用 fallback：未绑定端口由 buildAutoTestbench 生成独立默认 0 激励
+    return { port, signal: null, matched: false, strategy: "unbound" };
   });
 }
 
@@ -529,33 +576,65 @@ export function buildAutoTestbench(design, project = {}) {
   lines.push("  initial begin");
   lines.push("    $dumpfile(\"wave_out.vcd\");");
   lines.push("    $dumpvars(0, tb);");
+  // ── 激励生成：1 格子 ≡ 1 时间单位，值在格子边界 (t=index) 生效 ──
+  // 忠实反映画布波形：零偏移、零采样、零“建立时间”臆造。
+  // 同一时刻多信号变化时先更新 clock、再更新其他信号（同刻用 #0 增量保持同一时刻），
+  // 使 clk 上升沿先发生，数据/复位后更新。
+  // 激励信号：已绑定信号 + 未绑定输入端口（生成独立全 0 默认激励，避免共用/保持 x）
+  const inputBindings = [];
   for (const binding of bindings) {
     if (binding.port.direction === "output" || binding.port.direction === "inout") continue;
-    const signal = binding.signal;
-    const initialValue = formatVerilogValue(signal?.values?.[0], binding.port.width);
-    lines.push(`    ${binding.port.name} = ${initialValue};`);
-  }
-  lines.push(`    repeat (${timeStep}) #1;`);
-  lines.push("    $finish;");
-  lines.push("  end");
-
-  for (const binding of bindings) {
-    const signal = binding.signal;
-    if (!signal || binding.port.direction === "output" || binding.port.direction === "inout") continue;
-    if (signal.kind === "clock") {
-      const halfPeriod = Math.max(1, Math.floor(Number(signal.period) || 1));
-      lines.push(`  always #${halfPeriod} ${binding.port.name} = ~${binding.port.name};`);
-      continue;
+    let signal = binding.signal;
+    if (!signal) {
+      const defaultSignal = createSignalFromPort(binding.port, null, "stimulus", Math.max(1, Number(project.timeSteps) || 24));
+      const defWidth = Math.max(1, Number(defaultSignal.width) || 1);
+      // 按端口语义取「无效电平」：低有效复位给 1（释放复位），其余给 0。
+      // 旧实现一律给 0，会让 rst_n 恒有效，复位一直拉住 DUT，输出恒 0。
+      const idle = resetInactiveLevel(binding.port.name);
+      signal = {
+        ...defaultSignal,
+        values: Array.from({ length: defaultSignal.values.length }, () => (defWidth > 1 ? idle.repeat(defWidth) : idle))
+      };
+      binding.signal = signal;
+      binding.strategy = "unbound-default";
     }
-    const values = Array.isArray(signal.values) ? signal.values : [];
-    let previous = values[0] || "0";
-    for (let index = 1; index < values.length; index += 1) {
-      const current = values[index] || "0";
+    inputBindings.push({ ...binding, signal });
+  }
+  const events = [];
+  for (const binding of inputBindings) {
+    const signal = binding.signal;
+    // 复位端口补齐上电复位脉冲（仅当用户从未画出复位沿时）。
+    // 注意：只影响生成的 TB，不改动画布上的原始波形。
+    const rawValues = ensureResetPulse(Array.isArray(signal.values) ? signal.values : [], binding.port.name);
+    const isClock = signal.kind === "clock";
+    let previous = formatVerilogValue(rawValues[0], binding.port.width);
+    events.push({ time: 0, clock: isClock, text: `${binding.port.name} = ${previous};` });
+    for (let index = 1; index < rawValues.length; index += 1) {
+      const current = formatVerilogValue(rawValues[index], binding.port.width);
       if (current === previous) continue;
-      lines.push(`  initial #${index} ${binding.port.name} = ${formatVerilogValue(current, binding.port.width)};`);
+      events.push({ time: index, clock: isClock, text: `${binding.port.name} = ${current};` });
       previous = current;
     }
   }
+  // 同一时刻：clock 先更新（上升沿先发生），其他信号后更新
+  events.sort((a, b) => a.time - b.time || Number(b.clock) - Number(a.clock));
+  let prevTime = 0;
+  let firstGroup = true;
+  for (let ei = 0; ei < events.length; ) {
+    const groupTime = events[ei].time;
+    const group = [];
+    while (ei < events.length && events[ei].time === groupTime) group.push(events[ei++]);
+    if (firstGroup) {
+      for (const ev of group) lines.push(`    ${ev.text}`);
+      firstGroup = false;
+    } else {
+      lines.push(`    #${groupTime - prevTime} ${group[0].text}`);
+      for (let gi = 1; gi < group.length; gi += 1) lines.push(`    #0 ${group[gi].text}`);
+    }
+    prevTime = groupTime;
+  }
+  lines.push(`    #${Math.max(1, timeStep - prevTime)} $finish;`);
+  lines.push("  end");
 
   lines.push("endmodule");
   return {
@@ -637,7 +716,13 @@ export function parseVcd(vcdText) {
           scope: scopes.join("."),
           steps: []
         };
-        byId.set(signal.id, signal);
+        // iverilog 会对不同作用域中“电气上相同”的信号复用同一个 VCD id
+        // （如 tb.clk 与 tb.dut.clk 同为 id '"'，tb.y 与 dut.y 同为 id '!'）。
+        // 因此 id 必须映射到所有共享它的信号，值变化行要应用到每一个，
+        // 否则先声明的信号（如 tb 作用域）会被后声明者覆盖而丢失全部数据。
+        const shared = byId.get(signal.id) || [];
+        shared.push(signal);
+        byId.set(signal.id, shared);
         result.signals.push(signal);
       }
       continue;
@@ -652,16 +737,24 @@ export function parseVcd(vcdText) {
       if (spaceIndex < 0) continue;
       const value = line.slice(1, spaceIndex).trim();
       const id = line.slice(spaceIndex + 1).trim();
-      const signal = byId.get(id);
-      if (!signal) continue;
-      if (!signal.steps.length || signal.steps[signal.steps.length - 1][1] !== value) signal.steps.push([time, value]);
+      const sharedSignals = byId.get(id);
+      if (!sharedSignals) continue;
+      for (const sharedSignal of sharedSignals) {
+        if (!sharedSignal.steps.length || sharedSignal.steps[sharedSignal.steps.length - 1][1] !== value) {
+          sharedSignal.steps.push([time, value]);
+        }
+      }
       continue;
     }
     const id = line.slice(1).trim();
     const value = line[0];
-    const signal = byId.get(id);
-    if (!signal) continue;
-    if (!signal.steps.length || signal.steps[signal.steps.length - 1][1] !== value) signal.steps.push([time, value]);
+    const sharedSignals = byId.get(id);
+    if (!sharedSignals) continue;
+    for (const sharedSignal of sharedSignals) {
+      if (!sharedSignal.steps.length || sharedSignal.steps[sharedSignal.steps.length - 1][1] !== value) {
+        sharedSignal.steps.push([time, value]);
+      }
+    }
   }
 
   for (const signal of result.signals) {
@@ -678,10 +771,11 @@ export function vcdToProjectOutputs(vcdText, project) {
   const parsed = parseVcd(vcdText);
   const timeSteps = Math.max(1, Number(project?.timeSteps) || 24);
   const excludedSignals = new Set((project?.signals || []).map((signal) => normalizeSignalName(signal?.name)));
-  const sampleTimes = Array.from({ length: timeSteps }, (_, index) => {
-    if (timeSteps <= 1) return parsed.tmax || 0;
-    return Math.round((Math.max(0, parsed.tmax || 0) * index) / (timeSteps - 1));
-  });
+  // 忠实回填：1 格子 ≡ 1 时间单位，TB 总时长恰为 timeSteps 个单位（VCD tmax 即总时长）。
+  // 格子 i ↔ VCD 时间 i * (tmax / timeSteps)——仅 VCD 时间单位换算，无偏移、无采样。
+  // 输出信号 q 在 t=i 的 clk 上升沿更新（非阻塞赋值）后，格子 i 即显示新值。
+  const totalTime = Math.max(1, parsed.tmax || 0);
+  const sampleTimes = Array.from({ length: timeSteps }, (_, index) => Math.round((index * totalTime) / timeSteps));
   const buildOutputs = (candidates) => {
     const signals = [];
     for (const signal of candidates) {
