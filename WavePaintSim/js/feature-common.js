@@ -409,9 +409,45 @@
     return node;
   };
 
+  // ------------------------------------------------- 默认浅色主题
+  // 混淆核心首次启动会带上深色主题（body.dark）。这里在启动阶段切回浅色，但只做一次：
+  // 之后用户通过「主题」菜单的选择一律尊重（核心的 applyTheme 会自行持久化）。
+  const THEME_FLAG = 'wpf.defaultLightThemeApplied';
+  const flagStore = {
+    get: function () { try { return localStorage.getItem(THEME_FLAG); } catch (e) { return null; } },
+    set: function () { try { localStorage.setItem(THEME_FLAG, '1'); } catch (e) { /* 无痕模式忽略 */ } }
+  };
+
+  // 返回 true 表示已处理完毕（成功切浅色 / 本就是浅色 / 以前处理过），可以停止观察
+  function applyDefaultLightTheme() {
+    if (flagStore.get()) return true;
+    if (!document.body) return false;
+    if (!document.body.classList.contains('dark')) {
+      flagStore.set(); // 本来就是浅色，记下即可，不必改动
+      return true;
+    }
+    // 优先走核心自己的 API，保证 body class 与核心持久化的主题状态一致
+    if (typeof window.applyTheme === 'function') window.applyTheme('light');
+    else document.body.classList.remove('dark');
+    flagStore.set();
+    return true;
+  }
+
+  // 核心的主题初始化是异步的，可能在我们之后又把 dark 加回来，故观察一小段窗口
+  function ensureDefaultLightTheme() {
+    if (applyDefaultLightTheme()) return;
+    if (typeof MutationObserver !== 'function') return;
+    const observer = new MutationObserver(function () {
+      if (applyDefaultLightTheme()) observer.disconnect();
+    });
+    observer.observe(document.documentElement, { attributes: true, subtree: true, attributeFilter: ['class'] });
+    setTimeout(function () { observer.disconnect(); }, 10000);
+  }
+
   // ------------------------------------------------- 工具栏「编辑力度」初始化
   // 只依赖 DOM，不必等混淆核心就绪，故单独在 DOMContentLoaded 后绑定一次。
   function bindToolbarWhenReady() {
+    try { ensureDefaultLightTheme(); } catch (e) { /* 忽略：主题失败不影响使用 */ }
     try { wpf.bindGranularityUI(); } catch (e) { /* 忽略：控件缺失不影响绘图 */ }
     try { wpf.bindBusRadixUI(); } catch (e) { /* 同上 */ }
   }
