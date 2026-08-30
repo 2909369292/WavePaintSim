@@ -144,7 +144,7 @@ export function createSampleProject() {
     signals: [
       { id: uid("sig"), name: "clk", role: "stimulus", kind: "clock", width: 1, values: "010101010101010101010101".split("") },
       { id: uid("sig"), name: "rst_n", role: "stimulus", kind: "logic", width: 1, values: "001111111111111111111111".split("") },
-      { id: uid("sig"), name: "en", role: "stimulus", kind: "logic", width: 1, values: "000101010001010100010101".split("") }
+      { id: uid("sig"), name: "en", role: "stimulus", kind: "logic", width: 1, values: "0010101010xxxxxxxxxxxxxx".split("") }
     ],
     outputs: []
   };

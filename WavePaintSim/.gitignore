@@ -1,3 +1,25 @@
 .env
 .env.local
+
+# 构建产物（build.ps1 生成，20MB+，不要入库）
+WavePaint.exe
+*.exe
+
+# 备份与临时脚本
 *.bak
+*.orig
+backup/
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+
+# 依赖
+node_modules/
+
+# 注：ivl.zip（19MB）是构建必需的输入资源（内嵌 iverilog 便携包），
+#     目前是有意入库的；若改用外部下载再改为忽略。
+# 注：本目录已由父仓库 D:\Files\Code\波形 跟踪（git ls-files 可见 72 个文件），
+#     不要再在此处执行 git init —— 会形成嵌套仓库，反而让这些文件脱离版本控制。

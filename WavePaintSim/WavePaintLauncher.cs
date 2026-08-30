@@ -17,11 +17,15 @@ namespace WaveWorkbench
         static string root;
         static string ivlRoot;
         static HttpListener server;
+        static Mutex singleInstanceMutex;
         static volatile int lastActivity;
+        static volatile bool simBusy;
         static bool everSeen;
         static string portFile = Path.Combine(Path.GetTempPath(), "WavePaintSim_port_" + Process.GetCurrentProcess().Id + ".txt");
         static string logFile = Path.Combine(Path.GetTempPath(), "WavePaintSim_sim.log");
         static string snapshotRoot = Path.Combine(Path.GetTempPath(), "WavePaintSim_snapshots");
+        static int listenPort;                       // 本实例监听端口（CORS 白名单用）
+        static readonly object logLock = new object();   // 日志写入串行化（多线程请求）
 
         static string FindEdge()
         {
@@ -86,6 +90,7 @@ namespace WaveWorkbench
         static void StartServer(int port)
         {
             server = new HttpListener();
+            listenPort = port;
             server.Prefixes.Add("http://127.0.0.1:" + port + "/");
             server.Start();
             try { File.WriteAllText(portFile, port.ToString()); } catch { }
@@ -107,7 +112,15 @@ namespace WaveWorkbench
         {
             try
             {
-                context.Response.AddHeader("Access-Control-Allow-Origin", "*");
+                // P3-2：原来固定回 Access-Control-Allow-Origin:* ，意味着用户本机/内网里
+                // 任意网页都能读取本服务吐出的本地文件、甚至驱动 iverilog 仿真。
+                // 页面本身就由本服务同源提供，不需要 CORS；这里只对同源回显 Origin。
+                string origin = context.Request.Headers["Origin"];
+                if (!string.IsNullOrEmpty(origin) && IsSameOrigin(origin))
+                {
+                    context.Response.AddHeader("Access-Control-Allow-Origin", origin);
+                    context.Response.AddHeader("Vary", "Origin");
+                }
                 context.Response.AddHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
                 context.Response.AddHeader("Access-Control-Allow-Headers", "Content-Type");
                 if (context.Request.HttpMethod == "OPTIONS") { context.Response.StatusCode = 200; context.Response.Close(); return; }
@@ -115,18 +128,26 @@ namespace WaveWorkbench
                 string path = context.Request.Url.AbsolutePath.TrimStart('/');
                 if (path == "api/sim")
                 {
-                    try { File.AppendAllText(logFile, DateTime.Now.ToString("u") + " ENTER api/sim\n"); } catch { }
-                    string body = new StreamReader(context.Request.InputStream, Encoding.UTF8).ReadToEnd();
-                    try { File.AppendAllText(logFile, "BODY " + body.Length + "\n"); } catch { }
-                    string result;
-                    try { result = RunSimulation(body); }
-                    catch (Exception ex) { result = "SIM-ERROR:\n" + ex; }
-                    try { File.AppendAllText(logFile, "RESULT " + result.Length + "\n"); } catch { }
-                    byte[] data = Encoding.UTF8.GetBytes(result);
-                    context.Response.ContentType = "text/plain; charset=utf-8";
-                    context.Response.ContentLength64 = data.Length;
-                    context.Response.OutputStream.Write(data, 0, data.Length);
-                    context.Response.Close();
+                    simBusy = true;
+                    try
+                    {
+                        Log(DateTime.Now.ToString("u") + " ENTER api/sim\n");
+                        string body = new StreamReader(context.Request.InputStream, Encoding.UTF8).ReadToEnd();
+                        Log("BODY " + body.Length + "\n");
+                        string result;
+                        try { result = RunSimulation(body); }
+                        catch (Exception ex) { result = "SIM-ERROR:\n" + ex; }
+                        Log("RESULT " + result.Length + "\n");
+                        byte[] data = Encoding.UTF8.GetBytes(result);
+                        context.Response.ContentType = "text/plain; charset=utf-8";
+                        context.Response.ContentLength64 = data.Length;
+                        context.Response.OutputStream.Write(data, 0, data.Length);
+                        context.Response.Close();
+                    }
+                    finally
+                    {
+                        simBusy = false;
+                    }
                     return;
                 }
 
@@ -156,7 +177,10 @@ namespace WaveWorkbench
 
                 if (string.IsNullOrEmpty(path)) path = "index.html";
                 path = path.Replace('/', Path.DirectorySeparatorChar);
-                string file = Path.Combine(root, path);
+                // P3-2：路径穿越防护。URL 里的 ../ 或 %2e%2e%2f 经 Path.Combine 后
+                // 可能跳出解压根目录读到任意本地文件。这里把结果规范化后强制校验前缀。
+                string file = Path.GetFullPath(Path.Combine(root, path));
+                if (!IsUnderRoot(file)) { context.Response.StatusCode = 404; context.Response.Close(); return; }
                 if (!File.Exists(file))
                 {
                     context.Response.StatusCode = 404;
@@ -172,7 +196,7 @@ namespace WaveWorkbench
             }
             catch (Exception ex)
             {
-                try { File.AppendAllText(logFile, DateTime.Now.ToString("u") + Environment.NewLine + ex + Environment.NewLine + Environment.NewLine); } catch { }
+                Log(DateTime.Now.ToString("u") + Environment.NewLine + ex + Environment.NewLine + Environment.NewLine);
                 try { context.Response.StatusCode = 500; context.Response.Close(); } catch { }
             }
         }
@@ -182,7 +206,7 @@ namespace WaveWorkbench
             lastActivity = Environment.TickCount;
             string work = Path.Combine(Path.GetTempPath(), "ivl_work_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(work);
-            try { File.AppendAllText(logFile, "RUN start " + work + Environment.NewLine); } catch { }
+            Log("RUN start " + work + Environment.NewLine);
             var names = new List<string>();
             string current = null;
             var buffer = new StringBuilder();
@@ -210,7 +234,7 @@ namespace WaveWorkbench
                 }
             }
             if (current != null) WriteOne(work, names, current, buffer.ToString());
-            try { File.AppendAllText(logFile, "RUN files " + names.Count + Environment.NewLine); } catch { }
+            Log("RUN files " + names.Count + Environment.NewLine);
             WriteFallbackAliases(work, names);
 
             var compileBatches = BuildCompileBatches(names);
@@ -220,10 +244,10 @@ namespace WaveWorkbench
             {
                 string compileTag = batch.Item1;
                 var compileArgs = batch.Item2;
-                try { File.AppendAllText(logFile, "RUN args " + compileTag + " " + string.Join(" ", compileArgs) + Environment.NewLine); } catch { }
+                Log("RUN args " + compileTag + " " + string.Join(" ", compileArgs) + Environment.NewLine);
                 string err1;
                 int e1 = Run(Path.Combine(ivlRoot, "bin", "iverilog.exe"), work, compileArgs, ProcessTimeoutMs, out err1);
-                try { File.AppendAllText(logFile, "RUN compile " + compileTag + " " + e1 + Environment.NewLine + err1 + Environment.NewLine); } catch { }
+                Log("RUN compile " + compileTag + " " + e1 + Environment.NewLine + err1 + Environment.NewLine);
                 if (e1 == 0)
                 {
                     compiled = true;
@@ -239,7 +263,7 @@ namespace WaveWorkbench
 
             string err2;
             int e2 = Run(Path.Combine(ivlRoot, "bin", "vvp.exe"), work, new List<string> { "sim.vvp" }, ProcessTimeoutMs, out err2);
-            try { File.AppendAllText(logFile, "RUN vvp " + e2 + Environment.NewLine + err2 + Environment.NewLine); } catch { }
+            Log("RUN vvp " + e2 + Environment.NewLine + err2 + Environment.NewLine);
             if (e2 != 0)
             {
                 try { Directory.Delete(work, true); } catch { }
@@ -248,12 +272,12 @@ namespace WaveWorkbench
             string vcdPath = Path.Combine(work, "wave_out.vcd");
             if (!File.Exists(vcdPath))
             {
-                try { File.AppendAllText(logFile, "RUN no_vcd" + Environment.NewLine); } catch { }
+                Log("RUN no_vcd" + Environment.NewLine);
                 try { Directory.Delete(work, true); } catch { }
                 return "SIM-ERROR:\nVCD file not generated.";
             }
             string vcd = File.ReadAllText(vcdPath);
-            try { File.AppendAllText(logFile, "RUN vcd " + vcd.Length + Environment.NewLine); } catch { }
+            Log("RUN vcd " + vcd.Length + Environment.NewLine);
             try { Directory.Delete(work, true); } catch { }
             return vcd;
         }
@@ -301,7 +325,7 @@ namespace WaveWorkbench
             string latestPath = Path.Combine(snapshotRoot, "latest.json");
             File.WriteAllText(snapshotPath, body, new UTF8Encoding(false));
             File.WriteAllText(latestPath, body, new UTF8Encoding(false));
-            try { File.AppendAllText(logFile, DateTime.Now.ToString("u") + " SNAPSHOT " + snapshotPath + Environment.NewLine); } catch { }
+            Log(DateTime.Now.ToString("u") + " SNAPSHOT " + snapshotPath + Environment.NewLine);
             return "SNAPSHOT-OK:\n" + snapshotPath + "\n" + latestPath;
         }
 
@@ -340,13 +364,13 @@ namespace WaveWorkbench
             var psi = new ProcessStartInfo();
             psi.FileName = exe;
             psi.WorkingDirectory = workDir;
-            psi.Arguments = string.Join(" ", args);
+            psi.Arguments = string.Join(" ", args.ConvertAll(QuoteArg));
             psi.UseShellExecute = false;
             psi.CreateNoWindow = true;
             psi.RedirectStandardError = true;
             psi.RedirectStandardOutput = true;
             psi.Environment["IVERILOG_ROOT"] = ivlRoot;
-            psi.Environment["PATH"] = Path.Combine(ivlRoot, "bin") + ";" + Environment.GetEnvironmentVariable("PATH");
+            psi.Environment["PATH"] = Path.Combine(ivlRoot, "bin") + ";" + (Environment.GetEnvironmentVariable("PATH") ?? "");
             var process = Process.Start(psi);
             var stderrBuilder = new StringBuilder();
             process.ErrorDataReceived += (_, eventArgs) => { if (eventArgs.Data != null) stderrBuilder.AppendLine(eventArgs.Data); };
@@ -355,13 +379,90 @@ namespace WaveWorkbench
             process.BeginOutputReadLine();
             if (!process.WaitForExit(timeoutMs))
             {
-                try { process.Kill(); } catch { }
+                // P3-2：iverilog/vvp 会派生子进程（ivlpp 等），只 Kill 主进程会留下孤儿。
+                KillTree(process);
                 stderr = "Process timed out after " + timeoutMs + " ms.";
                 return -1;
             }
             process.WaitForExit();
             stderr = stderrBuilder.ToString();
             return process.ExitCode;
+        }
+
+        // P3-2：日志统一收口。原来 12 处 try/AppendAllText/catch 复制粘贴，
+        // 既没有加锁（ThreadPool 并发写会抛 IOException 被静默吞掉），
+        // 也没有大小上限（WavePaintSim_sim.log 会无限增长）。
+        static void Log(string text)
+        {
+            try
+            {
+                lock (logLock)
+                {
+                    try
+                    {
+                        var info = new FileInfo(logFile);
+                        if (info.Exists && info.Length > 2L * 1024 * 1024)
+                            File.WriteAllText(logFile, DateTime.Now.ToString("u") + " LOG rotated" + Environment.NewLine);
+                    }
+                    catch { }
+                    File.AppendAllText(logFile, text);
+                }
+            }
+            catch { }
+        }
+
+        // 命令行参数加引号：文件名来自仿真面板，可能含空格（如 "my design.v"），
+        // 原来直接 string.Join(" ") 拼会把它拆成两个参数。
+        static string QuoteArg(string arg)
+        {
+            if (string.IsNullOrEmpty(arg)) return "\"\"";
+            if (arg.IndexOf(' ') < 0 && arg.IndexOf('\t') < 0 && arg.IndexOf('"') < 0) return arg;
+            return "\"" + arg.Replace("\"", "\\\"") + "\"";
+        }
+
+        // 超时后连同子进程一起收掉（taskkill /T 杀进程树，失败再退化为 Kill 单进程）
+        static void KillTree(Process process)
+        {
+            try
+            {
+                var killer = new ProcessStartInfo();
+                killer.FileName = "taskkill.exe";
+                killer.Arguments = "/PID " + process.Id + " /T /F";
+                killer.UseShellExecute = false;
+                killer.CreateNoWindow = true;
+                var k = Process.Start(killer);
+                if (k != null) k.WaitForExit(5000);
+                return;
+            }
+            catch { }
+            try { process.Kill(); } catch { }
+            try { process.WaitForExit(2000); } catch { }
+        }
+
+        // 只认本实例自己服务的两个同源地址
+        static bool IsSameOrigin(string origin)
+        {
+            return string.Equals(origin, "http://127.0.0.1:" + listenPort, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(origin, "http://localhost:" + listenPort, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // 规范化后的绝对路径必须仍在解压根目录内
+        static bool IsUnderRoot(string full)
+        {
+            try
+            {
+                string rootFull = Path.GetFullPath(root);
+                if (!rootFull.EndsWith(Path.DirectorySeparatorChar.ToString())) rootFull += Path.DirectorySeparatorChar;
+                return full.StartsWith(rootFull, StringComparison.OrdinalIgnoreCase);
+            }
+            catch { return false; }
+        }
+
+        // P3-2：进程退出时删掉自己的端口文件。原来从不清理，%TEMP% 里会越堆越多
+        // WavePaintSim_port_<PID>.txt，OpenExistingInstance 每次都要逐个试连。
+        static void DeletePortFile()
+        {
+            try { if (File.Exists(portFile)) File.Delete(portFile); } catch { }
         }
 
         static string MimeFor(string ext)
@@ -403,9 +504,79 @@ namespace WaveWorkbench
             catch { return false; }
         }
 
+        // 单实例保护：避免多个 WavePaint 进程同时运行、共享 %TEMP% 资源目录互相覆盖，
+        // 以及多个 Edge 窗口残留旧版本 JS 导致用户看到过期的行为。
+        static bool TryAcquireSingleInstance()
+        {
+            bool createdNew;
+            try { singleInstanceMutex = new Mutex(false, "Local\\WavePaintSim_SingleInstance", out createdNew); }
+            catch { return true; } // 无法创建互斥体（环境受限），放行
+            try
+            {
+                if (!singleInstanceMutex.WaitOne(0)) return false; // 已有实例持有
+                return true;
+            }
+            catch (AbandonedMutexException)
+            {
+                return true; // 旧实例崩溃残留，接管
+            }
+        }
+
+        // 已有实例在运行：定位其端口并打开对应窗口（确保用户看到最新版本），然后本实例退出。
+        static void OpenExistingInstance()
+        {
+            try
+            {
+                string edge = FindEdge();
+                if (edge == null) return;
+                var files = Directory.GetFiles(Path.GetTempPath(), "WavePaintSim_port_*.txt");
+                foreach (var file in files)
+                {
+                    try
+                    {
+                        string portText = File.ReadAllText(file).Trim();
+                        int port;
+                        if (!int.TryParse(portText, out port)) { TryDeleteStalePortFile(file); continue; }
+                        using (var tcp = new System.Net.Sockets.TcpClient())
+                        {
+                            var connect = tcp.BeginConnect("127.0.0.1", port, null, null);
+                            if (!connect.AsyncWaitHandle.WaitOne(500)) { TryDeleteStalePortFile(file); continue; }
+                            try { tcp.EndConnect(connect); } catch { TryDeleteStalePortFile(file); continue; }
+                        }
+                        var psi = new ProcessStartInfo();
+                        psi.FileName = edge;
+                        psi.Arguments = "--app=\"http://127.0.0.1:" + port + "/index.html\" --no-first-run --no-default-browser-check";
+                        psi.UseShellExecute = false;
+                        Process.Start(psi);
+                        return;
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+        }
+
+        static void TryDeleteStalePortFile(string file)
+        {
+            try { File.Delete(file); } catch { }
+        }
+
         [STAThread]
         static int Main()
         {
+            // 兜底：即使 Main 里提前 return 或进程被强制结束，也尽量清掉端口文件
+            AppDomain.CurrentDomain.ProcessExit += delegate { DeletePortFile(); };
+            try { return MainCore(); }
+            finally { DeletePortFile(); }
+        }
+
+        static int MainCore()
+        {
+            if (!TryAcquireSingleInstance())
+            {
+                OpenExistingInstance();
+                return 0;
+            }
             try { ExtractResources(Assembly.GetExecutingAssembly()); }
             catch (Exception ex) { System.Windows.Forms.MessageBox.Show("Extract failed: " + ex.Message, "WavePaintSim"); return 1; }
             lastActivity = Environment.TickCount;
@@ -435,15 +606,19 @@ namespace WaveWorkbench
             int noWindowTicks = 0;
             for (;;)
             {
+                // 仿真处理期间（iverilog/vvp 可能运行数秒到数十秒）不执行窗口/空闲退出检测，
+                // 避免 Edge 窗口标题短暂获取不到或仿真耗时较长时误杀进程导致前端 Failed to fetch
+                if (simBusy) { Thread.Sleep(500); continue; }
                 bool has = HasWindow();
                 everSeen = everSeen || has;
                 if (has) gone = 0;
                 else if (everSeen) gone++;
                 else noWindowTicks++;
                 int idle = Environment.TickCount - lastActivity;
-                if (gone > 6 && idle > 5000) break;
-                if (!everSeen && noWindowTicks > 80) break;
-                if (!everSeen && idle > 30000) break;
+                // 窗口消失 >12s 且空闲 >15s 才退出（原 3.5s/5s 过严，系统繁忙时窗口标题可能短暂获取不到）
+                if (gone > 24 && idle > 15000) break;
+                if (!everSeen && noWindowTicks > 240) break;
+                if (!everSeen && idle > 60000) break;
                 Thread.Sleep(500);
             }
 

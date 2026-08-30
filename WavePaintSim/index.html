@@ -62,17 +62,50 @@
             visibility: hidden !important;
             pointer-events: none !important;
         }
+        /* 工具栏分段控件（编辑力度 / 总线进制 共用） */
+        .seg-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 2px;
+            padding: 2px;
+            margin: 0 2px;
+            background: var(--input-bg, #fff);
+            border: 1px solid var(--border-color, #d0dcd0);
+            border-radius: var(--radius-sm, 6px);
+            white-space: nowrap;
+        }
+        .seg-toggle .gran-btn {
+            padding: 4px 8px;
+            font-size: 12px;
+            line-height: 14px;
+            font-family: inherit;
+            color: var(--text-muted, #5a6a5a);
+            background: transparent;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background-color 120ms ease, color 120ms ease;
+        }
+        .seg-toggle .gran-btn:hover {
+            background: var(--hover-bg, #e8f0e8);
+            color: var(--text-color, #1a1f1a);
+        }
+        .seg-toggle .gran-btn.active {
+            background: var(--accent, #4CAF50);
+            color: #fff;
+        }
         /* 仿真工具面板 */
                 /* 右侧仿真栏 */
         #main-area { transition: padding-right 0.2s ease; }
-        body.sim-open #main-area { padding-right: 252px; }
+        body.sim-open #main-area { padding-right: 328px; }
         #sim-panel {
             position: fixed;
             right: 0;
             top: 92px;
             bottom: 0;
-            width: 252px;
-            background: #f8faf8;
+            width: 328px;
+            background: var(--toolbar-bg, #f8faf8);
             border-left: 1px solid var(--border-color, #ccc);
             z-index: 100;
             display: flex;
@@ -84,55 +117,132 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 8px 10px;
+            padding: 10px 12px;
+            font-size: 13px;
             font-weight: 600;
-            border-bottom: 1px solid var(--border-color, #ccc);
+            color: var(--text-color, #1a1f1a);
+            border-bottom: 1px solid var(--border-color, #d0dcd0);
             cursor: pointer;
-            background: #eef5ee;
+            background: var(--header-bg, #f0f4f0);
         }
-        .sim-panel-body { flex: 1; overflow: auto; padding: 10px; display: grid; gap: 12px; align-content: start; }
-        .sim-sec-title { margin: 0 0 4px; font-size: 12px; color: #666; }
+        .sim-panel-body { flex: 1; overflow: auto; padding: 12px; display: grid; gap: 12px; align-content: start; }
+        /* 源文件区 / TB 区做成卡片，风格与主界面一致 */
+        .sim-panel-body > div:not(.sim-status):not(.sim-btns) {
+            background: var(--section-bg, #f8faf8);
+            border: 1px solid var(--section-border, #e0e8e0);
+            border-radius: var(--radius-md, 10px);
+            padding: 10px;
+            display: grid;
+            gap: 8px;
+            align-content: start;
+        }
+        .sim-sec-title { margin: 0; font-size: 12px; font-weight: 600; color: var(--text-muted, #5a6a5a); }
         .source-toolbar { display: grid; gap: 8px; align-items: start; }
         .source-files { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
         .source-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
         .source-actions button { width: 100%; }
         .source-chip {
-            border: 1px solid #cfd8cf;
-            background: #fff;
+            border: 1px solid var(--border-color, #d0dcd0);
+            background: var(--input-bg, #fff);
+            color: var(--text-color, #1a1f1a);
             border-radius: 999px;
             padding: 4px 10px;
             font-size: 12px;
             cursor: pointer;
         }
-        .source-chip.active { border-color: #4CAF50; background: #e8f5e9; color: #2e7d32; }
+        .source-chip.active { border-color: var(--accent, #4CAF50); background: var(--accent-soft, rgba(76,175,80,0.15)); color: var(--signal-color, #2e7d32); }
         #verilog-source {
             width: 100%;
             box-sizing: border-box;
             font-family: Consolas, monospace;
             font-size: 12px;
-            border: 1px solid #ccc;
-            padding: 4px;
-            background: #fff;
-            color: #111;
+            border: 1px solid var(--input-border, #c0d0c0);
+            border-radius: var(--radius-sm, 6px);
+            padding: 6px;
+            background: var(--input-bg, #fff);
+            color: var(--text-color, #1a1f1a);
             resize: vertical;
         }
+        #verilog-source:focus, #tb-source:focus { outline: none; border-color: var(--input-focus, #4CAF50); }
         #verilog-source { height: 180px; }
+        .tb-title-row { display: flex; align-items: center; justify-content: space-between; margin: 0; }
+        .tb-title-row .sim-sec-title { margin: 0; }
+        #tb-source {
+            width: 100%;
+            box-sizing: border-box;
+            font-family: Consolas, monospace;
+            font-size: 12px;
+            border: 1px solid var(--input-border, #c0d0c0);
+            border-radius: var(--radius-sm, 6px);
+            padding: 6px;
+            background: var(--section-bg, #f8faf8);
+            color: var(--text-muted, #5a6a5a);
+            resize: vertical;
+        }
+        #tb-source { height: 160px; }
         .helper-box { display: grid; gap: 6px; }
-        .helper { min-height: 28px; padding: 6px 8px; border: 1px solid #d8e0d8; background: #fff; border-radius: 8px; font-size: 12px; white-space: pre-wrap; }
+        .helper {
+            min-height: 28px;
+            padding: 6px 8px;
+            border: 1px solid var(--section-border, #e0e8e0);
+            background: var(--input-bg, #fff);
+            color: var(--text-color, #1a1f1a);
+            border-radius: var(--radius-sm, 6px);
+            font-size: 12px;
+            white-space: pre-wrap;
+        }
         .signal-list { display: grid; gap: 6px; }
         .signal-chip {
-            border: 1px solid #cfd8cf;
-            background: #fff;
-            border-radius: 8px;
+            border: 1px solid var(--border-color, #d0dcd0);
+            background: var(--input-bg, #fff);
+            color: var(--text-color, #1a1f1a);
+            border-radius: var(--radius-sm, 6px);
             padding: 6px 8px;
             font-size: 12px;
             cursor: pointer;
         }
-        .signal-chip.active { border-color: #4CAF50; background: #e8f5e9; color: #2e7d32; }
-        .sim-btns { display: flex; gap: 6px; flex-wrap: wrap; }
-        .sim-btns button { cursor: pointer; }
-        .sim-status { font-size: 12px; color: #456; }
-        #sim-toggle-btn { position: fixed; right: 0; top: 4px; z-index: 110; cursor: pointer; }</style>
+        .signal-chip.active { border-color: var(--accent, #4CAF50); background: var(--accent-soft, rgba(76,175,80,0.15)); color: var(--signal-color, #2e7d32); }
+        /* 面板内按钮统一圆角/hover/active（不改 DOM id） */
+        #sim-panel button {
+            font-family: inherit;
+            font-size: 12px;
+            line-height: 16px;
+            padding: 5px 10px;
+            color: var(--text-color, #1a1f1a);
+            background: var(--input-bg, #fff);
+            border: 1px solid var(--border-color, #d0dcd0);
+            border-radius: var(--radius-sm, 6px);
+            cursor: pointer;
+            transition: background-color 120ms ease, border-color 120ms ease;
+        }
+        #sim-panel button:hover { background: var(--hover-bg, #e8f0e8); border-color: var(--accent, #4CAF50); }
+        #sim-panel button:active { background: var(--active-bg, #d0e0d0); }
+        #sim-panel button.primary-btn, #sim-run {
+            background: var(--accent, #4CAF50);
+            border-color: var(--accent, #4CAF50);
+            color: #fff;
+            font-weight: 600;
+        }
+        #sim-panel button.primary-btn:hover, #sim-run:hover {
+            background: var(--accent-hover, #3d9141);
+            border-color: var(--accent-hover, #3d9141);
+        }
+        .sim-btns { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+        .sim-status { font-size: 12px; color: var(--text-muted, #5a6a5a); }
+        #sim-toggle-btn {
+            position: fixed;
+            right: 0;
+            top: 4px;
+            z-index: 110;
+            cursor: pointer;
+            font-size: 12px;
+            padding: 4px 10px;
+            color: #fff;
+            background: var(--accent, #4CAF50);
+            border: 1px solid var(--accent, #4CAF50);
+            border-radius: var(--radius-sm, 6px) 0 0 var(--radius-sm, 6px);
+        }
+        #sim-toggle-btn:hover { background: var(--accent-hover, #3d9141); border-color: var(--accent-hover, #3d9141); }</style>
     <script>
         (function () {
             function removeLoader() {
@@ -254,6 +364,27 @@
                         <a href="#" data-action="gray-code">格雷码计数器</a>
                     </div>
                 </div>
+                <div class="submenu">
+                    <a href="#">波形生成器 ▶</a>
+                    <div class="submenu-content">
+                        <a href="#" data-wpf-action="gen-sine">正弦波</a>
+                        <a href="#" data-wpf-action="gen-triangle">三角波</a>
+                        <a href="#" data-wpf-action="gen-sawtooth">锯齿波</a>
+                        <a href="#" data-wpf-action="gen-random">随机波形</a>
+                        <a href="#" data-wpf-action="gen-glitch">带毛刺时钟</a>
+                    </div>
+                </div>
+                <div class="submenu">
+                    <a href="#">协议模板 ▶</a>
+                    <div class="submenu-content">
+                        <a href="#" data-wpf-action="tpl-spi-write">SPI 写入</a>
+                        <a href="#" data-wpf-action="tpl-spi-read">SPI 读取</a>
+                        <a href="#" data-wpf-action="tpl-i2c-write">I2C 写入</a>
+                        <a href="#" data-wpf-action="tpl-i2c-read">I2C 读取</a>
+                        <a href="#" data-wpf-action="tpl-uart-tx">UART 发送</a>
+                        <a href="#" data-wpf-action="tpl-uart-rx">UART 接收</a>
+                    </div>
+                </div>
                 <div class="separator"></div>
                 <a href="#" data-action="blank-row">空白行</a>
             </div>
@@ -321,6 +452,17 @@
                 </a>
             </div>
         </div>
+        <!-- 编辑力度（粒度）：整步 = 一次改整个主步；子步 = 一次只改一个子格 -->
+        <div class="seg-toggle" id="granularity-toggle" title="编辑力度：整步 = 一次改整个主步（默认，仿真采样正确）；子步 = 一次只改一个子格（用于画时钟沿）">
+            <button type="button" class="gran-btn active" data-gran="step">整步</button>
+            <button type="button" class="gran-btn" data-gran="substep">子步</button>
+        </div>
+        <!-- 总线进制（F9）：作用于所有矢量信号，切换即重算 labels 并记住选择 -->
+        <div class="seg-toggle" id="bus-radix-toggle" title="总线（矢量信号）显示进制：切换后立即重算标签并记住选择">
+            <button type="button" class="gran-btn active" data-radix="dec">Dec</button>
+            <button type="button" class="gran-btn" data-radix="hex">Hex</button>
+            <button type="button" class="gran-btn" data-radix="bin">Bin</button>
+        </div>
         <button type="button" class="tool-btn" id="tool-paint" title="画笔 (P)" data-tool="paint"><img src="img/paint.svg" alt="画笔"></button>
         <button type="button" class="tool-btn" id="tool-erase" title="橡皮擦 (E)" data-tool="erase"><img src="img/erase.svg" alt="橡皮擦"></button>
         <button type="button" class="tool-btn" id="tool-select" title="选择 (S)" data-tool="select"><img src="img/selection.svg" alt="选择"></button>
@@ -361,10 +503,10 @@
     </div>
     <!-- 仿真工具面板 -->
     <!-- 右侧仿真栏 -->
-    <button id="sim-toggle-btn" title="浠跨湡宸ュ叿">浠跨湡</button>
+    <button id="sim-toggle-btn" title="仿真工具">仿真</button>
     <div id="sim-panel" class="sim-panel">
         <div class="sim-panel-header" id="sim-panel-header">
-            <span>Verilog 浠跨湡宸ュ叿</span>
+            <span>Verilog 仿真工具</span>
             <span>▾</span>
         </div>
         <div class="sim-panel-body">
@@ -376,8 +518,9 @@
                         <button id="sim-addfile">Add</button>
                         <button id="sim-removefile">Remove</button>
                         <button id="sim-parse">Parse</button>
+                        <button id="sim-addsignals" title="自动识别 RTL 端口信号并添加到绘图区">Auto RTL</button>
                         <button id="sim-tb">TB</button>
-                        <button id="sim-run">Sim</button>
+                        <button id="sim-run" class="primary-btn">Sim</button>
                     </div>
                 </div>
                 <textarea id="verilog-source" spellcheck="false"></textarea>
@@ -385,6 +528,13 @@
                     <div id="port-preview" class="helper"></div>
                     <div id="module-preview" class="helper"></div>
                 </div>
+            </div>
+            <div>
+                <div class="tb-title-row">
+                    <span class="sim-sec-title">Testbench (TB)</span>
+                    <button id="sim-tb-copy" type="button" title="复制 testbench 到剪贴板">复制</button>
+                </div>
+                <textarea id="tb-source" spellcheck="false" readonly placeholder="点击「TB」按钮生成 testbench，或点「Sim」仿真后自动生成。"></textarea>
             </div>
             <div id="sim-status" class="sim-status"></div>
             <div class="sim-btns"><button id="sim-collapse">收起</button></div>
@@ -455,6 +605,15 @@
     <script src="js/wavepaint.63e6dade.js"></script>
     <script src="js/step-commit-patch.js"></script>
     <script src="js/zh-lang-patch.js"></script>
+    <!-- feature 模块（新增功能，勿改混淆核心） -->
+    <script src="js/feature-common.js"></script>
+    <script src="js/feature-draw.js"></script>
+    <script src="js/feature-resize.js"></script>
+    <script src="js/feature-shortcuts.js"></script>
+    <script src="js/feature-select.js"></script>
+    <script src="js/feature-measure.js"></script>
+    <script src="js/feature-generator.js"></script>
+    <script src="js/feature-templates.js"></script>
     <script type="module" src="js/sim-bridge.js"></script>
 </body>
 </html>
