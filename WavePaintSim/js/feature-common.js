@@ -312,14 +312,7 @@
     }
     return name === 'hex' ? 0 : name === 'bin' ? 2 : 1; // 兜底（与核心枚举一致）
   };
-  // Radix 枚举值 ↔ 进制名（'hex'|'bin'|'dec'）互转
-  wpf.radixValueOf = function (name) {
-    const r = window.Radix;
-    if (r && typeof r.Hexadecimal === 'number') {
-      return name === 'hex' ? r.Hexadecimal : name === 'bin' ? r.Binary : r.Decimal;
-    }
-    return name === 'hex' ? 0 : name === 'bin' ? 2 : 1;
-  };
+  // Radix 枚举值 → 进制名（'hex'|'bin'|'dec'）
   wpf.radixNameOf = function (radixValue) {
     const r = window.Radix;
     if (r && typeof r.Hexadecimal === 'number') {
@@ -334,12 +327,39 @@
     return null;
   };
 
+  // 本地进制换算（与 model.js 的 formatVectorValue 等价）。
+  // ⚠ 不依赖 ESM 是否加载成功：此前若 model.js 模块加载失败，标签会退回核心的坏实现
+  //   （位串原样输出 / 带 0x 前缀），造成「切了进制但显示不变」。内联后永不再发生。
+  function localFormatVector(value, width, name) {
+    const w = Math.max(1, Number(width) || 1);
+    const text = String(value ?? '').trim().toLowerCase();
+    let bits;
+    if (/^[01xz]+$/.test(text)) {
+      bits = text.length >= w ? text.slice(-w)
+        : text.padStart(w, (text[0] === 'x' || text[0] === 'z') ? text[0] : '0');
+    } else if (/^[+-]?\d+$/.test(text)) {
+      try {
+        let n = BigInt(text);
+        if (n < 0n) n += (1n << BigInt(w));
+        bits = (n & ((1n << BigInt(w)) - 1n)).toString(2).padStart(w, '0');
+      } catch (e) { bits = '0'.repeat(w); }
+    } else {
+      bits = '0'.repeat(w);
+    }
+    if (/[xz]/.test(bits)) return bits.includes('z') && !bits.includes('x') ? 'Z' : 'X';
+    if (w <= 1) return bits;
+    if (name === 'binary') return bits;
+    try {
+      const num = BigInt('0b' + bits);
+      if (name === 'decimal') return num.toString(10);
+      return num.toString(16).toUpperCase().padStart(Math.ceil(w / 4), '0');
+    } catch (e) { return bits; }
+  }
+
   // 标签格式化（单个矢量值 → 显示文本）。
   // ⚠ 不能用核心的 valueToLabel：它假定 value 是数字，而矢量信号存的是字符串位串
   //   （如 "0011"）——字符串的 toString(radix) 会忽略参数原样返回，
   //   于是十进制显示成 "0011"、十六进制还多出 "0x" 前缀。
-  //   这里改用 model.js 的 formatVectorValue（BigInt('0b'+bits) 正确转换），
-  //   并统一去掉 0x / 0b 前缀。
   // radixName：可选覆盖（'hex'|'bin'|'dec'）。按「信号自身进制」重算时必须传，
   // 否则一律退回全局进制 —— 这正是此前「右键切换单个信号进制不生效」的原因。
   wpf.busRadixLabel = function (value, width, radixName) {
@@ -350,12 +370,7 @@
     if (mod && typeof mod.formatVectorValue === 'function') {
       try { label = mod.formatVectorValue(value, width, fmtName); } catch (e) { label = null; }
     }
-    // 兜底：用「打补丁前」的原版核心 valueToLabel（patchCoreValueToLabel 存的引用）。
-    // 不能调 document_wave.valueToLabel —— 那可能已是补丁版，会无限递归。
-    if (label == null && typeof wpf.__origCoreValueToLabel === 'function') {
-      try { label = wpf.__origCoreValueToLabel(value, wpf.radixValueOf(name)); } catch (e) { label = null; }
-    }
-    if (label == null) label = String(value ?? '');
+    if (label == null) label = localFormatVector(value, width, fmtName);
     return String(label).replace(/^0[xXbB]/, '');
   };
 
@@ -373,7 +388,6 @@
 
   // 修补核心 valueToLabel：位串按位宽正确换算并去前缀。
   // 无论标签最终由我们（refreshBusLabels）还是核心自己重算，显示都正确。
-  wpf.__origCoreValueToLabel = null;
   wpf.patchCoreValueToLabel = function () {
     const dw = window.document_wave;
     if (!dw) return false;
@@ -385,9 +399,6 @@
       }
       return text;
     };
-    if (typeof dw.valueToLabel === 'function' && wpf.__origCoreValueToLabel === null) {
-      wpf.__origCoreValueToLabel = dw.valueToLabel;
-    }
     try { dw.valueToLabel = patched; } catch (e) { /* 忽略 */ }
     const P = window.WaveDocument && window.WaveDocument.prototype;
     if (P && typeof P.valueToLabel === 'function') { try { P.valueToLabel = patched; } catch (e) { /* 忽略 */ } }
@@ -562,58 +573,58 @@
   }, 'bus-radix');
 
   // ------------------------------------------------- 总线进制右键菜单（需求 7.6）
-  // 在矢量（总线）信号的「名称区」右键，弹出 十进制/十六进制/二进制 菜单，
-  // 只改该信号自身进制（用 setSignalRadix），不动全局默认、不影响其它信号。
-  // 非总线信号 / 波形区 / 其它位置的右键一律放行（不拦截默认菜单）。
+  // 核心的画布右键菜单是 .context-menu 元素（混淆核心里拆成 'context-me'+'nu'）。
+  // 做法：**绝不拦截**核心菜单（保留重命名/删除等原功能，用户明确要求），
+  // 而是等它弹出后，把 十进制/十六进制/二进制 三项**注入**进去，当前进制打 ✓。
+  // 只改该信号自身进制（setSignalRadix），不动全局默认、不影响其它信号。
   wpf.ready(function () {
-    let menu = null;
-    function hideMenu() {
-      if (menu && menu.parentElement) menu.parentElement.removeChild(menu);
-      menu = null;
-      document.removeEventListener('mousedown', onDocDown, true);
-      document.removeEventListener('keydown', onDocKey, true);
-    }
-    function onDocDown(e) { if (!menu || !menu.contains(e.target)) hideMenu(); }
-    function onDocKey(e) { if (e.key === 'Escape') hideMenu(); }
-    function showMenu(sig, x, y) {
-      hideMenu();
-      menu = document.createElement('div');
-      menu.style.cssText = 'position:fixed;z-index:4000;display:grid;gap:2px;padding:4px;'
-        + 'background:#fff;border:1px solid #bbb;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.2);font-size:12px;';
-      const items = [['十进制', 'dec'], ['十六进制', 'hex'], ['二进制', 'bin']];
-      items.forEach(function ([label, name]) {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.textContent = label;
-        b.style.cssText = 'cursor:pointer;padding:4px 14px;text-align:left;background:#fff;border:none;border-radius:5px;';
-        b.addEventListener('mouseenter', function () { b.style.background = '#eef5ee'; });
-        b.addEventListener('mouseleave', function () { b.style.background = '#fff'; });
-        b.addEventListener('click', function (ev) {
+    function injectRadixItems(sig) {
+      const menu = document.querySelector('.context-menu');
+      if (!menu) return false;
+      // 核心可能复用同一个菜单元素：先清掉上次注入的，再重新注入（重新绑定本次的 sig）
+      menu.querySelectorAll('.wpf-radix-sep, .wpf-radix-item').forEach(function (el) { el.remove(); });
+      const sep = document.createElement('div');
+      sep.className = 'wpf-radix-sep';
+      sep.style.cssText = 'height:1px;margin:4px 8px;background:rgba(128,128,128,.35);';
+      menu.appendChild(sep);
+      const current = wpf.radixNameOf(sig.radix) || wpf.busRadix();
+      [['十进制', 'dec'], ['十六进制', 'hex'], ['二进制', 'bin']].forEach(function (pair) {
+        const label = pair[0], name = pair[1];
+        const item = document.createElement('div');
+        item.className = 'wpf-radix-item';
+        item.textContent = (current === name ? '✓ ' : '') + label;
+        item.style.cssText = 'padding:6px 16px;font-size:12px;cursor:pointer;white-space:nowrap;';
+        item.addEventListener('mouseenter', function () { item.style.background = 'rgba(128,128,128,.18)'; });
+        item.addEventListener('mouseleave', function () { item.style.background = 'transparent'; });
+        item.addEventListener('click', function (ev) {
           ev.stopPropagation();
           wpf.setSignalRadix(sig, name);
-          hideMenu();
+          // 让核心用自己的逻辑收起菜单（模拟一次菜单外的按下）；
+          // 兜底再直接隐藏，防止核心不响应时菜单挂着
+          try { document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); } catch (e2) { /* 忽略 */ }
+          setTimeout(function () {
+            if (menu.style.display !== 'none') menu.style.display = 'none';
+          }, 50);
         });
-        menu.appendChild(b);
+        menu.appendChild(item);
       });
-      document.body.appendChild(menu);
-      const mw = menu.offsetWidth, mh = menu.offsetHeight;
-      menu.style.left = Math.max(8, Math.min(x, window.innerWidth - mw - 8)) + 'px';
-      menu.style.top = Math.max(8, Math.min(y, window.innerHeight - mh - 8)) + 'px';
-      document.addEventListener('mousedown', onDocDown, true);
-      document.addEventListener('keydown', onDocKey, true);
+      return true;
     }
     document.addEventListener('contextmenu', function (e) {
+      // 只为「总线信号名」准备注入；不拦截任何东西，核心菜单照常弹出
       const m = (window.__wpf && typeof window.__wpf.mapAt === 'function') ? window.__wpf.mapAt(e.clientX, e.clientY) : null;
-      if (!m || !m.clickedOnName) return;           // 只拦截「点中信号名」
+      if (!m || !m.clickedOnName) return;
       const dw = window.document_wave;
       if (!dw || !Array.isArray(dw.m_signals) || !window.SignalType) return;
       const sig = dw.m_signals[m.signalIndex];
       if (!sig || sig.type !== window.SignalType.Vector) return;  // 仅总线
-      // 捕获阶段整体拦截：核心自己的右键菜单 + 浏览器默认菜单都不弹（用户反馈会出两个）
-      e.preventDefault();
-      e.stopPropagation();
-      e.stopImmediatePropagation();
-      showMenu(sig, e.clientX, e.clientY);
+      // 核心构建/显示菜单可能有延迟，重试几次直到找到 .context-menu
+      let tries = 0;
+      (function attempt() {
+        if (injectRadixItems(sig)) return;
+        tries += 1;
+        if (tries < 5) setTimeout(attempt, 60);
+      })();
     }, true);
   }, 'bus-radix-menu');
 })();

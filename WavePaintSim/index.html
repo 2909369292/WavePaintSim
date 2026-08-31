@@ -244,6 +244,15 @@
         #main-area.with-vcd-panel { margin-left: 0 !important; margin-bottom: 0 !important; }
         .vcd-hierarchy-panel { display: none !important; }
 
+        /* ── Bug C（真凶）：赞助栏残留占位 → 右侧白条 ───────────────────────
+           本项目没有赞助内容，但核心 CSS 在窗口 ≤1200px（非最大化）时会给
+           #main-area 留 180px 的 .sponsors-panel 占位：
+             @media (max-width:1200px){ .sponsors-panel{width:180px} #main-area{margin-right:180px} }
+           这正是截图中「仿真栏左侧那条白条」，且全屏（>1200px）时消失。
+           这里把赞助栏整个隐藏并清零占位。 */
+        .sponsors-panel { display: none !important; }
+        #main-area { margin-right: 0 !important; }
+
         /* ── Bug B：无内容的 helper 框不再占位（此前是两个常驻空白框） ──────── */
         .helper:empty, #port-preview:empty, #module-preview:empty { display: none; }
 
