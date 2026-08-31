@@ -280,7 +280,10 @@
             display: none; /* 展开时隐藏 */
         }
         body:not(.sim-open) #sim-toggle-btn { display: block; }
-        #sim-toggle-btn:hover { background: var(--accent-hover, #3d9141); border-color: var(--accent-hover, #3d9141); }</style>
+        #sim-toggle-btn:hover { background: var(--accent-hover, #3d9141); border-color: var(--accent-hover, #3d9141); }
+
+        /* ── v0.3.0 R8：值输入弹窗非法输入红框提示 ─────────────────────── */
+        #wp-modal-input.wp-modal-error { border-color: #e53935 !important; box-shadow: 0 0 0 2px rgba(229,57,53,.25) !important; }</style>
     <script>
         (function () {
             function removeLoader() {
@@ -646,6 +649,9 @@
     <script src="js/zh-lang-patch.js"></script>
     <!-- feature 模块（新增功能，勿改混淆核心） -->
     <script src="js/feature-common.js"></script>
+    <!-- v0.3.0：值输入编辑（Bit/Vector 弹窗 + 整步子步粒度 + Ctrl 框选）。
+         必须加载在 feature-draw 之前，其 document 捕获监听才能先于绘制模块判定接管。 -->
+    <script src="js/feature-value-edit.js"></script>
     <script src="js/feature-draw.js"></script>
     <script src="js/feature-resize.js"></script>
     <script src="js/feature-shortcuts.js"></script>

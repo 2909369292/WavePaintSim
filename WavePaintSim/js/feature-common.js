@@ -503,6 +503,26 @@
     return true;
   };
 
+  // 按当前编辑粒度把「目标下标列表」收敛为实际要写入的下标：
+  //   'step'   ：每个主步只留首格（writeValue 会铺满整个主步的 stride 格）
+  //   'substep'：原样返回（每个下标单独写）
+  // 供框选/值输入等批量写入路径使用（v0.3.0 R2：写入粒度跟随顶部整步/子步开关）。
+  wpf.indicesByGranularity = function (indices, stride) {
+    const s = Math.max(1, Number(stride) || wpf.stride());
+    if (wpf.editGranularity() !== 'substep') {
+      const seen = new Set();
+      const out = [];
+      for (const i of indices) {
+        const step = Math.floor(i / s);
+        if (seen.has(step)) continue;
+        seen.add(step);
+        out.push(step * s);
+      }
+      return out.sort(function (a, b) { return a - b; });
+    }
+    return Array.isArray(indices) ? indices.slice() : [];
+  };
+
   // 在指定父元素后插入节点（index.html 不便逐个改动菜单时的辅助）
   wpf.el = function (tag, attrs, children) {
     const node = document.createElement(tag);

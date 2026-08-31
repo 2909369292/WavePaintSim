@@ -113,6 +113,8 @@
 
     function onMouseDown(e) {
       if (e.button !== 0) return;
+      // Ctrl/⌘+拖动：让位给 feature-value-edit 的框选输入（v0.3.0 R5）
+      if (e.ctrlKey || e.metaKey) return;
       // 无激活工具时视为画笔（与原版默认画笔一致），确保 TimeGen 默认接管，
       // 否则用户不手动点「画笔」时落回原版绘制写子步下标 → 仿真采样不到 → 结果 0
       const tool = wpf.currentTool();

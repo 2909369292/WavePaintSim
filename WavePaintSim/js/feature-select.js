@@ -226,11 +226,22 @@
     function applyValues(kind) {
       const region = window.__wpf.selection;
       if (!region) return;
+      const range = [];
+      for (let i = region.sampleStart; i <= region.sampleEnd; i += 1) range.push(i);
       wpf.pushUndoSnapshot();
       const touched = new Set();
       for (const { sig } of regionSignals(region)) {
-        for (let i = region.sampleStart; i <= region.sampleEnd && i < sig.values.length; i += 1) {
-          sig.values[i] = nextValue(sig, sig.values[i], kind);
+        // 粒度收敛（整步=每主步首格，writeValue 铺满全步）——v0.3.0 R2
+        const targets = wpf.indicesByGranularity(range, wpf.stride());
+        // 相对操作（翻转）必须先基于原始值算好结果，再统一写，避免整步覆盖后二次取反
+        const results = new Map();
+        for (const i of targets) {
+          if (i >= sig.values.length) continue;
+          results.set(i, nextValue(sig, sig.values[i], kind));
+        }
+        for (const i of targets) {
+          if (i >= sig.values.length) continue;
+          wpf.writeValue(sig, i, results.get(i));
         }
         touched.add(sig);
       }
@@ -240,26 +251,29 @@
       wpf.scheduleRedraw();
     }
 
-    // 自定义输入：把 raw 写到选中范围内的总线（位串），位信号写 1/0/x
+    // 自定义输入：把 raw 写到选中范围内的总线（位串），位信号写 1/0/x/z
     function applyCustom(raw) {
       const region = window.__wpf.selection;
       if (!region) return;
       const text = String(raw == null ? '' : raw).trim();
       if (!text) return;
+      const range = [];
+      for (let i = region.sampleStart; i <= region.sampleEnd; i += 1) range.push(i);
       wpf.pushUndoSnapshot();
       const touched = new Set();
       for (const { sig } of regionSignals(region)) {
+        const targets = wpf.indicesByGranularity(range, wpf.stride());
         if (isVector(sig)) {
           const bits = parseBusInput(text, vectorWidth(sig));
-          for (let i = region.sampleStart; i <= region.sampleEnd && i < sig.values.length; i += 1) {
-            sig.values[i] = bits;
+          for (const i of targets) {
+            if (i < sig.values.length) wpf.writeValue(sig, i, bits);
           }
         } else {
           const t = text.toLowerCase();
-          const v = t === '1' ? 1 : t === '0' ? 0 : (/^[xz]$/.test(t) ? -1 : null);
+          const v = t === '1' ? 1 : t === '0' ? 0 : t === 'x' ? -1 : t === 'z' ? 2 : null;
           if (v === null) continue;
-          for (let i = region.sampleStart; i <= region.sampleEnd && i < sig.values.length; i += 1) {
-            sig.values[i] = v;
+          for (const i of targets) {
+            if (i < sig.values.length) wpf.writeValue(sig, i, v);
           }
         }
         touched.add(sig);

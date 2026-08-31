@@ -589,6 +589,25 @@ test("总线进制映射到核心 Radix 枚举并作用于全部矢量信号", (
 });
 
 // ---------------------------------------------------------------------------
+// v0.3.0 R2：写入粒度收敛 indicesByGranularity（整步=每主步首格 / 子步=原样）
+// ---------------------------------------------------------------------------
+test("indicesByGranularity：整步收敛到每主步首格、子步原样（v0.3.0 R2）", () => {
+  const wpf = globalThis.window.__wpf;
+  // stride=2（子步=1）
+  const stride = 2;
+  const range = [2, 3, 4, 5, 6]; // 覆盖主步 1,2,3
+  localStorage.setItem("wpf.editGranularity", "step");
+  assert.deepEqual(wpf.indicesByGranularity(range, stride), [2, 4, 6], "整步：只留每个主步的首格");
+  localStorage.setItem("wpf.editGranularity", "substep");
+  assert.deepEqual(wpf.indicesByGranularity(range, stride), [2, 3, 4, 5, 6], "子步：原样返回");
+  // 空输入
+  assert.deepEqual(wpf.indicesByGranularity([], stride), [], "空数组安全");
+  // 乱序去重
+  localStorage.setItem("wpf.editGranularity", "step");
+  assert.deepEqual(wpf.indicesByGranularity([5, 2, 6, 3], stride), [2, 4, 6], "整步：乱序也按主步去重收敛");
+});
+
+// ---------------------------------------------------------------------------
 console.log("\n" + "-".repeat(56));
 if (failures.length) {
   console.log(`失败 ${failures.length} 项，通过 ${passed} 项`);
