@@ -65,3 +65,20 @@
   （`window.__wpf` / `document_wave` / `SignalType` / `Radix` / `mapCanvasPosition`）编程。
 - 应用跑在 **HTTP**（启动器的 HttpListener，127.0.0.1），不是 file://，
   所以 `<script type="module">` 能正常加载（不存在 file:// 的 CORS 问题）。
+
+## 七、总线标签/进制的正确姿势（第七轮教训）
+
+- **标签重算必须按「信号自身 radix」**：`refreshBusLabels` 用 `wpf.radixNameOf(sig.radix)`
+  推导进制，没有 radix 才退回全局。只读全局进制的话，「右键给单个信号切进制」永远不生效
+  （设了 sig.radix 也被全局覆盖）——2026-08-31 用户实测踩过。
+- **核心 `valueToLabel` 已被打补丁**（`wpf.patchCoreValueToLabel`，幂等，在 bus-radix 启动块调用）：
+  位串按位宽换算、去 0x/0b 前缀、-1→X。核心自己重算标签的路径也因此正确。
+  ⚠ 原实现引用存于 `wpf.__origCoreValueToLabel`，`busRadixLabel` 的兜底必须用它——
+  直接调 `document_wave.valueToLabel` 会调到补丁版 → **无限递归**。
+- **核心右键菜单**：总线信号名上右键时我们在捕获阶段
+  `preventDefault + stopPropagation + stopImmediatePropagation`，只弹自己的进制菜单；
+  非总线位置不拦截（核心菜单照常）。若未来要往核心菜单注入项，先探测其菜单 DOM。
+- **`with-vcd-panel` 类从未被加到 `#main-area`**（核心 JS 里仅出现在拼 HTML 字符串处）——
+  针对 `#main-area.with-vcd-panel` 的 margin 覆盖不是空白条的真正解药。
+  空白条主嫌疑是核心动态构建的 `.vcd-hierarchy-panel` 空面板，已用
+  `display:none !important` 堵住；**若用户再报空白条，直接要截图定位，别再猜。**
