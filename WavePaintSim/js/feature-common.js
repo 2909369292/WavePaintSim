@@ -400,8 +400,15 @@
       return text;
     };
     try { dw.valueToLabel = patched; } catch (e) { /* 忽略 */ }
+    // 原型链也要补：核心内部可能通过原型方法调用（window.WaveDocument 不一定暴露）。
+    // 沿原型链把所有 valueToLabel 都换掉，覆盖「实例方法 / 原型方法」两种调用方式。
+    let proto = Object.getPrototypeOf(dw);
+    while (proto && proto !== Object.prototype) {
+      if (typeof proto.valueToLabel === 'function') { try { proto.valueToLabel = patched; } catch (e2) { /* 忽略 */ } }
+      proto = Object.getPrototypeOf(proto);
+    }
     const P = window.WaveDocument && window.WaveDocument.prototype;
-    if (P && typeof P.valueToLabel === 'function') { try { P.valueToLabel = patched; } catch (e) { /* 忽略 */ } }
+    if (P && typeof P.valueToLabel === 'function') { try { P.valueToLabel = patched; } catch (e3) { /* 忽略 */ } }
     return true;
   };
 
@@ -573,58 +580,10 @@
   }, 'bus-radix');
 
   // ------------------------------------------------- 总线进制右键菜单（需求 7.6）
-  // 核心的画布右键菜单是 .context-menu 元素（混淆核心里拆成 'context-me'+'nu'）。
-  // 做法：**绝不拦截**核心菜单（保留重命名/删除等原功能，用户明确要求），
-  // 而是等它弹出后，把 十进制/十六进制/二进制 三项**注入**进去，当前进制打 ✓。
-  // 只改该信号自身进制（setSignalRadix），不动全局默认、不影响其它信号。
-  wpf.ready(function () {
-    function injectRadixItems(sig) {
-      const menu = document.querySelector('.context-menu');
-      if (!menu) return false;
-      // 核心可能复用同一个菜单元素：先清掉上次注入的，再重新注入（重新绑定本次的 sig）
-      menu.querySelectorAll('.wpf-radix-sep, .wpf-radix-item').forEach(function (el) { el.remove(); });
-      const sep = document.createElement('div');
-      sep.className = 'wpf-radix-sep';
-      sep.style.cssText = 'height:1px;margin:4px 8px;background:rgba(128,128,128,.35);';
-      menu.appendChild(sep);
-      const current = wpf.radixNameOf(sig.radix) || wpf.busRadix();
-      [['十进制', 'dec'], ['十六进制', 'hex'], ['二进制', 'bin']].forEach(function (pair) {
-        const label = pair[0], name = pair[1];
-        const item = document.createElement('div');
-        item.className = 'wpf-radix-item';
-        item.textContent = (current === name ? '✓ ' : '') + label;
-        item.style.cssText = 'padding:6px 16px;font-size:12px;cursor:pointer;white-space:nowrap;';
-        item.addEventListener('mouseenter', function () { item.style.background = 'rgba(128,128,128,.18)'; });
-        item.addEventListener('mouseleave', function () { item.style.background = 'transparent'; });
-        item.addEventListener('click', function (ev) {
-          ev.stopPropagation();
-          wpf.setSignalRadix(sig, name);
-          // 让核心用自己的逻辑收起菜单（模拟一次菜单外的按下）；
-          // 兜底再直接隐藏，防止核心不响应时菜单挂着
-          try { document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); } catch (e2) { /* 忽略 */ }
-          setTimeout(function () {
-            if (menu.style.display !== 'none') menu.style.display = 'none';
-          }, 50);
-        });
-        menu.appendChild(item);
-      });
-      return true;
-    }
-    document.addEventListener('contextmenu', function (e) {
-      // 只为「总线信号名」准备注入；不拦截任何东西，核心菜单照常弹出
-      const m = (window.__wpf && typeof window.__wpf.mapAt === 'function') ? window.__wpf.mapAt(e.clientX, e.clientY) : null;
-      if (!m || !m.clickedOnName) return;
-      const dw = window.document_wave;
-      if (!dw || !Array.isArray(dw.m_signals) || !window.SignalType) return;
-      const sig = dw.m_signals[m.signalIndex];
-      if (!sig || sig.type !== window.SignalType.Vector) return;  // 仅总线
-      // 核心构建/显示菜单可能有延迟，重试几次直到找到 .context-menu
-      let tries = 0;
-      (function attempt() {
-        if (injectRadixItems(sig)) return;
-        tries += 1;
-        if (tries < 5) setTimeout(attempt, 60);
-      })();
-    }, true);
-  }, 'bus-radix-menu');
+  // ★ 已放弃「自绘菜单 / 注入菜单」两个方案（用户实测否决）：
+  //   自绘 → 与核心菜单并存；注入 → 分隔线风格不符、二次右键闪烁、
+  //   且核心右键菜单**本身就自带进制转换项**，注入属于重复冲突。
+  //   最终方案：直接用核心自带的右键进制项，本模块只保证转换结果的正确性 ——
+  //   即 patchCoreValueToLabel（位串按位宽换算、去前缀）+ refreshBusLabels（按信号自身 radix）。
+  //   setSignalRadix 仍保留供编程调用，但不再挂任何 UI。
 })();
