@@ -1,5 +1,11 @@
 import { formatVectorValue, normalizeVectorValue } from "./model.js";
 
+// 总线标签统一不带 0x/0b 前缀（需求：进制显示不带前缀）。
+// formatVectorValue 的 hex 分支会返回 "0x..."，这里剥掉，供仿真结果标签使用。
+export function formatBusLabel(value, width, radix = "hexadecimal") {
+  return String(formatVectorValue(value, width, radix)).replace(/^0[xXbB]/, "");
+}
+
 function stripComments(source) {
   return String(source || "")
     .replace(/\/\/.*$/gm, " ")
@@ -917,7 +923,8 @@ export function vcdToProjectOutputs(vcdText, project) {
         radix: "hexadecimal",
         scope: signal.scope || "",
         values,
-        labels: Array.from({ length: timeSteps }, (_, index) => formatVectorValue(values[index], signal.width > 1 ? signal.width : 1, "hexadecimal"))
+        labels: Array.from({ length: timeSteps }, (_, index) =>
+          formatBusLabel(values[index], signal.width > 1 ? signal.width : 1, "hexadecimal"))
       });
     }
     return signals;

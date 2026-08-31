@@ -43,6 +43,11 @@ function toNativeBitValue(value) {
   return -1; // x / 未知 → UNDEFINED
 }
 
+// 总线标签统一不带 0x/0b 前缀（与 feature-common 的 busRadixLabel 口径一致）
+function busLabel(value, width, radix) {
+  return String(formatVectorValue(value, width, radix || "hexadecimal")).replace(/^0[xXbB]/, "");
+}
+
 // 反向：原版数字编码 → 字符串（供仿真/项目模型使用）
 function fromNativeBitValue(value) {
   const n = Number(value);
@@ -235,7 +240,7 @@ function toNativeSignal(output, index, template, effectiveCount, options = {}) {
     return normalizeVectorValue(sourceValues[Math.max(0, mainStep)], width);
   });
   const values = width > 1 ? rawValues : rawValues.map(toNativeBitValue);
-  const labels = Array.from({ length: effectiveCount }, (_, cell) => width > 1 ? formatVectorValue(rawValues[cell], width, output?.radix || "hexadecimal") : "");
+  const labels = Array.from({ length: effectiveCount }, (_, cell) => width > 1 ? busLabel(rawValues[cell], width, output?.radix || "hexadecimal") : "");
   const kind = options.kind || (width > 1 ? "vector" : "logic");
   base.id = output?.id || `sim_${index}`;
   base.name = output?.name || `signal_${index + 1}`;
@@ -375,7 +380,7 @@ function readWaveDocument() {
         lsb: width > 1 ? "0" : "",
         radix: "hexadecimal",
         values,
-        labels: Array.from({ length: timeSteps }, (_, cell) => width > 1 ? formatVectorValue(values[cell], width, "hexadecimal") : "")
+        labels: Array.from({ length: timeSteps }, (_, cell) => width > 1 ? busLabel(values[cell], width, "hexadecimal") : "")
       };
     }),
     outputs: []
@@ -583,7 +588,7 @@ function summarizeOutputs(outputs) {
     const width = Math.max(1, Number(signal.width) || 1);
     const finalValue = signal.values?.[signal.values.length - 1];
     const formatted = width > 1
-      ? formatVectorValue(finalValue, width, "hexadecimal")
+      ? busLabel(finalValue, width, "hexadecimal")
       : normalizeVectorValue(finalValue, 1);
     return `${signal.name}=${formatted}`;
   }).join("; ");
