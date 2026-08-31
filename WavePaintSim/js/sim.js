@@ -721,6 +721,24 @@ export function buildAutoTestbench(design, project = {}) {
   const events = [];
   for (const binding of inputBindings) {
     const signal = binding.signal;
+    // 时钟按子步粒度翻转（readWaveDocument 传来的每格序列）：用分数时间驱动，
+    // 使仿真频率与画布显示一致（每格 1/stride 个时间单位，一个主步内完成 1→0 翻转
+    // → 每主步一个上升沿）。普通时钟/其它信号仍走主步整值驱动。
+    const clockCells = (signal.kind === "clock"
+      && Array.isArray(signal.clockCells) && signal.clockCells.length >= 2)
+      ? signal.clockCells : null;
+    if (clockCells) {
+      const stride = Math.max(1, Number(project.subSteps) + 1);
+      let previous = formatVerilogValue(clockCells[0], binding.port.width);
+      events.push({ time: 0, clock: true, text: `${binding.port.name} = ${previous};` });
+      for (let k = 1; k < clockCells.length; k += 1) {
+        const current = formatVerilogValue(clockCells[k], binding.port.width);
+        if (current === previous) continue;
+        events.push({ time: k / stride, clock: true, text: `${binding.port.name} = ${current};` });
+        previous = current;
+      }
+      continue;
+    }
     // 复位端口补齐上电复位脉冲（仅当用户从未画出复位沿时）。
     // 注意：只影响生成的 TB，不改动画布上的原始波形。
     const rawValues = ensureResetPulse(Array.isArray(signal.values) ? signal.values : [], binding.port.name);

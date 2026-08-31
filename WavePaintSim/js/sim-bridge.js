@@ -364,15 +364,13 @@ function readWaveDocument() {
     signals: signals.map((sig, index) => {
       const rawValues = Array.isArray(sig?.values) ? sig.values : [];
       const width = inferWidth(sig, rawValues);
-      // 时钟按「子步粒度」翻转（每格交替、从 1 开始，见 addPortSignalsToCanvas）时，
-      // 若按主值采样会取到每步第 1 格 → 恒为 1 → 时钟沿全丢 → 仿真退化。
-      // 这里仅对「时钟信号 + 每格交替」重建为主步级 1,0,1,0…。
-      // ⚠ 第五轮教训：启发式绝不能对普通数据信号生效，必须限定 isClockPattern/kind=clock。
+      // 时钟若按子步粒度翻转（每格交替，见 addPortSignalsToCanvas），把每格序列原样
+      // 传给 buildAutoTestbench，由 TB 用分数时间驱动 → 仿真频率与画布显示一致。
+      // ⚠ 只对 isClockPattern/kind=clock 信号生效（第五轮 isAlternating 教训）。
       const isClock = !!sig.isClockPattern || sig.kind === "clock";
       const altClock = width <= 1 && isClock && isAlternatingCells(rawValues);
-      const clockStartOne = altClock ? fromNativeBitValue(rawValues[0]) === "1" : false;
+      const clockCells = altClock ? rawValues.map(fromNativeBitValue) : undefined;
       const values = Array.from({ length: timeSteps }, (_, cell) => {
-        if (altClock) return clockStartOne ? (cell % 2 === 0 ? "1" : "0") : (cell % 2 === 0 ? "0" : "1");
         // 兜底采样：主值（每步第 1 个）优先；若主值为 x/空，取该主步内第一个确定值。
         // 解决“用户画在子步下标（奇数）时仿真采不到”导致的恒 0 问题。
         const raw = sampleMainValue(rawValues, stride, cell, timeSteps);
@@ -388,6 +386,7 @@ function readWaveDocument() {
         lsb: width > 1 ? "0" : "",
         radix: "hexadecimal",
         values,
+        clockCells,
         labels: Array.from({ length: timeSteps }, (_, cell) => width > 1 ? busLabel(values[cell], width, "hexadecimal") : "")
       };
     }),
