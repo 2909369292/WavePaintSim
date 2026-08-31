@@ -364,7 +364,15 @@ function readWaveDocument() {
     signals: signals.map((sig, index) => {
       const rawValues = Array.isArray(sig?.values) ? sig.values : [];
       const width = inferWidth(sig, rawValues);
+      // 时钟按「子步粒度」翻转（每格交替、从 1 开始，见 addPortSignalsToCanvas）时，
+      // 若按主值采样会取到每步第 1 格 → 恒为 1 → 时钟沿全丢 → 仿真退化。
+      // 这里仅对「时钟信号 + 每格交替」重建为主步级 1,0,1,0…。
+      // ⚠ 第五轮教训：启发式绝不能对普通数据信号生效，必须限定 isClockPattern/kind=clock。
+      const isClock = !!sig.isClockPattern || sig.kind === "clock";
+      const altClock = width <= 1 && isClock && isAlternatingCells(rawValues);
+      const clockStartOne = altClock ? fromNativeBitValue(rawValues[0]) === "1" : false;
       const values = Array.from({ length: timeSteps }, (_, cell) => {
+        if (altClock) return clockStartOne ? (cell % 2 === 0 ? "1" : "0") : (cell % 2 === 0 ? "0" : "1");
         // 兜底采样：主值（每步第 1 个）优先；若主值为 x/空，取该主步内第一个确定值。
         // 解决“用户画在子步下标（奇数）时仿真采不到”导致的恒 0 问题。
         const raw = sampleMainValue(rawValues, stride, cell, timeSteps);
@@ -385,6 +393,19 @@ function readWaveDocument() {
     }),
     outputs: []
   };
+}
+
+// 检测「每一格都与前一格相反」的交替位串（子步级时钟，1,0,1,0…）。
+// 只由 readWaveDocument 在对 isClockPattern 信号检查时使用，避免误伤普通数据信号。
+function isAlternatingCells(values) {
+  if (!Array.isArray(values) || values.length < 2) return false;
+  let prev = fromNativeBitValue(values[0]);
+  for (let i = 1; i < values.length; i += 1) {
+    const cur = fromNativeBitValue(values[i]);
+    if (cur === prev) return false;
+    prev = cur;
+  }
+  return true;
 }
 
 function inferWidth(sig, values) {
@@ -569,6 +590,13 @@ function addPortSignalsToCanvas() {
       groupColor: null,
       groupPath: null
     });
+    // 时钟按「子步粒度」翻转、从 1 开始：每个格子 1,0,1,0,1,0...
+    // （readWaveDocument 对 isClockPattern 的交替时钟做主步重建，仿真仍能拿到时钟沿；
+    //   只影响自动添加的时钟预填，不动用户已画好的波形。）
+    if (signal.kind === "clock" && Array.isArray(native.values)) {
+      for (let i = 0; i < native.values.length; i += 1) native.values[i] = (i % 2 === 0) ? 1 : 0;
+      if (Array.isArray(native.labels)) native.labels.fill("");
+    }
     existing.push(native);
     names.add(key);
     added += 1;
