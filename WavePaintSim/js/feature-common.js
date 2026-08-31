@@ -312,26 +312,66 @@
     }
     return name === 'hex' ? 0 : name === 'bin' ? 2 : 1; // 兜底（与核心枚举一致）
   };
+  // 标签格式化（单个矢量值 → 显示文本）。
+  // ⚠ 不能用核心的 document_wave.valueToLabel：它假定 value 是数字，
+  //   而矢量信号存的是字符串位串（如 "0011"）——字符串的 toString(radix) 会忽略
+  //   参数原样返回，于是十进制显示成 "0011"、十六进制还多出 "0x" 前缀。
+  //   这里改用 model.js 的 formatVectorValue（BigInt('0b'+bits) 正确转换），
+  //   并统一去掉 0x / 0b 前缀（需求：总线进制显示不带前缀）。
+  wpf.busRadixLabel = function (value, width) {
+    const name = wpf.busRadix();
+    const radixName = name === 'hex' ? 'hexadecimal' : name === 'bin' ? 'binary' : 'decimal';
+    let label = null;
+    const mod = window.__wpfVec;
+    if (mod && typeof mod.formatVectorValue === 'function') {
+      try { label = mod.formatVectorValue(value, width, radixName); } catch (e) { label = null; }
+    }
+    if (label == null && window.document_wave && typeof window.document_wave.valueToLabel === 'function') {
+      try { label = window.document_wave.valueToLabel(value, wpf.busRadixValue()); } catch (e) { label = null; }
+    }
+    if (label == null) label = String(value ?? '');
+    // 统一去掉进制前缀，直接显示数值
+    return String(label).replace(/^0[xXbB]/, '');
+  };
+
+  // 按信号自身宽度重算单个矢量信号的全部标签；返回 1 表示处理过
+  wpf.refreshBusLabels = function (sig) {
+    if (!sig || !Array.isArray(sig.values) || !Array.isArray(sig.labels)) return 0;
+    const width = Math.max(1, Number(sig.width) || 1);
+    for (let k = 0; k < sig.values.length && k < sig.labels.length; k += 1) {
+      sig.labels[k] = width > 1 ? wpf.busRadixLabel(sig.values[k], width) : '';
+    }
+    return 1;
+  };
+
   // 把当前进制写到所有矢量信号并重算标签；返回命中的矢量信号数
   wpf.applyBusRadix = function () {
     const dw = window.document_wave;
     if (!dw || !Array.isArray(dw.m_signals) || !window.SignalType) return 0;
     const radix = wpf.busRadixValue();
-    const fmt = (typeof dw.valueToLabel === 'function')
-      ? function (v) { return dw.valueToLabel(v, radix); } : null;
     let count = 0;
     for (let i = 0; i < dw.m_signals.length; i += 1) {
       const sig = dw.m_signals[i];
       if (!sig || sig.type !== window.SignalType.Vector) continue;
       sig.radix = radix;
-      if (fmt && Array.isArray(sig.values) && Array.isArray(sig.labels)) {
-        for (let k = 0; k < sig.values.length && k < sig.labels.length; k += 1) {
-          sig.labels[k] = fmt(sig.values[k]);
-        }
-      }
+      wpf.refreshBusLabels(sig);
       count += 1;
     }
     return count;
+  };
+  // 只改单个信号的进制（总线右键菜单用），name 为 'dec'|'hex'|'bin'。
+  // 不改动全局默认进制，也不影响其他信号。
+  wpf.setSignalRadix = function (sig, name) {
+    if (!sig || !window.SignalType || sig.type !== window.SignalType.Vector) return false;
+    const r = window.Radix;
+    const value = (r && typeof r.Hexadecimal === 'number')
+      ? (name === 'hex' ? r.Hexadecimal : name === 'bin' ? r.Binary : r.Decimal)
+      : (name === 'hex' ? 0 : name === 'bin' ? 2 : 1);
+    wpf.pushUndoSnapshot();
+    sig.radix = value;
+    wpf.refreshBusLabels(sig);
+    wpf.scheduleRedraw();
+    return true;
   };
   wpf.setBusRadix = function (name) {
     localStorage.setItem(BUS_RADIX_KEY, (name === 'hex' || name === 'bin') ? name : 'dec');
@@ -469,4 +509,57 @@
       if (n > 0) wpf.scheduleRedraw();
     })();
   }, 'bus-radix');
+
+  // ------------------------------------------------- 总线进制右键菜单（需求 7.6）
+  // 在矢量（总线）信号的「名称区」右键，弹出 十进制/十六进制/二进制 菜单，
+  // 只改该信号自身进制（用 setSignalRadix），不动全局默认、不影响其它信号。
+  // 非总线信号 / 波形区 / 其它位置的右键一律放行（不拦截默认菜单）。
+  wpf.ready(function () {
+    let menu = null;
+    function hideMenu() {
+      if (menu && menu.parentElement) menu.parentElement.removeChild(menu);
+      menu = null;
+      document.removeEventListener('mousedown', onDocDown, true);
+      document.removeEventListener('keydown', onDocKey, true);
+    }
+    function onDocDown(e) { if (!menu || !menu.contains(e.target)) hideMenu(); }
+    function onDocKey(e) { if (e.key === 'Escape') hideMenu(); }
+    function showMenu(sig, x, y) {
+      hideMenu();
+      menu = document.createElement('div');
+      menu.style.cssText = 'position:fixed;z-index:4000;display:grid;gap:2px;padding:4px;'
+        + 'background:#fff;border:1px solid #bbb;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.2);font-size:12px;';
+      const items = [['十进制', 'dec'], ['十六进制', 'hex'], ['二进制', 'bin']];
+      items.forEach(function ([label, name]) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = label;
+        b.style.cssText = 'cursor:pointer;padding:4px 14px;text-align:left;background:#fff;border:none;border-radius:5px;';
+        b.addEventListener('mouseenter', function () { b.style.background = '#eef5ee'; });
+        b.addEventListener('mouseleave', function () { b.style.background = '#fff'; });
+        b.addEventListener('click', function (ev) {
+          ev.stopPropagation();
+          wpf.setSignalRadix(sig, name);
+          hideMenu();
+        });
+        menu.appendChild(b);
+      });
+      document.body.appendChild(menu);
+      const mw = menu.offsetWidth, mh = menu.offsetHeight;
+      menu.style.left = Math.max(8, Math.min(x, window.innerWidth - mw - 8)) + 'px';
+      menu.style.top = Math.max(8, Math.min(y, window.innerHeight - mh - 8)) + 'px';
+      document.addEventListener('mousedown', onDocDown, true);
+      document.addEventListener('keydown', onDocKey, true);
+    }
+    document.addEventListener('contextmenu', function (e) {
+      const m = (window.__wpf && typeof window.__wpf.mapAt === 'function') ? window.__wpf.mapAt(e.clientX, e.clientY) : null;
+      if (!m || !m.clickedOnName) return;           // 只拦截「点中信号名」
+      const dw = window.document_wave;
+      if (!dw || !Array.isArray(dw.m_signals) || !window.SignalType) return;
+      const sig = dw.m_signals[m.signalIndex];
+      if (!sig || sig.type !== window.SignalType.Vector) return;  // 仅总线
+      e.preventDefault();                            // 抑制默认右键菜单，改弹我们自己的
+      showMenu(sig, e.clientX, e.clientY);
+    }, true);
+  }, 'bus-radix-menu');
 })();

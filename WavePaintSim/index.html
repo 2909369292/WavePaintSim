@@ -7,6 +7,10 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>WavePaint 波形编辑</title>
+    <!-- 应用图标：Edge 以 --app 模式运行时，任务栏图标取自页面 favicon。
+         缺失 favicon 正是「任务栏图标空白」的原因之一。 -->
+    <link rel="icon" type="image/svg+xml" href="img/favicon.svg">
+    <link rel="alternate icon" type="image/x-icon" href="img/app.ico">
     <link rel="stylesheet" href="css/wavepaint.e7b903ef.css">
     <!-- WaveDrom Library for live preview - must load early (localized for offline use) -->
     <script src="lib/wavedrom-skin.js"></script>
@@ -229,19 +233,41 @@
         }
         .sim-btns { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
         .sim-status { font-size: 12px; color: var(--text-muted, #5a6a5a); }
+
+        /* ── Bug C：清除主区/侧边栏左侧遗留空白条 ─────────────────────────
+           核心会给 #main-area 加 with-vcd-panel（VCD 层级面板占位），而核心 CSS
+           有 #main-area.with-vcd-panel{margin-bottom:40vh}。本项目不启用该面板
+           （核心无代码操作它），却因此被永久空出 40% 视口，侧边栏全高显出左侧空白。
+           这里彻底清零。 */
+        #main-area.with-vcd-panel { margin-left: 0 !important; margin-bottom: 0 !important; }
+
+        /* ── Bug B：无内容的 helper 框不再占位（此前是两个常驻空白框） ──────── */
+        .helper:empty, #port-preview:empty, #module-preview:empty { display: none; }
+
+        /* ── Bug A：侧边栏收起后必须有可点的「展开」入口 ─────────────────────
+           原 #sim-toggle-btn 定位 top:4px、z-index:110，正落在 #menu-bar
+           （高 ~40px、z-index:6000）下方被完全盖住，收起后点不到 → 无法再展开。
+           改为：面板展开时隐藏本按钮（避免与菜单栏重叠）；收起时（body 无 sim-open）
+           贴在右缘垂直中部、z-index 高于菜单栏，作为唯一展开入口。 */
         #sim-toggle-btn {
             position: fixed;
             right: 0;
-            top: 4px;
-            z-index: 110;
+            top: 50%;
+            transform: translateY(-50%);
+            z-index: 6500;
+            writing-mode: vertical-rl;
+            padding: 12px 5px;
+            letter-spacing: 2px;
             cursor: pointer;
             font-size: 12px;
-            padding: 4px 10px;
             color: #fff;
             background: var(--accent, #4CAF50);
             border: 1px solid var(--accent, #4CAF50);
             border-radius: var(--radius-sm, 6px) 0 0 var(--radius-sm, 6px);
+            box-shadow: -2px 0 8px rgba(0,0,0,0.18);
+            display: none; /* 展开时隐藏 */
         }
+        body:not(.sim-open) #sim-toggle-btn { display: block; }
         #sim-toggle-btn:hover { background: var(--accent-hover, #3d9141); border-color: var(--accent-hover, #3d9141); }</style>
     <script>
         (function () {
@@ -614,6 +640,13 @@
     <script src="js/feature-measure.js"></script>
     <script src="js/feature-generator.js"></script>
     <script src="js/feature-templates.js"></script>
+    <!-- model.js 是 ESM，feature-* 都是普通 script 无法直接 import。
+         这里把矢量值处理函数挂到 window，供 feature-select.js / feature-common.js 使用
+         （module 为 defer 语义，晚于普通 script；使用方都在用户交互时才读取，故安全）。 -->
+    <script type="module">
+        import { normalizeVectorValue, formatVectorValue } from './js/model.js';
+        window.__wpfVec = { normalizeVectorValue, formatVectorValue };
+    </script>
     <script type="module" src="js/sim-bridge.js"></script>
 </body>
 </html>

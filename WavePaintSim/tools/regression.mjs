@@ -17,6 +17,7 @@ import assert from "node:assert/strict";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { formatVectorValue, normalizeVectorValue } from "../js/model.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
@@ -527,16 +528,17 @@ test("总线进制映射到核心 Radix 枚举并作用于全部矢量信号", (
   const used = [];
   const dw = {
     m_signals: [
-      { name: "clk", type: 0, radix: 1, values: ["0"], labels: ["0"] },
+      { name: "clk", type: 0, radix: 1, width: 1, values: ["0"], labels: ["0"] },
       {
         name: "data",
         type: 1,
         radix: 1,
+        width: 4,
         values: ["1010", "1111"],
         labels: ["old", "old"],
         __fmtCalls: 0
       },
-      { name: "addr", type: 1, radix: 1, values: ["0011"], labels: ["old"] }
+      { name: "addr", type: 1, radix: 1, width: 4, values: ["0011"], labels: ["old"] }
     ],
     valueToLabel(v, radix) {
       used.push([v, radix]);
@@ -544,6 +546,8 @@ test("总线进制映射到核心 Radix 枚举并作用于全部矢量信号", (
     }
   };
   globalThis.window.document_wave = dw;
+  // 让 busRadixLabel 走真实生产路径（model.js 的 formatVectorValue，去 0x/0b 前缀）
+  globalThis.window.__wpfVec = { formatVectorValue, normalizeVectorValue };
   localStorage.removeItem("wpf.busRadix");
   assert.equal(wpf.busRadix(), "dec", "默认十进制");
   assert.equal(wpf.busRadixValue(), 1, "dec → Radix.Decimal(1)");
@@ -553,12 +557,16 @@ test("总线进制映射到核心 Radix 枚举并作用于全部矢量信号", (
   assert.equal(dw.m_signals[1].radix, 0);
   assert.equal(dw.m_signals[2].radix, 0);
   assert.equal(dw.m_signals[0].radix, 1, "位信号不应被改");
-  assert.deepEqual(dw.m_signals[1].labels, ["1010@0", "1111@0"], "labels 应用 valueToLabel 重算");
-  assert.deepEqual(dw.m_signals[2].labels, ["0011@0"]);
+  assert.deepEqual(dw.m_signals[1].labels, ["A", "F"], "hex 标签去前缀：1010→A、1111→F");
+  assert.deepEqual(dw.m_signals[2].labels, ["3"], "hex 标签去前缀：0011→3");
 
   wpf.setBusRadix("bin");
   assert.equal(wpf.busRadixValue(), 2, "bin → Radix.Binary(2)");
-  assert.deepEqual(dw.m_signals[1].labels, ["1010@2", "1111@2"]);
+  assert.deepEqual(dw.m_signals[1].labels, ["1010", "1111"], "bin 标签无 0b 前缀");
+
+  wpf.setBusRadix("dec");
+  assert.equal(wpf.busRadixValue(), 1, "dec → Radix.Decimal(1)");
+  assert.deepEqual(dw.m_signals[1].labels, ["10", "15"], "dec 标签是真实十进制（非位串 1010）");
 
   wpf.setBusRadix("nonsense");
   assert.equal(wpf.busRadixValue(), 1, "非法值回落为 dec");

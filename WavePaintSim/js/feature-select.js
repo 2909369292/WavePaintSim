@@ -145,22 +145,128 @@
       const out = [];
       for (let i = region.signalStart; i <= region.signalEnd && i < dw.m_signals.length; i += 1) {
         const sig = dw.m_signals[i];
-        if (sig && window.SignalType && sig.type === window.SignalType.Bit && Array.isArray(sig.values)) {
+        if (!sig || !window.SignalType || !Array.isArray(sig.values)) continue;
+        if (sig.type === window.SignalType.Bit || sig.type === window.SignalType.Vector) {
           out.push({ index: i, sig: sig });
         }
       }
       return out;
     }
 
-    function applyValues(fn) {
+    // 总线位宽：优先用信号自带 width，否则从已有位串推断
+    function vectorWidth(sig) {
+      const w = Number(sig && sig.width);
+      if (Number.isFinite(w) && w > 1) return Math.floor(w);
+      const values = (sig && Array.isArray(sig.values)) ? sig.values : [];
+      for (const v of values) {
+        const text = String(v ?? '').trim();
+        if (/^[01xz]+$/i.test(text) && text.length > 1) return text.length;
+      }
+      return 1;
+    }
+
+    // 解析总线输入：优先用 model.js 的 normalizeVectorValue（支持 10/0xA/A/0b1010/8'hA5/x/z），
+    // 失败则回退到本地简化解析。返回 width 长度的位串。
+    function parseBusInput(raw, width) {
+      const w = Math.max(1, width || 1);
+      if (window.__wpfVec && typeof window.__wpfVec.normalizeVectorValue === 'function') {
+        try { return window.__wpfVec.normalizeVectorValue(raw, w); } catch (e) { /* 落到回退 */ }
+      }
+      const text = String(raw == null ? '' : raw).trim().toLowerCase().replace(/_/g, '').replace(/\s+/g, '');
+      if (!text) return '0'.repeat(w);
+      if (/^[01xz]+$/.test(text)) {
+        if (text.length === w) return text;
+        if (text.length > w) return text.slice(-w);
+        const fill = (text[0] === 'x' || text[0] === 'z') ? text[0] : '0';
+        return text.padStart(w, fill);
+      }
+      const sized = /^(\d+)?'([bhdox])([0-9a-fxz]+)$/.exec(text);
+      const prefixed = /^(0[bhdox])([0-9a-fxz]+)$/.exec(text);
+      const base = sized ? sized[2].toLowerCase() : prefixed ? prefixed[1].slice(1).toLowerCase() : '';
+      const payload = sized ? sized[3] : prefixed ? prefixed[2] : text;
+      let bits = '';
+      if (base === 'b') bits = payload;
+      else if (base === 'h' || base === 'x') {
+        for (const d of payload) bits += /^[0-9a-f]$/.test(d) ? Number.parseInt(d, 16).toString(2).padStart(4, '0') : d.repeat(4);
+      } else if (base === 'o') {
+        for (const d of payload) bits += /^[0-7]$/.test(d) ? Number.parseInt(d, 8).toString(2).padStart(3, '0') : d.repeat(3);
+      } else {
+        const num = /^[-+]?\d+$/.test(text) ? BigInt(text) : null;
+        if (num !== null) bits = (num < 0n ? (num + (1n << BigInt(w))) : num).toString(2);
+      }
+      if (!bits) return '0'.repeat(w);
+      if (bits.length >= w) return bits.slice(-w);
+      const fill = (bits[0] === 'x' || bits[0] === 'z') ? bits[0] : '0';
+      return bits.padStart(w, fill);
+    }
+
+    function isVector(sig) { return !!(window.SignalType && sig.type === window.SignalType.Vector); }
+
+    // kind: 'one' | 'zero' | 'x' | 'invert'（批量按钮用）
+    function nextValue(sig, current, kind) {
+      if (!isVector(sig)) {
+        if (kind === 'one') return 1;
+        if (kind === 'zero') return 0;
+        if (kind === 'x') return -1;
+        return current === 1 ? 0 : current === 0 ? 1 : current; // invert
+      }
+      const width = vectorWidth(sig);
+      const bits = String(current ?? '');
+      if (kind === 'one') return '1'.repeat(width);
+      if (kind === 'zero') return '0'.repeat(width);
+      if (kind === 'x') return 'x'.repeat(width);
+      let out = '';
+      for (let k = 0; k < width; k += 1) {
+        const ch = bits[k] || '0';
+        out += ch === '1' ? '0' : ch === '0' ? '1' : ch; // 逐位取反，x/z 不变
+      }
+      return out;
+    }
+
+    function applyValues(kind) {
       const region = window.__wpf.selection;
       if (!region) return;
       wpf.pushUndoSnapshot();
+      const touched = new Set();
       for (const { sig } of regionSignals(region)) {
         for (let i = region.sampleStart; i <= region.sampleEnd && i < sig.values.length; i += 1) {
-          sig.values[i] = fn(sig.values[i]);
+          sig.values[i] = nextValue(sig, sig.values[i], kind);
         }
+        touched.add(sig);
       }
+      touched.forEach(function (sig) {
+        if (isVector(sig) && typeof wpf.refreshBusLabels === 'function') wpf.refreshBusLabels(sig);
+      });
+      wpf.scheduleRedraw();
+    }
+
+    // 自定义输入：把 raw 写到选中范围内的总线（位串），位信号写 1/0/x
+    function applyCustom(raw) {
+      const region = window.__wpf.selection;
+      if (!region) return;
+      const text = String(raw == null ? '' : raw).trim();
+      if (!text) return;
+      wpf.pushUndoSnapshot();
+      const touched = new Set();
+      for (const { sig } of regionSignals(region)) {
+        if (isVector(sig)) {
+          const bits = parseBusInput(text, vectorWidth(sig));
+          for (let i = region.sampleStart; i <= region.sampleEnd && i < sig.values.length; i += 1) {
+            sig.values[i] = bits;
+          }
+        } else {
+          const t = text.toLowerCase();
+          const v = t === '1' ? 1 : t === '0' ? 0 : (/^[xz]$/.test(t) ? -1 : null);
+          if (v === null) continue;
+          for (let i = region.sampleStart; i <= region.sampleEnd && i < sig.values.length; i += 1) {
+            sig.values[i] = v;
+          }
+        }
+        touched.add(sig);
+      }
+      touched.forEach(function (sig) {
+        if (isVector(sig) && typeof wpf.refreshBusLabels === 'function') wpf.refreshBusLabels(sig);
+      });
       wpf.scheduleRedraw();
     }
 
@@ -198,16 +304,15 @@
       if (!region) return;
       bar = document.createElement('div');
       bar.id = 'wpf-batch-bar';
-      bar.style.cssText = 'position:fixed;z-index:300;display:flex;gap:4px;padding:6px 8px;'
+      bar.style.cssText = 'position:fixed;z-index:300;display:flex;gap:4px;padding:6px 8px;align-items:center;'
         + 'background:#fff;border:1px solid #bbb;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.2);font-size:12px;';
       const buttons = [
-        ['设 1', function () { applyValues(function () { return 1; }); }],
-        ['设 0', function () { applyValues(function () { return 0; }); }],
-        ['设 x', function () { applyValues(function () { return -1; }); }],
-        ['翻转', function () { applyValues(function (v) { return v === 1 ? 0 : v === 0 ? 1 : v; }); }],
+        ['设 1', function () { applyValues('one'); }],
+        ['设 0', function () { applyValues('zero'); }],
+        ['设 x', function () { applyValues('x'); }],
+        ['翻转', function () { applyValues('invert'); }],
         ['复制', function () { copyRegion(); }],
-        ['粘贴', function () { pasteRegion(); }],
-        ['取消', function () { hideBar(); drawMarquee(); }]
+        ['粘贴', function () { pasteRegion(); }]
       ];
       buttons.forEach(function ([label, fn]) {
         const b = document.createElement('button');
@@ -217,6 +322,34 @@
         b.addEventListener('click', function (ev) { ev.stopPropagation(); fn(); });
         bar.appendChild(b);
       });
+      // 总线（矢量）编辑：输入任意数值（10 / 0xA / 0b1010 / 8'hA5 / x / z）写入选中范围
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.placeholder = '总线值';
+      input.title = '输入数值写入选中总线范围（支持 10 / 0xA / 0b1010 / 8\'hA5 / x / z）';
+      input.style.cssText = 'width:84px;font-size:12px;padding:3px 6px;border:1px solid #bbb;border-radius:6px;';
+      const writeBtn = document.createElement('button');
+      writeBtn.type = 'button';
+      writeBtn.textContent = '输入值';
+      writeBtn.style.cssText = 'cursor:pointer;padding:3px 10px;';
+      function commitInput() {
+        applyCustom(input.value);
+        hideBar();
+        drawMarquee();
+      }
+      writeBtn.addEventListener('click', function (ev) { ev.stopPropagation(); commitInput(); });
+      input.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter') { ev.preventDefault(); ev.stopPropagation(); commitInput(); }
+        else if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); hideBar(); drawMarquee(); }
+      });
+      bar.appendChild(input);
+      bar.appendChild(writeBtn);
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.textContent = '取消';
+      cancel.style.cssText = 'cursor:pointer;padding:3px 10px;';
+      cancel.addEventListener('click', function (ev) { ev.stopPropagation(); hideBar(); drawMarquee(); });
+      bar.appendChild(cancel);
       document.body.appendChild(bar);
       const bw = bar.offsetWidth, bh = bar.offsetHeight;
       bar.style.left = Math.max(8, Math.min(clientX, window.innerWidth - bw - 8)) + 'px';
