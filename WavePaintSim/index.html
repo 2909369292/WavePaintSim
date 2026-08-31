@@ -234,12 +234,15 @@
         .sim-btns { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
         .sim-status { font-size: 12px; color: var(--text-muted, #5a6a5a); }
 
-        /* ── Bug C：清除主区/侧边栏左侧遗留空白条 ─────────────────────────
-           核心会给 #main-area 加 with-vcd-panel（VCD 层级面板占位），而核心 CSS
-           有 #main-area.with-vcd-panel{margin-bottom:40vh}。本项目不启用该面板
-           （核心无代码操作它），却因此被永久空出 40% 视口，侧边栏全高显出左侧空白。
-           这里彻底清零。 */
+        /* ── Bug C：清除遗留空白条 ───────────────────────────────────────
+           本项目不使用核心的 VCD 层级面板，但核心 CSS/JS 会为其留出占位：
+           1) #main-area.with-vcd-panel{margin-left:350px} / {margin-bottom:40vh}
+              （两者都会在主区旁空出一条）；
+           2) 核心会动态构建 .vcd-hierarchy-panel 元素，若未被 hidden 类收起
+              就是一个 350px 宽的空面板 → 正是「左侧空白条」。
+           这里把两条路都堵死：占位清零 + 面板整体不显示。 */
         #main-area.with-vcd-panel { margin-left: 0 !important; margin-bottom: 0 !important; }
+        .vcd-hierarchy-panel { display: none !important; }
 
         /* ── Bug B：无内容的 helper 框不再占位（此前是两个常驻空白框） ──────── */
         .helper:empty, #port-preview:empty, #module-preview:empty { display: none; }
@@ -563,7 +566,8 @@
                 <textarea id="tb-source" spellcheck="false" readonly placeholder="点击「TB」按钮生成 testbench，或点「Sim」仿真后自动生成。"></textarea>
             </div>
             <div id="sim-status" class="sim-status"></div>
-            <div class="sim-btns"><button id="sim-collapse">收起</button></div>
+            <!-- 收起入口只保留「点击表头」这一个（原底部「收起」按钮冗余，已删）；
+                 展开入口 = 收起后贴在右缘的竖排「仿真」标签。 -->
         </div>
     </div>    <div id="wavedrom-debug-panel" class="wavedrom-debug-panel hidden">
         <div class="wavedrom-debug-header">

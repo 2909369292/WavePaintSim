@@ -571,6 +571,21 @@ test("总线进制映射到核心 Radix 枚举并作用于全部矢量信号", (
   wpf.setBusRadix("nonsense");
   assert.equal(wpf.busRadixValue(), 1, "非法值回落为 dec");
   assert.equal(wpf.applyBusRadix(), 2, "应命中 2 个矢量信号");
+
+  // 单信号右键切换：按「信号自身 radix」重算，只影响该信号，不动全局
+  const addr = dw.m_signals[2];
+  assert.equal(wpf.setSignalRadix(addr, "hex"), true, "setSignalRadix 生效");
+  assert.deepEqual(addr.labels, ["3"], "仅该信号按 hex 重算（0011→3）");
+  assert.deepEqual(dw.m_signals[1].labels, ["10", "15"], "其他信号不受影响（仍是 dec）");
+  assert.equal(wpf.busRadix(), "dec", "全局进制不被单信号切换改动");
+
+  // valueToLabel 补丁：位串按位宽正确换算（hex 去前缀），-1 → X
+  globalThis.window.document_wave.valueToLabel = null; // 确认补丁不依赖原实现
+  wpf.patchCoreValueToLabel();
+  assert.equal(wpf.patchCoreValueToLabel(), true, "补丁可重复调用（幂等）");
+  assert.equal(window.document_wave.valueToLabel("1010", window.Radix.Hexadecimal), "A", "补丁：hex 位串去前缀");
+  assert.equal(window.document_wave.valueToLabel("1010", window.Radix.Decimal), "10", "补丁：dec 位串换算为十进制");
+  assert.equal(window.document_wave.valueToLabel(-1, window.Radix.Decimal), "X", "补丁：-1 仍显示 X");
 });
 
 // ---------------------------------------------------------------------------

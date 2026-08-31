@@ -312,36 +312,86 @@
     }
     return name === 'hex' ? 0 : name === 'bin' ? 2 : 1; // 兜底（与核心枚举一致）
   };
+  // Radix 枚举值 ↔ 进制名（'hex'|'bin'|'dec'）互转
+  wpf.radixValueOf = function (name) {
+    const r = window.Radix;
+    if (r && typeof r.Hexadecimal === 'number') {
+      return name === 'hex' ? r.Hexadecimal : name === 'bin' ? r.Binary : r.Decimal;
+    }
+    return name === 'hex' ? 0 : name === 'bin' ? 2 : 1;
+  };
+  wpf.radixNameOf = function (radixValue) {
+    const r = window.Radix;
+    if (r && typeof r.Hexadecimal === 'number') {
+      if (radixValue === r.Hexadecimal) return 'hex';
+      if (radixValue === r.Binary) return 'bin';
+      if (radixValue === r.Decimal) return 'dec';
+      return null;
+    }
+    if (radixValue === 0) return 'hex';
+    if (radixValue === 2) return 'bin';
+    if (radixValue === 1) return 'dec';
+    return null;
+  };
+
   // 标签格式化（单个矢量值 → 显示文本）。
-  // ⚠ 不能用核心的 document_wave.valueToLabel：它假定 value 是数字，
-  //   而矢量信号存的是字符串位串（如 "0011"）——字符串的 toString(radix) 会忽略
-  //   参数原样返回，于是十进制显示成 "0011"、十六进制还多出 "0x" 前缀。
+  // ⚠ 不能用核心的 valueToLabel：它假定 value 是数字，而矢量信号存的是字符串位串
+  //   （如 "0011"）——字符串的 toString(radix) 会忽略参数原样返回，
+  //   于是十进制显示成 "0011"、十六进制还多出 "0x" 前缀。
   //   这里改用 model.js 的 formatVectorValue（BigInt('0b'+bits) 正确转换），
-  //   并统一去掉 0x / 0b 前缀（需求：总线进制显示不带前缀）。
-  wpf.busRadixLabel = function (value, width) {
-    const name = wpf.busRadix();
-    const radixName = name === 'hex' ? 'hexadecimal' : name === 'bin' ? 'binary' : 'decimal';
+  //   并统一去掉 0x / 0b 前缀。
+  // radixName：可选覆盖（'hex'|'bin'|'dec'）。按「信号自身进制」重算时必须传，
+  // 否则一律退回全局进制 —— 这正是此前「右键切换单个信号进制不生效」的原因。
+  wpf.busRadixLabel = function (value, width, radixName) {
+    const name = radixName || wpf.busRadix();
+    const fmtName = name === 'hex' ? 'hexadecimal' : name === 'bin' ? 'binary' : 'decimal';
     let label = null;
     const mod = window.__wpfVec;
     if (mod && typeof mod.formatVectorValue === 'function') {
-      try { label = mod.formatVectorValue(value, width, radixName); } catch (e) { label = null; }
+      try { label = mod.formatVectorValue(value, width, fmtName); } catch (e) { label = null; }
     }
-    if (label == null && window.document_wave && typeof window.document_wave.valueToLabel === 'function') {
-      try { label = window.document_wave.valueToLabel(value, wpf.busRadixValue()); } catch (e) { label = null; }
+    // 兜底：用「打补丁前」的原版核心 valueToLabel（patchCoreValueToLabel 存的引用）。
+    // 不能调 document_wave.valueToLabel —— 那可能已是补丁版，会无限递归。
+    if (label == null && typeof wpf.__origCoreValueToLabel === 'function') {
+      try { label = wpf.__origCoreValueToLabel(value, wpf.radixValueOf(name)); } catch (e) { label = null; }
     }
     if (label == null) label = String(value ?? '');
-    // 统一去掉进制前缀，直接显示数值
     return String(label).replace(/^0[xXbB]/, '');
   };
 
-  // 按信号自身宽度重算单个矢量信号的全部标签；返回 1 表示处理过
+  // 按「信号自身 radix」重算单个矢量信号的全部标签；返回 1 表示处理过。
+  // 信号没记 radix 时才退回全局进制 —— 全局开关与单信号右键切换互不干扰。
   wpf.refreshBusLabels = function (sig) {
     if (!sig || !Array.isArray(sig.values) || !Array.isArray(sig.labels)) return 0;
     const width = Math.max(1, Number(sig.width) || 1);
+    const name = wpf.radixNameOf(sig.radix) || wpf.busRadix();
     for (let k = 0; k < sig.values.length && k < sig.labels.length; k += 1) {
-      sig.labels[k] = width > 1 ? wpf.busRadixLabel(sig.values[k], width) : '';
+      sig.labels[k] = width > 1 ? wpf.busRadixLabel(sig.values[k], width, name) : '';
     }
     return 1;
+  };
+
+  // 修补核心 valueToLabel：位串按位宽正确换算并去前缀。
+  // 无论标签最终由我们（refreshBusLabels）还是核心自己重算，显示都正确。
+  wpf.__origCoreValueToLabel = null;
+  wpf.patchCoreValueToLabel = function () {
+    const dw = window.document_wave;
+    if (!dw) return false;
+    const patched = function (value, radix) {
+      if (value === -1 || value === '-1') return 'X';
+      const text = String(value ?? '').trim();
+      if (/^[01xz]+$/i.test(text) && text.length > 1) {
+        return wpf.busRadixLabel(text, text.length, wpf.radixNameOf(radix) || undefined);
+      }
+      return text;
+    };
+    if (typeof dw.valueToLabel === 'function' && wpf.__origCoreValueToLabel === null) {
+      wpf.__origCoreValueToLabel = dw.valueToLabel;
+    }
+    try { dw.valueToLabel = patched; } catch (e) { /* 忽略 */ }
+    const P = window.WaveDocument && window.WaveDocument.prototype;
+    if (P && typeof P.valueToLabel === 'function') { try { P.valueToLabel = patched; } catch (e) { /* 忽略 */ } }
+    return true;
   };
 
   // 把当前进制写到所有矢量信号并重算标签；返回命中的矢量信号数
@@ -502,6 +552,7 @@
   wpf.ready(function () {
     let tries = 0;
     (function attempt() {
+      wpf.patchCoreValueToLabel(); // 幂等：核心文档就绪后立即打上 valueToLabel 补丁
       const n = wpf.applyBusRadix();
       tries += 1;
       // 文档是异步载入/导入的，多试几次直到出现矢量信号（或放弃）
@@ -558,7 +609,10 @@
       if (!dw || !Array.isArray(dw.m_signals) || !window.SignalType) return;
       const sig = dw.m_signals[m.signalIndex];
       if (!sig || sig.type !== window.SignalType.Vector) return;  // 仅总线
-      e.preventDefault();                            // 抑制默认右键菜单，改弹我们自己的
+      // 捕获阶段整体拦截：核心自己的右键菜单 + 浏览器默认菜单都不弹（用户反馈会出两个）
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
       showMenu(sig, e.clientX, e.clientY);
     }, true);
   }, 'bus-radix-menu');
