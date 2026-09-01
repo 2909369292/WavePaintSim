@@ -198,10 +198,13 @@
         : 'Enter bit value (1/0/x/z, 或位串如 1010):';
       const defVal = defaultInput(sig, indices, isVector);
       showPrompt(title, hint, defVal, granLabel).then(function (raw) {
-        // 弹窗关闭：清所有蓝框 + 切回画笔工具
-        wpf.clearAllMarquees();
-        if (sel.mode === 'native') switchTool('paint');
+        // 弹窗关闭：结束原生会话（feature-select 恢复批量工具条）、切回画笔工具
+        if (sel.mode === 'native') {
+          wpf.nativeRangeSession.active = false;
+          switchTool('paint');
+        }
         sel.mode = null;
+        wpf.clearAllMarquees();
         if (raw == null) return; // 取消
         if (applyToRange(sig, indices, raw)) return;
         // R8 非法输入：红框 + 重开
@@ -212,58 +215,20 @@
     }
 
     // ---------------------------------------------------------- 鼠标接管
-    // 画笔工具下：Ctrl/⌘+拖动 = 框选；Vector 点击/拖动 = 弹窗（拦截核心弹窗）；
-    // Bit 普通拖动交给 feature-draw，纯点击 → Bit 弹窗。
+    // 画笔工具下：
+    //  - Ctrl/⌘+拖动 / Vector：切到 select 工具 → 混淆核心的 select 工具启动
+    //    **原生 range selection**（紫色对齐框选，用户明确要求完全复用原生，不自绘）。
+    //    mouseup 后本模块弹值输入弹窗（用 nativeRangeSession 标志让 feature-select
+    //    不弹批量工具条）；弹窗关闭后切回画笔工具。
+    //  - Bit 普通拖动：交给 feature-draw（TimeGen 绘制，不弹窗）
+    //  - Bit 纯点击：弹 Bit Value 弹窗（不切工具）
     const sel = {
       active: false, signalIndex: -1, start: -1, end: -1, moved: false,
       x0: 0, y0: 0, ex: 0, ey: 0,
-      sample0: 0, sampleWidth: 0, band: null,
-      mode: null // 'native' = Ctrl/Vector 切 select 走 feature-select 原生蓝框
-                 // 'draw'   = Bit 单击（不可切工具的会话），自己画蓝框
+      mode: null // 'native' = Ctrl/Vector 会话（切 select，原生框选）
     };
 
-    // ---------------------------------------------------------- 选区高亮（蓝框）
-    // 复刻 feature-select 的 marquee 蓝框（用户明确要求「原本自带的样式」即此
-    // 蓝虚线 + 浅蓝填充），用于 Bit 单击等不能切 select 工具的弹窗会话。
-    // Ctrl/Vector 切 select 的会话由 feature-select 画原生蓝框，不走这里。
-    // 测量「一格占多少 CSS 像素」：用相距一定距离的两点反推（核心的
-    // sample→x 换算是线性的）。失败时回退 0（调用方用估算值）。
-    function measureSampleWidth(clientX, clientY, sampleAtX) {
-      const canvas = wpf.canvas();
-      if (!canvas) return 0;
-      const r = canvas.getBoundingClientRect();
-      const probeAt = function (dx) {
-        const x = clientX + dx;
-        if (x < r.left + 1 || x > r.right - 1) return null;
-        const m = wpf.mapAt(x, clientY);
-        if (!m) return null;
-        const s = Number(m.signalSampleIndex);
-        return s >= 0 ? { x: x, s: s } : null;
-      };
-      const b = probeAt(200) || probeAt(120) || probeAt(60) || probeAt(-200) || probeAt(-120) || probeAt(-60);
-      if (!b || b.s === sampleAtX) return 0;
-      return Math.abs((b.x - clientX) / (b.s - sampleAtX));
-    }
-
-    function drawSessionRect() {
-      if (!sel.band) return;
-      const canvas = wpf.canvas();
-      if (!canvas) return;
-      const r = canvas.getBoundingClientRect();
-      const lo = Math.min(sel.start, sel.end);
-      const hi = Math.max(sel.start, sel.end);
-      const wpx = sel.sampleWidth > 0 ? sel.sampleWidth : 12;
-      const x = (sel.x0 - r.left) + (lo - sel.sample0) * wpx;
-      const w = (hi - lo + 1) * wpx;
-      wpf.showSessionMarquee({ x: x, y: sel.band.top, w: w, h: sel.band.height });
-    }
-
-    function clearSessionRect() {
-      wpf.clearSessionMarquee();
-    }
-
-    // 切换工具：'select' 切到选择工具（蓝框由 feature-select 画），
-    //           'paint'  切回画笔工具并清自己的 session 蓝框
+    // 切换工具（'select'/'paint'）：通过点击工具栏按钮让核心 currentTool 同步
     function switchTool(tool) {
       const sel2 = (tool === 'select') ? '.tool-btn[data-tool="select"]' : '.tool-btn[data-tool="paint"]';
       const b = document.querySelector(sel2);
@@ -293,19 +258,16 @@
 
       sel.active = true;
       sel.moved = false;
-      sel.vector = isVector;
       sel.signalIndex = sigIndex;
       sel.start = sel.end = idx;
       sel.x0 = sel.ex = e.clientX;
       sel.y0 = sel.ey = e.clientY;
-      sel.sample0 = idx;
-      sel.band = wpf.signalRowBand(e.clientX, e.clientY, sigIndex);
-      sel.sampleWidth = measureSampleWidth(e.clientX, e.clientY, idx);
 
       if (e.ctrlKey || e.metaKey || isVector) {
-        // Ctrl+拖动 / Vector：切到 select 工具，**不拦截** → feature-select
-        // 看到 mousedown 后接管画其原生蓝框（用户明确要求「原本自带的样式」）。
+        // Ctrl/Vector：切 select 工具，**不拦截** → 核心原生 range selection
+        // 接管本次拖动（紫色对齐框选）；feature-select 同步记录起止、不弹工具条。
         sel.mode = 'native';
+        wpf.nativeRangeSession.active = true;
         switchTool('select');
       } else {
         // Bit 普通按下：不切工具、不拦截 → feature-draw 准备 TimeGen 绘制
@@ -321,7 +283,7 @@
         sel.moved = true;
       }
       if (sel.mode === 'native' && sel.moved) {
-        // 原生会话中：放行 feature-select 更新蓝框（不拦截）
+        // 原生会话：放行核心更新框选；只记录 end 供弹窗换算范围
         const m = wpf.mapAt(e.clientX, e.clientY);
         if (!m) return;
         if (m.signalIndex === sel.signalIndex) {
@@ -336,32 +298,19 @@
     function onMouseUp(e) {
       if (!sel.active) return;
       const sig = window.document_wave.m_signals[sel.signalIndex];
-
-      // 判定弹窗
-      let wantPopup = false;
-      if (sel.mode === 'native') wantPopup = true;          // Ctrl/Vector 会话
-      else if (!sel.moved) wantPopup = true;                 // Bit 纯点击
-      // Bit 拖动 → feature-draw 已绘制，不弹窗
+      const mode = sel.mode;
+      const wantPopup = (mode === 'native') || !sel.moved;
       sel.active = false;
 
       if (!wantPopup) {
+        // Bit 拖动：feature-draw 已绘制，不弹窗
         sel.mode = null;
         return;
       }
 
-      // 阻止 feature-select 的 showBar（native 模式会触发批量工具条冲突）
-      e.stopImmediatePropagation();
-      e.preventDefault();
-
-      // Bit 纯点击会话（mode=null + !moved）：工具仍是 paint，
-      // feature-select 没看到 mousedown 不会画蓝框 → 自己画同款蓝框
-      if (sel.mode === null) {
-        sel.mode = 'draw';
-        drawSessionRect();
-      }
-      // native 模式：feature-select 已经画了蓝框，不需要再画
-
-      // 起止坐标 → indices
+      // 不拦截：让核心完成 mouseup（结束原生 range selection 并保留高亮）。
+      // nativeRangeSession.active 会让 feature-select 跳过批量工具条。
+      // 等核心处理完再弹窗（setTimeout 0），保证画布高亮就绪。
       const x0c = sel.x0, x1c = e.clientX;
       const y0c = sel.y0, y1c = e.clientY;
       const midY = (y0c + y1c) / 2;
@@ -377,12 +326,14 @@
       const indices = [];
       for (let i = lo; i <= hi && i < sig.values.length; i += 1) indices.push(i);
       if (!indices.length) {
-        if (sel.mode === 'draw') clearSessionRect();
-        else switchTool('paint');
+        if (mode === 'native') {
+          wpf.nativeRangeSession.active = false;
+          switchTool('paint');
+        }
         sel.mode = null;
         return;
       }
-      openValuePrompt(sig, indices);
+      setTimeout(function () { openValuePrompt(sig, indices); }, 0);
     }
 
     document.addEventListener('mousedown', onMouseDown, true);
@@ -390,7 +341,9 @@
     document.addEventListener('mouseup', onMouseUp, true);
     window.addEventListener('blur', function () {
       sel.active = false;
-      if (sel.mode === 'draw') clearSessionRect();
+      if (sel.mode === 'native') {
+        wpf.nativeRangeSession.active = false;
+      }
       sel.mode = null;
     });
   }, 'feature-value-edit');

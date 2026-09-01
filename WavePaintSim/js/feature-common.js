@@ -503,79 +503,9 @@
     return true;
   };
 
-  // ------------------------------------------------ 弹窗会话蓝框（复刻 select 原生）
-  // 复刻 feature-select 在 select 工具下画的 marquee 蓝框视觉（用户明确要求
-  // 「原本自带的样式」即此蓝色虚线 + 浅蓝填充），专供 feature-value-edit 的
-  // 值输入弹窗会话使用（Ctrl+拖动 / Vector 切 select 由 feature-select 自己画，
-  // Bit 单击等不能切工具的场景用本函数画同款蓝框）。
-  let sessionOverlay = null;
-
-  function syncSessionOverlaySize() {
-    const canvas = wpf.canvas();
-    if (!sessionOverlay || !canvas || !canvas.parentElement) return;
-    const r = canvas.getBoundingClientRect();
-    const hr = canvas.parentElement.getBoundingClientRect();
-    sessionOverlay.style.left = (r.left - hr.left) + 'px';
-    sessionOverlay.style.top = (r.top - hr.top) + 'px';
-    sessionOverlay.style.width = Math.max(1, Math.round(r.width)) + 'px';
-    sessionOverlay.style.height = Math.max(1, Math.round(r.height)) + 'px';
-    if (sessionOverlay.width !== canvas.width || sessionOverlay.height !== canvas.height) {
-      sessionOverlay.width = canvas.width;
-      sessionOverlay.height = canvas.height;
-    }
-  }
-
-  function ensureSessionOverlay() {
-    const canvas = wpf.canvas();
-    if (!canvas || !canvas.parentElement) return null;
-    if (sessionOverlay && sessionOverlay.parentElement) {
-      syncSessionOverlaySize();
-      return sessionOverlay;
-    }
-    sessionOverlay = document.createElement('canvas');
-    sessionOverlay.id = 'wpf-session-overlay';
-    // 与 feature-select 的 marquee 同层（z-index:50），视觉上完全是同款蓝框
-    sessionOverlay.style.cssText = 'position:absolute;pointer-events:none;z-index:50;';
-    const holder = canvas.parentElement;
-    holder.style.position = holder.style.position || 'relative';
-    holder.appendChild(sessionOverlay);
-    syncSessionOverlaySize();
-    return sessionOverlay;
-  }
-
-  // rect：{ x, y, w, h }（CSS 像素，相对 canvas 左上角），与 feature-select 蓝框同款：
-  //   浅蓝填充 rgba(30,136,229,0.10) + 蓝色虚线描边 #1e88e5 / dash [5,3]
-  wpf.showSessionMarquee = function (rect) {
-    const canvas = wpf.canvas();
-    const el = ensureSessionOverlay();
-    if (!el || !canvas || !rect) return;
-    const r = canvas.getBoundingClientRect();
-    const dpr = r.width > 0 ? (canvas.width / r.width) : 1;
-    const ctx = el.getContext('2d');
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, el.width, el.height);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.save();
-    ctx.fillStyle = 'rgba(30, 136, 229, 0.10)';
-    ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-    ctx.strokeStyle = '#1e88e5';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([5, 3]);
-    ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, Math.max(1, rect.w - 1), Math.max(1, rect.h - 1));
-    ctx.restore();
-  };
-
-  wpf.clearSessionMarquee = function () {
-    if (!sessionOverlay) return;
-    const ctx = sessionOverlay.getContext('2d');
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, sessionOverlay.width, sessionOverlay.height);
-  };
-
-  // 弹窗关闭时统一清两个蓝框（feature-select 的 marquee + 本模块的 session），
-  // 避免切回 paint 工具时残留。
+  // 弹窗关闭时清掉 feature-select 残留的自绘 marquee overlay（wpf-select-overlay）。
+  // 原生框选由混淆核心绘制，这里只负责清我们以前可能残留的图层。
   wpf.clearAllMarquees = function () {
-    wpf.clearSessionMarquee();
     const selOv = document.getElementById('wpf-select-overlay');
     if (selOv) {
       const ctx = selOv.getContext('2d');
@@ -583,6 +513,10 @@
       ctx.clearRect(0, 0, selOv.width, selOv.height);
     }
   };
+
+  // value-edit 的 Ctrl/Vector 弹窗会话标志：active 时 feature-select 不弹批量工具条
+  // （弹窗由 value-edit 自己弹）。框选视觉由混淆核心原生绘制。
+  wpf.nativeRangeSession = { active: false };
 
   // 按当前编辑粒度把「目标下标列表」收敛为实际要写入的下标：
   //   'step'   ：每个主步只留首格（writeValue 会铺满整个主步的 stride 格）

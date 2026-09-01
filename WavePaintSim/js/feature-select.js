@@ -24,68 +24,17 @@
     const wpf = window.__wpf;
     const canvas = wpf.canvas();
 
+    // 清理可能由旧版 feature-select 创建的 wpf-select-overlay DOM 元素（现在框选视觉
+    // 完全由混淆核心原生绘制，不再自绘 canvas overlay）。
+    const oldOverlay = document.getElementById('wpf-select-overlay');
+    if (oldOverlay && oldOverlay.parentElement) oldOverlay.parentElement.removeChild(oldOverlay);
+
+    // marquee：只记录鼠标起止位置（用于换算选区），框选的视觉完全交给
+    // 混淆核心自带的原生 range selection（select 工具下由核心绘制紫色对齐矩形）。
+    // 本模块不再自绘任何 marquee/overlay（用户明确要求：不要自己画的，完全复用原生）。
     const marquee = { active: false, startX: 0, startY: 0, curX: 0, curY: 0, dragging: false };
     const clip = { data: null }; // 复制剪贴板 {rows: [{signalIndex, values: []}], sampleCount}
-    // BUG-001 防护：单击时用 dispatchEvent 回放 mousedown/mouseup/click，
-    // 这些合成事件同样会被本模块的捕获监听器收到 → 会再次进入 onMouseUp 的 else
-    // 分支再次回放 → 无限递归。回放期间必须整体短路。
-    let replaying = false;
-
-    let overlay = null;
     let bar = null;
-
-    function ensureOverlay() {
-      if (overlay && overlay.parentElement) return overlay;
-      overlay = document.createElement('canvas');
-      overlay.id = 'wpf-select-overlay';
-      overlay.style.cssText = 'position:absolute;pointer-events:none;z-index:50;';
-      const holder = canvas.parentElement;
-      if (holder) {
-        holder.style.position = holder.style.position || 'relative';
-        holder.appendChild(overlay);
-      }
-      syncOverlaySize();
-      return overlay;
-    }
-
-    function syncOverlaySize() {
-      if (!overlay) return;
-      const holder = canvas.parentElement;
-      if (!holder) return;
-      const r = canvas.getBoundingClientRect();
-      const hr = holder.getBoundingClientRect();
-      overlay.style.left = (r.left - hr.left) + 'px';
-      overlay.style.top = (r.top - hr.top) + 'px';
-      // BUG-005/P2-4：显式设 CSS 尺寸，使叠加层与主画布的缩放比例一致，
-      // 否则框选虚线会在缩放/HiDPI 下与鼠标位置错位。
-      const cssW = Math.max(1, Math.round(r.width)) + 'px';
-      const cssH = Math.max(1, Math.round(r.height)) + 'px';
-      if (overlay.style.width !== cssW) overlay.style.width = cssW;
-      if (overlay.style.height !== cssH) overlay.style.height = cssH;
-      if (overlay.width !== canvas.width || overlay.height !== canvas.height) {
-        overlay.width = canvas.width;
-        overlay.height = canvas.height;
-      }
-    }
-
-    function drawMarquee() {
-      if (!overlay) return;
-      const ctx = overlay.getContext('2d');
-      ctx.clearRect(0, 0, overlay.width, overlay.height);
-      if (!marquee.active) return;
-      const x = Math.min(marquee.startX, marquee.curX);
-      const y = Math.min(marquee.startY, marquee.curY);
-      const w = Math.abs(marquee.curX - marquee.startX);
-      const h = Math.abs(marquee.curY - marquee.startY);
-      ctx.save();
-      ctx.strokeStyle = '#1e88e5';
-      ctx.lineWidth = 1;
-      ctx.setLineDash([5, 3]);
-      ctx.strokeRect(x + 0.5, y + 0.5, w, h);
-      ctx.fillStyle = 'rgba(30,136,229,0.10)';
-      ctx.fillRect(x, y, w, h);
-      ctx.restore();
-    }
 
     function hideBar() {
       if (bar && bar.parentElement) bar.parentElement.removeChild(bar);
@@ -349,12 +298,11 @@
       function commitInput() {
         applyCustom(input.value);
         hideBar();
-        drawMarquee();
       }
       writeBtn.addEventListener('click', function (ev) { ev.stopPropagation(); commitInput(); });
       input.addEventListener('keydown', function (ev) {
         if (ev.key === 'Enter') { ev.preventDefault(); ev.stopPropagation(); commitInput(); }
-        else if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); hideBar(); drawMarquee(); }
+        else if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); hideBar(); }
       });
       bar.appendChild(input);
       bar.appendChild(writeBtn);
@@ -362,7 +310,7 @@
       cancel.type = 'button';
       cancel.textContent = '取消';
       cancel.style.cssText = 'cursor:pointer;padding:3px 10px;';
-      cancel.addEventListener('click', function (ev) { ev.stopPropagation(); hideBar(); drawMarquee(); });
+      cancel.addEventListener('click', function (ev) { ev.stopPropagation(); hideBar(); });
       bar.appendChild(cancel);
       document.body.appendChild(bar);
       const bw = bar.offsetWidth, bh = bar.offsetHeight;
@@ -376,67 +324,49 @@
     }
 
     function onMouseDown(e) {
-      if (replaying) return;
       if (e.button !== 0) return;
       if (e.target !== canvas) return;
       if (wpf.currentTool() !== 'select') return;
       if (bar) hideBar();
+      // 不拦截：让混淆核心的 select 工具自己启动原生 range selection（紫色对齐框选）。
       const r = canvas.getBoundingClientRect();
       marquee.active = true;
       marquee.dragging = false;
       marquee.startX = marquee.curX = e.clientX - r.left;
       marquee.startY = marquee.curY = e.clientY - r.top;
-      // 接管：阻止原版把"按下-拖动"当成信号移动
-      e.stopImmediatePropagation();
-      e.preventDefault();
     }
 
     function onMouseMove(e) {
-      if (replaying) return;
       if (!marquee.active) return;
       const r = canvas.getBoundingClientRect();
       const nx = e.clientX - r.left;
       const ny = e.clientY - r.top;
       if (!marquee.dragging && (Math.abs(nx - marquee.startX) > 5 || Math.abs(ny - marquee.startY) > 5)) {
         marquee.dragging = true;
-        ensureOverlay();
-        syncOverlaySize();
       }
-      if (marquee.dragging) {
-        marquee.curX = nx;
-        marquee.curY = ny;
-        e.stopImmediatePropagation();
-        e.preventDefault();
-        drawMarquee();
-      }
+      marquee.curX = nx;
+      marquee.curY = ny;
+      // 不拦截：核心负责更新原生框选
     }
 
     function onMouseUp(e) {
-      if (replaying) return;
       if (!marquee.active) return;
       marquee.active = false;
-      e.stopImmediatePropagation();
-      e.preventDefault();
-      if (marquee.dragging) {
+      if (!marquee.dragging) {
+        // 单击：核心自己处理（选中信号/对象等），本模块不干预
         marquee.dragging = false;
-        const region = regionFromPoints();
-        window.__wpf.selection = region;
-        if (region) showBar(e.clientX, e.clientY);
-        drawMarquee(); // 保留选区虚线；取消时再清除
-      } else {
-        // 单击：回放给原版（选择信号/对象）
-        marquee.dragging = false;
-        drawMarquee();
-        const init = { bubbles: true, cancelable: true, clientX: e.clientX, clientY: e.clientY, button: 0, view: window };
-        // try/finally 保证异常时标志也能复位，否则选择工具会永久失灵
-        replaying = true;
-        try {
-          canvas.dispatchEvent(new MouseEvent('mousedown', init));
-          canvas.dispatchEvent(new MouseEvent('mouseup', init));
-          canvas.dispatchEvent(new MouseEvent('click', init));
-        } finally {
-          replaying = false;
-        }
+        return;
+      }
+      marquee.dragging = false;
+      const region = regionFromPoints();
+      window.__wpf.selection = region;
+      // value-edit 的 Ctrl/Vector 弹窗会话（nativeRangeSession.active）接管弹窗，
+      // 本模块不弹批量工具条；其余情况弹出批量工具条。
+      if (region && !(window.__wpf.nativeRangeSession && window.__wpf.nativeRangeSession.active)) {
+        // 等核心完成 mouseup 处理（原生高亮保留在画布上）后再弹工具条
+        setTimeout(function () {
+          if (region === window.__wpf.selection) showBar(e.clientX, e.clientY);
+        }, 0);
       }
     }
 
@@ -451,7 +381,6 @@
     function dismissBar() {
       if (!bar) return false;
       hideBar();
-      drawMarquee();
       return true;
     }
     function insideBar(node) {

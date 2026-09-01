@@ -484,10 +484,22 @@ function buildTbPreview() {
 async function runSimulation() {
   onWavepaintReady();
   syncEditor();
-  const design = state.design || parseVerilogDesign(sourceText());
-  state.design = design;
-  const project = readWaveDocument();
-  const tbResult = buildAutoTestbench(design, project);
+  // 读画布 → 生成 TB 若抛异常会导致 sim 按钮静默无响应（用户反馈"第二次仿真失效"）。
+  // 这里显式捕获并展示，让问题可定位。
+  let design, project, tbResult;
+  try {
+    design = state.design || parseVerilogDesign(sourceText());
+    state.design = design;
+    project = readWaveDocument();
+    tbResult = buildAutoTestbench(design, project);
+  } catch (error) {
+    const detail = String(error && error.stack ? error.stack : error);
+    refs.modulePreview.textContent = "Testbench generation failed: " + detail.slice(0, 500);
+    setStatus("Testbench generation failed: " + String(error).slice(0, 200));
+    state.lastTestbench = "";
+    updateTbViewer();
+    return;
+  }
   if (!tbResult.ok) {
     refs.modulePreview.textContent = tbResult.error;
     setStatus(tbResult.error);
