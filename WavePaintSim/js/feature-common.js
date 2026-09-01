@@ -503,6 +503,71 @@
     return true;
   };
 
+  // ------------------------------------------------ 选区高亮叠加层（共享）
+  // 复刻混淆核心 range selection 的视觉（核心在 #4417-4418 处绘制）：
+  //   半透明紫色填充 rgba(81,1,255,0.2) + 同色描边，矩形按格子/整行对齐。
+  // feature-select（选择工具框选）与 feature-value-edit（画笔工具 Ctrl/点击框选）
+  // 共用同一层，保证两处框选视觉完全一致。
+  let rangeOverlay = null;
+
+  function syncRangeOverlaySize() {
+    const canvas = wpf.canvas();
+    if (!rangeOverlay || !canvas || !canvas.parentElement) return;
+    const r = canvas.getBoundingClientRect();
+    const hr = canvas.parentElement.getBoundingClientRect();
+    rangeOverlay.style.left = (r.left - hr.left) + 'px';
+    rangeOverlay.style.top = (r.top - hr.top) + 'px';
+    rangeOverlay.style.width = Math.max(1, Math.round(r.width)) + 'px';
+    rangeOverlay.style.height = Math.max(1, Math.round(r.height)) + 'px';
+    if (rangeOverlay.width !== canvas.width || rangeOverlay.height !== canvas.height) {
+      rangeOverlay.width = canvas.width;
+      rangeOverlay.height = canvas.height;
+    }
+  }
+
+  function ensureRangeOverlay() {
+    const canvas = wpf.canvas();
+    if (!canvas || !canvas.parentElement) return null;
+    if (rangeOverlay && rangeOverlay.parentElement) {
+      syncRangeOverlaySize();
+      return rangeOverlay;
+    }
+    rangeOverlay = document.createElement('canvas');
+    rangeOverlay.id = 'wpf-range-overlay';
+    // z-index 高于 feature-select 的旧叠加层（50），保证高亮不被遮挡
+    rangeOverlay.style.cssText = 'position:absolute;pointer-events:none;z-index:52;';
+    const holder = canvas.parentElement;
+    holder.style.position = holder.style.position || 'relative';
+    holder.appendChild(rangeOverlay);
+    syncRangeOverlaySize();
+    return rangeOverlay;
+  }
+
+  // rect：{ x, y, w, h }，CSS 像素（相对 canvas 左上角）
+  wpf.showRangeHighlight = function (rect) {
+    const canvas = wpf.canvas();
+    const el = ensureRangeOverlay();
+    if (!el || !canvas || !rect) return;
+    const r = canvas.getBoundingClientRect();
+    const dpr = r.width > 0 ? (canvas.width / r.width) : 1;
+    const ctx = el.getContext('2d');
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, el.width, el.height);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = 'rgba(81, 1, 255, 0.2)';
+    ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+    ctx.strokeStyle = 'rgba(81, 1, 255, 0.9)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, Math.max(1, rect.w - 1), Math.max(1, rect.h - 1));
+  };
+
+  wpf.clearRangeHighlight = function () {
+    if (!rangeOverlay) return;
+    const ctx = rangeOverlay.getContext('2d');
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, rangeOverlay.width, rangeOverlay.height);
+  };
+
   // 按当前编辑粒度把「目标下标列表」收敛为实际要写入的下标：
   //   'step'   ：每个主步只留首格（writeValue 会铺满整个主步的 stride 格）
   //   'substep'：原样返回（每个下标单独写）

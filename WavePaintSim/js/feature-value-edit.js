@@ -198,6 +198,7 @@
         : 'Enter bit value (1/0/x/z, 或位串如 1010):';
       const defVal = defaultInput(sig, indices, isVector);
       showPrompt(title, hint, defVal, granLabel).then(function (raw) {
+        clearHighlight(); // 弹窗关闭，选区高亮一并收起
         if (raw == null) return; // 取消
         if (applyToRange(sig, indices, raw)) return;
         // R8 非法输入：红框 + 重开
@@ -210,7 +211,50 @@
     // ---------------------------------------------------------- 鼠标接管
     // 画笔工具下：Ctrl/⌘+拖动 = 框选；Vector 点击/拖动 = 弹窗（拦截核心弹窗）；
     // Bit 普通拖动交给 feature-draw，纯点击 → Bit 弹窗。
-    const sel = { active: false, signalIndex: -1, start: -1, end: -1, moved: false, x0: 0, y0: 0 };
+    const sel = {
+      active: false, signalIndex: -1, start: -1, end: -1, moved: false,
+      x0: 0, y0: 0, sample0: 0, sampleWidth: 0, band: null
+    };
+
+    // ---------------------------------------------------------- 选区高亮
+    // 复用 wpf.showRangeHighlight（复刻核心 range selection 的紫色半透明矩形），
+    // 使「Ctrl/⌘+拖动框选」「点击 Vector/Bit 单格」的视觉与核心选择工具完全一致。
+    // 单比特信号因此获得与多比特相同的框选效果。
+    // 测量「一格占多少 CSS 像素」：用相距一定距离的两点反推（核心的
+    // sample→x 换算是线性的）。失败时回退 0（调用方用估算值）。
+    function measureSampleWidth(clientX, clientY, sampleAtX) {
+      const canvas = wpf.canvas();
+      if (!canvas) return 0;
+      const r = canvas.getBoundingClientRect();
+      const probeAt = function (dx) {
+        const x = clientX + dx;
+        if (x < r.left + 1 || x > r.right - 1) return null;
+        const m = wpf.mapAt(x, clientY);
+        if (!m) return null;
+        const s = Number(m.signalSampleIndex);
+        return s >= 0 ? { x: x, s: s } : null;
+      };
+      const b = probeAt(200) || probeAt(120) || probeAt(60) || probeAt(-200) || probeAt(-120) || probeAt(-60);
+      if (!b || b.s === sampleAtX) return 0;
+      return Math.abs((b.x - clientX) / (b.s - sampleAtX));
+    }
+
+    function drawHighlight() {
+      if (!sel.band) return;
+      const canvas = wpf.canvas();
+      if (!canvas) return;
+      const r = canvas.getBoundingClientRect();
+      const lo = Math.min(sel.start, sel.end);
+      const hi = Math.max(sel.start, sel.end);
+      const wpx = sel.sampleWidth > 0 ? sel.sampleWidth : 12;
+      const x = (sel.x0 - r.left) + (lo - sel.sample0) * wpx;
+      const w = (hi - lo + 1) * wpx;
+      wpf.showRangeHighlight({ x: x, y: sel.band.top, w: w, h: sel.band.height });
+    }
+
+    function clearHighlight() {
+      wpf.clearRangeHighlight();
+    }
 
     function currentTool() {
       const t = wpf.currentTool();
@@ -235,12 +279,18 @@
 
       sel.active = true;
       sel.moved = false;
+      sel.vector = isVector;
       sel.signalIndex = sigIndex;
       sel.start = sel.end = idx;
       sel.x0 = e.clientX;
       sel.y0 = e.clientY;
+      sel.sample0 = idx;
+      sel.band = wpf.signalRowBand(e.clientX, e.clientY, sigIndex);
+      sel.sampleWidth = measureSampleWidth(e.clientX, e.clientY, idx);
 
       if (e.ctrlKey || e.metaKey || isVector) {
+        // Ctrl+拖动 / 点击 Vector：接管做框选，并立即显示原生风格的高亮
+        drawHighlight();
         // Ctrl+拖动：接管做框选；Vector 点击：接管拦截核心弹窗，自弹自写
         e.stopImmediatePropagation();
         e.preventDefault();
@@ -266,6 +316,9 @@
       } else if (m.mainStep >= 0) {
         sel.end = Math.max(0, Number(m.mainStep)) * wpf.stride();
       }
+      // 框选（Ctrl/⌘）与 Vector 拖动：实时更新高亮；
+      // Bit 非 Ctrl 拖动是 TimeGen 绘制，不显示选区高亮。
+      if (e.ctrlKey || e.metaKey || sel.vector) drawHighlight();
     }
 
     function onMouseUp(e) {
@@ -274,20 +327,25 @@
       const isVector = !!(window.SignalType && sig.type === window.SignalType.Vector);
       const wantPopup = (e.ctrlKey || e.metaKey) || isVector || !sel.moved;
       sel.active = false;
-      if (!wantPopup) return; // Bit 普通拖动：feature-draw 已绘制
+      if (!wantPopup) { clearHighlight(); return; } // Bit 普通拖动：feature-draw 已绘制
       e.stopImmediatePropagation();
       e.preventDefault();
+      // 弹窗前把最终选区高亮画出来（拖动结束 → 弹窗期间选区仍可见）
+      drawHighlight();
       const lo = Math.min(sel.start, sel.end);
       const hi = Math.max(sel.start, sel.end);
       const indices = [];
       for (let i = lo; i <= hi && i < sig.values.length; i += 1) indices.push(i);
-      if (!indices.length) return;
+      if (!indices.length) { clearHighlight(); return; }
       openValuePrompt(sig, indices);
     }
 
     document.addEventListener('mousedown', onMouseDown, true);
     document.addEventListener('mousemove', onMouseMove, true);
     document.addEventListener('mouseup', onMouseUp, true);
-    window.addEventListener('blur', function () { sel.active = false; });
+    window.addEventListener('blur', function () {
+      sel.active = false;
+      clearHighlight();
+    });
   }, 'feature-value-edit');
 })();

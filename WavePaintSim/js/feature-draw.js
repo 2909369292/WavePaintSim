@@ -28,7 +28,10 @@
     const wpf = window.__wpf;
     // signalIndex：本次拖拽锁定的信号行（P1-1，TimeGen 行为——按下后只影响这一行）
     // value      ：本次拖拽当前生效的值（按下时确定；指针留在锁定行内时按行内位置重算）
-    const drag = { active: false, value: 1, signalIndex: -1 };
+    // lastIndex：上一次写入的格子下标。鼠标移动快时 mousemove 事件很稀疏，
+    // 只写「本次命中格」会漏掉中间的格子（子步粒度下表现为：想拉高一条线，
+    // 结果变成 1,0,1,0 的时钟样波形）。用它把跨过的区间补齐。
+    const drag = { active: false, value: 1, signalIndex: -1, lastIndex: -1 };
 
     function isPaintableSignal(signal) {
       return !!(signal && window.SignalType && signal.type === window.SignalType.Bit
@@ -85,6 +88,19 @@
       return drag.value;
     }
 
+    // 写入 [from, to] 区间的每一格（含两端）。整步粒度下按主步首格步进，
+    // 由 writeValue 负责铺满该主步的 stride 个下标，避免重复写。
+    function paintSpan(sig, from, to, value) {
+      const substep = wpf.editGranularity() === 'substep';
+      const unit = substep ? 1 : wpf.stride();
+      const start = substep ? from : Math.floor(from / unit) * unit;
+      const end = substep ? to : Math.floor(to / unit) * unit;
+      const dir = start <= end ? 1 : -1;
+      for (let i = start; dir > 0 ? i <= end : i >= end; i += dir * unit) {
+        if (i >= 0 && i < sig.values.length) wpf.writeValue(sig, i, value);
+      }
+    }
+
     // 拖动中绘制：信号行固定为按下时锁定的那一行，只跟随横向格子推进（P1-1）。
     function paintMove(e) {
       if (drag.signalIndex < 0) return;
@@ -106,7 +122,13 @@
       if (!(idx >= 0) || idx >= sig.values.length) return;
 
       drag.value = valueForDrag(e);
-      wpf.writeValue(sig, idx, drag.value);
+      // 补齐上次与本次之间跨过的所有格子（防漏格）
+      if (drag.lastIndex >= 0 && drag.lastIndex !== idx) {
+        paintSpan(sig, drag.lastIndex, idx, drag.value);
+      } else {
+        wpf.writeValue(sig, idx, drag.value);
+      }
+      drag.lastIndex = idx;
       window.__wpf.cursor = { signalIndex: drag.signalIndex, sampleIndex: idx };
       wpf.scheduleRedraw();
     }
@@ -135,6 +157,7 @@
       // 拖到别的信号行也不会改到别人。
       drag.signalIndex = hit.signalIndex;
       drag.value = hit.value;
+      drag.lastIndex = hit.sampleIndex;
       paintAt(e);
     }
 
@@ -149,6 +172,7 @@
       if (!drag.active) return;
       drag.active = false;
       drag.signalIndex = -1;
+      drag.lastIndex = -1;
       e.stopImmediatePropagation();
       wpf.scheduleRedraw();
     }
@@ -161,6 +185,7 @@
     window.addEventListener('blur', function () {
       drag.active = false;
       drag.signalIndex = -1;
+      drag.lastIndex = -1;
     });
   }, 'feature-draw');
 })();
