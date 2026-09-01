@@ -364,14 +364,14 @@ function readWaveDocument() {
     signals: signals.map((sig, index) => {
       const rawValues = Array.isArray(sig?.values) ? sig.values : [];
       const width = inferWidth(sig, rawValues);
-      // 时钟信号总是按「每格序列」传给 buildAutoTestbench，由 TB 用分数时间逐格驱动
-      // （每格 1/stride 时间单位，一个主步内完成翻转 → 每主步一个上升沿）。
-      // ⚠ 不能要求 isAlternatingCells（整条完美交替）：用户修改激励后 clk 未必还是
-      //    1,0,1,0…，若此时退回「主步整值驱动」，主步内无翻转 → 无上升沿 →
-      //    输出恒 0（用户实测：第一次 sim 后修改激励/结果波形再 sim，结果恒 0）。
-      //    逐格驱动忠实地反映画布真实波形，无论 clk 画成交替还是任意形状。
-      const isClock = !!sig.isClockPattern || sig.kind === "clock";
-      const clockCells = width <= 1 && isClock && rawValues.length >= 2
+      // 位宽 1 的信号一律按「每格序列」传给 buildAutoTestbench，由 TB 用分数时间
+      // 逐格驱动（每格 1/stride 时间单位，一个主步内完成翻转 → 每主步一个上升沿）。
+      // ⚠ 不再要求 isClockPattern/kind=clock：导入的 JSON（WaveDrom）信号可能
+      //    没有该标记（如 clk 在 JSON 里用 'p' 半周期脉冲表示，展开后无 isClockPattern），
+      //    否则 TB 退回「主步整值驱动」→ 主步内 clk 不翻转 → 无上升沿 → 输出恒 0
+      //    （用户实测：导入波形文件后仿真全 0，TB 中 clock 错误）。
+      //    逐格驱动忠实地反映画布真实波形——对交替数据信号反而比主步采样更正确。
+      const clockCells = width <= 1 && rawValues.length >= 2
         ? rawValues.map(fromNativeBitValue) : undefined;
       const values = Array.from({ length: timeSteps }, (_, cell) => {
         // 兜底采样：主值（每步第 1 个）优先；若主值为 x/空，取该主步内第一个确定值。

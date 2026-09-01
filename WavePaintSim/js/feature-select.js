@@ -476,6 +476,18 @@
       dispatchAt('mousemove', e, alignSample(curSample, dir === 'fwd'), e.clientY);
     }
 
+    // 该位置命中的信号是否为 Vector（总线）。核心对 Vector 的 mouseup 会弹它自带的
+    // 「Vector Value」弹窗并把工具切回画笔（用户实测：框选 Vector 后工具变 paint，
+    // 后续 Bit 框选粒度错乱）。为此对 Vector 信号不派发合成 mouseup 给核心——
+    // 核心停在 rangeSelecting 态继续绘制选框（视觉保留），但不进入弹窗/切工具流程。
+    function isVectorSignal(clientX, clientY) {
+      const m = wpf.mapAt(clientX, clientY);
+      if (!m) return false;
+      const dw = window.document_wave;
+      const sig = dw && dw.m_signals ? dw.m_signals[m.signalIndex] : null;
+      return !!(sig && window.SignalType && sig.type === window.SignalType.Vector);
+    }
+
     function onMouseUp(e) {
       if (replaying) return;
       if (!marquee.active) return;
@@ -485,12 +497,16 @@
 
       if (!marquee.dragging) {
         // 单击 = 一次框选：只框「一个粒度单位」（整步 = 一个主步，子步 = 一格），
-        // 同样交给核心原生绘制。
+        // 同样交给核心原生绘制。派发 mousedown → mousemove → mouseup 三个事件，
+        // 让核心的 rangeSelecting 完整走一遍（否则仅有 down/up 可能不绘制选框）。
         if (marquee.startSample >= 0) {
           const lo = alignSample(marquee.startSample, false);
           const hi = alignSample(marquee.startSample, true);
           dispatchAt('mousedown', e, lo, marquee.startClientY);
-          dispatchAt('mouseup', e, hi, marquee.startClientY);
+          dispatchAt('mousemove', e, hi, marquee.startClientY);
+          if (!isVectorSignal(marquee.startClientX, marquee.startClientY)) {
+            dispatchAt('mouseup', e, hi, marquee.startClientY);
+          }
           window.__wpf.selection = regionFromSamples(lo, hi);
         }
       } else {
@@ -500,16 +516,23 @@
           dispatchAt('mousedown', e, alignSample(marquee.startSample, false), marquee.startClientY);
           marquee.sent = true;
         }
-        dispatchAt('mouseup', e, alignSample(curSample, marquee.dir !== 'back'), e.clientY);
+        if (!isVectorSignal(marquee.startClientX, marquee.startClientY)) {
+          dispatchAt('mouseup', e, alignSample(curSample, marquee.dir !== 'back'), e.clientY);
+        }
         window.__wpf.selection = alignRegion(regionFromPoints());
       }
       const region = window.__wpf.selection;
       // value-edit 的 Ctrl/Vector 弹窗会话（nativeRangeSession.active）接管弹窗，
       // 本模块不弹批量工具条；其余情况弹出批量工具条。
       if (region && !(window.__wpf.nativeRangeSession && window.__wpf.nativeRangeSession.active)) {
-        // 等核心完成 mouseup 处理（原生高亮保留在画布上）后再弹工具条
+        // 等核心完成 mouseup 处理（原生高亮保留在画布上）后再弹工具条；
+        // 同时把核心可能自带的弹窗（Vector Value 遮罩）收起，避免挡住后续点击。
         setTimeout(function () {
-          if (region === window.__wpf.selection) showBar(e.clientX, e.clientY);
+          if (region === window.__wpf.selection) {
+            const ov = document.getElementById('wp-modal-overlay');
+            if (ov && ov.className.indexOf('hidden') < 0) ov.classList.add('hidden');
+            showBar(e.clientX, e.clientY);
+          }
         }, 0);
       }
     }

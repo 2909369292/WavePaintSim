@@ -40,6 +40,7 @@
         const closeBtn = document.getElementById('wp-modal-close');
         if (!overlay || !inputEl || !okBtn) { resolve(null); return; }
         promptActive = true;
+        wpf._promptActive = true; // 告诉抑制器：这是我们自己的弹窗，不要拦截
         promptOk = false;
         titleEl.textContent = title;
         msgEl.textContent = message + (subtitle ? '\n（当前粒度：' + subtitle + '）' : '');
@@ -65,6 +66,7 @@
         }
         function cleanup() {
           promptActive = false;
+          wpf._promptActive = false;
           overlay.classList.add('hidden');
           okBtn.style.display = prevOkDisplay;
           if (cancelBtn) cancelBtn.style.display = prevCancelDisplay;
@@ -325,41 +327,32 @@
       if (!sel.active) return;
       const sig = window.document_wave.m_signals[sel.signalIndex];
       const mode = sel.mode;
-      const wantPopup = (mode === 'native') || !sel.moved;
       sel.active = false;
 
-      if (!wantPopup) {
-        // Bit 拖动：feature-draw 已绘制，不弹窗
+      if (mode === 'native') {
+        // Ctrl/Vector：已切 select 工具，不拦截、不弹窗——
+        // feature-select 负责框选并弹批量工具条。
         sel.mode = null;
         return;
       }
 
-      // 不拦截：让核心完成 mouseup（结束原生 range selection 并保留高亮）。
-      // nativeRangeSession.active 会让 feature-select 跳过批量工具条。
-      // 等核心处理完再弹窗（setTimeout 0），保证画布高亮就绪。
-      const x0c = sel.x0, x1c = e.clientX;
-      const y0c = sel.y0, y1c = e.clientY;
-      const midY = (y0c + y1c) / 2;
-      const m0 = wpf.mapAt(x0c, midY);
-      const m1 = wpf.mapAt(x1c, midY);
-      let lo, hi;
-      if (m0 && m1 && m0.signalIndex === sel.signalIndex && m1.signalIndex === sel.signalIndex) {
-        lo = Math.min(Number(m0.signalSampleIndex), Number(m1.signalSampleIndex));
-        hi = Math.max(Number(m0.signalSampleIndex), Number(m1.signalSampleIndex));
-      } else {
-        lo = sel.start; hi = sel.end;
-      }
-      const indices = [];
-      for (let i = lo; i <= hi && i < sig.values.length; i += 1) indices.push(i);
-      if (!indices.length) {
-        if (mode === 'native') {
-          wpf.nativeRangeSession.active = false;
-          switchTool('paint');
-        }
+      if (sel.moved || currentTool() !== 'paint') {
+        // Bit 拖动：feature-draw 已绘制，不弹窗；
+        // 当前已不是画笔工具（如 select 工具下的点击）也不属于本模块的单击弹窗
+        // 场景（交给 feature-select 框选）。防御：残留的 sel 状态在此彻底清理，
+        // 避免误弹 #wp-modal（曾导致核心弹窗抑制器放行 → 遮罩挡住后续操作）。
         sel.mode = null;
         return;
       }
-      setTimeout(function () { openValuePrompt(sig, indices); }, 0);
+
+      // Bit 纯点击：弹 Bit Value 弹窗（不切工具）
+      const lo = Math.min(sel.start, sel.end);
+      const hi = Math.max(sel.start, sel.end);
+      const indices = [];
+      for (let i = lo; i <= hi && i < sig.values.length; i += 1) indices.push(i);
+      sel.mode = null;
+      if (!indices.length) return;
+      openValuePrompt(sig, indices);
     }
 
     document.addEventListener('mousedown', onMouseDown, true);
@@ -367,9 +360,6 @@
     document.addEventListener('mouseup', onMouseUp, true);
     window.addEventListener('blur', function () {
       sel.active = false;
-      if (sel.mode === 'native') {
-        wpf.nativeRangeSession.active = false;
-      }
       sel.mode = null;
     });
   }, 'feature-value-edit');

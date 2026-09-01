@@ -721,18 +721,23 @@ export function buildAutoTestbench(design, project = {}) {
   const events = [];
   for (const binding of inputBindings) {
     const signal = binding.signal;
-    // 时钟按子步粒度翻转（readWaveDocument 传来的每格序列）：用分数时间驱动，
+    // 位宽 1 的信号一律用分数时间逐格驱动（readWaveDocument 传来的每格序列），
     // 使仿真频率与画布显示一致（每格 1/stride 个时间单位，一个主步内完成 1→0 翻转
-    // → 每主步一个上升沿）。普通时钟/其它信号仍走主步整值驱动。
-    const clockCells = (signal.kind === "clock"
-      && Array.isArray(signal.clockCells) && signal.clockCells.length >= 2)
+    // → 每主步一个上升沿）。不要求 kind==='clock'：导入的 JSON 信号可能没有该标记，
+    // 若退回主步整值驱动，主步内不翻转 → 无上升沿 → 输出恒 0。
+    const clockCells = (Array.isArray(signal.clockCells) && signal.clockCells.length >= 2)
       ? signal.clockCells : null;
     if (clockCells) {
       const stride = Math.max(1, Number(project.subSteps) + 1);
-      let previous = formatVerilogValue(clockCells[0], binding.port.width);
+      // 复位端口：用户从未画出复位沿时，TB 补上电复位脉冲（对每格序列生效，
+      // 与主步整值驱动分支的 ensureResetPulse 语义一致）。只影响 TB，不改画布。
+      const cells = resetPolarity(binding.port.name)
+        ? ensureResetPulse(clockCells, binding.port.name)
+        : clockCells;
+      let previous = formatVerilogValue(cells[0], binding.port.width);
       events.push({ time: 0, clock: true, text: `${binding.port.name} = ${previous};` });
-      for (let k = 1; k < clockCells.length; k += 1) {
-        const current = formatVerilogValue(clockCells[k], binding.port.width);
+      for (let k = 1; k < cells.length; k += 1) {
+        const current = formatVerilogValue(cells[k], binding.port.width);
         if (current === previous) continue;
         events.push({ time: k / stride, clock: true, text: `${binding.port.name} = ${current};` });
         previous = current;

@@ -612,6 +612,36 @@
       if (n === 0 && tries < 6) { setTimeout(attempt, 400); return; }
       if (n > 0) wpf.scheduleRedraw();
     })();
+
+    // ------------------------------------------------ 抑制核心自带的弹窗
+    // 混淆核心在 select 工具下框选 Vector（总线）信号后，会在 mouseup 弹它自带的
+    // 「Vector Value」弹窗（#wp-modal），与我们的框选工具条/值编辑冲突；且关闭后
+    // 核心会把工具切回画笔 → 后续框选粒度逻辑失效（用户实测：先框 Vector 再框 Bit，
+    // 粒度不稳定）。
+    // 处理：MutationObserver 监听 #wp-modal-overlay，只要它被核心显示而我们自己的
+    // 弹窗（feature-value-edit 的 Bit/Vector Value，wpf._promptActive=true）没在
+    // 使用，就立即隐藏。这样核心弹窗根本不出现，框选流程完全由我们接管。
+    const modalOv = document.getElementById('wp-modal-overlay');
+    if (modalOv && typeof MutationObserver === 'function') {
+      const suppressCoreModal = function () {
+        if (wpf._promptActive) return;
+        const visible = !modalOv.classList.contains('hidden')
+          || (modalOv.style && modalOv.style.display && modalOv.style.display !== 'none');
+        if (visible) {
+          modalOv.classList.add('hidden');
+          if (modalOv.style) modalOv.style.display = 'none';
+          // 核心弹「Vector Value」后可能把工具切回画笔（closeModal 流程同步执行）。
+          // setTimeout 在核心弹窗流程跑完后把工具抵消回 select。
+          setTimeout(function () {
+            const selBtn = document.querySelector('.tool-btn[data-tool="select"]');
+            if (selBtn && !selBtn.classList.contains('active')) selBtn.click();
+          }, 0);
+        }
+      };
+      const obs = new MutationObserver(suppressCoreModal);
+      // 核心可能通过 class 或 style 显示弹窗，监听全部属性变化
+      obs.observe(modalOv, { attributes: true, attributeFilter: ['class', 'style'] });
+    }
   }, 'bus-radix');
 
   // ------------------------------------------------- 总线进制右键菜单（需求 7.6）
