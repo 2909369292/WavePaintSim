@@ -35,6 +35,9 @@
     const marquee = { active: false, startX: 0, startY: 0, curX: 0, curY: 0, dragging: false };
     const clip = { data: null }; // 复制剪贴板 {rows: [{signalIndex, values: []}], sampleCount}
     let bar = null;
+    // 整步粒度下会派发合成鼠标事件给核心（坐标已按主步对齐），这些合成事件同样
+    // 会被本模块的捕获监听器收到，必须整体短路，否则无限递归。
+    let replaying = false;
 
     function hideBar() {
       if (bar && bar.parentElement) bar.parentElement.removeChild(bar);
@@ -269,53 +272,63 @@
       bar.id = 'wpf-batch-bar';
       bar.style.cssText = 'position:fixed;z-index:300;display:flex;gap:4px;padding:6px 8px;align-items:center;'
         + 'background:#fff;border:1px solid #bbb;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.2);font-size:12px;';
+      // 点工具条上的按钮（设1/设0/…）时，输入框会先失焦；此时不应误触发「失焦即提交」。
+      let suppressCommit = false;
       const buttons = [
         ['设 1', function () { applyValues('one'); }],
         ['设 0', function () { applyValues('zero'); }],
         ['设 x', function () { applyValues('x'); }],
-        ['翻转', function () { applyValues('invert'); }],
-        ['复制', function () { copyRegion(); }],
-        ['粘贴', function () { pasteRegion(); }]
+        ['翻转', function () { applyValues('invert'); }]
+        // 复制/粘贴已移除：快捷键（Ctrl+C / Ctrl+V）已可用，不再占用工具条空间
       ];
       buttons.forEach(function ([label, fn]) {
         const b = document.createElement('button');
         b.type = 'button';
         b.textContent = label;
         b.style.cssText = 'cursor:pointer;padding:3px 10px;';
+        b.addEventListener('mousedown', function () { suppressCommit = true; });
         b.addEventListener('click', function (ev) { ev.stopPropagation(); fn(); });
         bar.appendChild(b);
       });
-      // 总线（矢量）编辑：输入任意数值（10 / 0xA / 0b1010 / 8'hA5 / x / z）写入选中范围
+      // 值输入：弹出即自动聚焦，回车 / 点击别处直接写入；不输入点击别处 = 取消。
+      // 不再需要「输入值」确认按钮与「取消」按钮。
       const input = document.createElement('input');
       input.type = 'text';
-      input.placeholder = '总线值';
-      input.title = '输入数值写入选中总线范围（支持 10 / 0xA / 0b1010 / 8\'hA5 / x / z）';
-      input.style.cssText = 'width:84px;font-size:12px;padding:3px 6px;border:1px solid #bbb;border-radius:6px;';
-      const writeBtn = document.createElement('button');
-      writeBtn.type = 'button';
-      writeBtn.textContent = '输入值';
-      writeBtn.style.cssText = 'cursor:pointer;padding:3px 10px;';
+      input.placeholder = '输入值';
+      input.title = '输入数值后回车或点击别处即写入（支持 10 / 0xA / 0b1010 / 8\'hA5 / x / z）；'
+        + '不输入直接点击别处 = 取消；Esc = 取消';
+      input.style.cssText = 'width:92px;font-size:12px;padding:3px 6px;border:1px solid #bbb;border-radius:6px;';
       function commitInput() {
-        applyCustom(input.value);
+        const text = String(input.value || '').trim();
+        if (!text) { hideBar(); return; }  // 空输入 = 取消
+        applyCustom(text);
         hideBar();
       }
-      writeBtn.addEventListener('click', function (ev) { ev.stopPropagation(); commitInput(); });
+      function cancelInput() {
+        input.value = '';
+        hideBar();
+      }
       input.addEventListener('keydown', function (ev) {
-        if (ev.key === 'Enter') { ev.preventDefault(); ev.stopPropagation(); commitInput(); }
-        else if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); hideBar(); }
+        ev.stopPropagation(); // 不触发全局快捷键
+        if (ev.key === 'Enter') { ev.preventDefault(); commitInput(); }
+        else if (ev.key === 'Escape') { ev.preventDefault(); cancelInput(); }
+      });
+      // 失焦即提交（有值）/ 取消（无值）
+      input.addEventListener('blur', function () {
+        if (suppressCommit) { suppressCommit = false; return; }
+        const text = String(input.value || '').trim();
+        if (!text) { hideBar(); return; }
+        applyCustom(text);
+        hideBar();
       });
       bar.appendChild(input);
-      bar.appendChild(writeBtn);
-      const cancel = document.createElement('button');
-      cancel.type = 'button';
-      cancel.textContent = '取消';
-      cancel.style.cssText = 'cursor:pointer;padding:3px 10px;';
-      cancel.addEventListener('click', function (ev) { ev.stopPropagation(); hideBar(); });
-      bar.appendChild(cancel);
       document.body.appendChild(bar);
       const bw = bar.offsetWidth, bh = bar.offsetHeight;
       bar.style.left = Math.max(8, Math.min(clientX, window.innerWidth - bw - 8)) + 'px';
       bar.style.top = Math.max(8, Math.min(clientY - bh - 12, window.innerHeight - bh - 8)) + 'px';
+      // 自动聚焦：框选结束弹出后可直接键入，无需再点一次输入框
+      input.focus();
+      input.select();
     }
 
     function hideBarKeepSelection() {
@@ -323,20 +336,95 @@
       bar = null;
     }
 
+    // ------------------------------------------------ 选框粒度（整步/子步）
+    // 核心原生 range selection 的最小单位是「一格（sample）」。整步粒度下写入会
+    // 铺满整个主步（stride 格），若选框仍按单格绘制，视觉范围就比实际写入范围细。
+    // 处理方式：**不自己画**，而是把鼠标坐标按粒度对齐后派发合成事件给核心，
+    // 核心原生 range selection 便按整步边界绘制（视觉与写入粒度完全一致）。
+    function alignSample(sampleIndex, isEnd) {
+      const s = Number(sampleIndex);
+      if (!(s >= 0)) return s;
+      if (wpf.editGranularity() === 'substep') return s; // 子步：原样
+      const stride = wpf.stride();
+      const step = Math.floor(s / stride);
+      return isEnd ? (step * stride + stride - 1) : (step * stride); // 首格 / 末格
+    }
+
+    // 把选区范围也对齐到主步边界（保证写入范围与视觉一致）
+    function alignRegion(region) {
+      if (!region || wpf.editGranularity() === 'substep') return region;
+      const stride = wpf.stride();
+      const startStep = Math.floor(region.sampleStart / stride);
+      const endStep = Math.floor(region.sampleEnd / stride);
+      return {
+        signalStart: region.signalStart,
+        signalEnd: region.signalEnd,
+        sampleStart: startStep * stride,
+        sampleEnd: Math.min(endStep * stride + stride - 1, region.sampleEnd + stride - 1)
+      };
+    }
+
+    // 一格占多少 CSS 像素（核心的 sample→x 换算是线性的，取两点反推）
+    function measureSampleWidth(clientX, clientY, sampleAtX) {
+      const r = canvas.getBoundingClientRect();
+      const probeAt = function (dx) {
+        const x = clientX + dx;
+        if (x < r.left + 1 || x > r.right - 1) return null;
+        const m = wpf.mapAt(x, clientY);
+        if (!m) return null;
+        const s = Number(m.signalSampleIndex);
+        return s >= 0 ? { x: x, s: s } : null;
+      };
+      const b = probeAt(200) || probeAt(120) || probeAt(60) || probeAt(-200) || probeAt(-120) || probeAt(-60);
+      if (!b || b.s === sampleAtX) return 0;
+      return Math.abs((b.x - clientX) / (b.s - sampleAtX));
+    }
+
+    // 派发「按粒度对齐坐标」的合成鼠标事件给核心（核心原生绘制选框）
+    function dispatchAligned(type, e, isEnd) {
+      let x = e.clientX;
+      const m = wpf.mapAt(e.clientX, e.clientY);
+      if (m && m.signalSampleIndex >= 0) {
+        const current = Number(m.signalSampleIndex);
+        const target = alignSample(current, isEnd);
+        const wpx = measureSampleWidth(e.clientX, e.clientY, current);
+        if (wpx > 0) x = e.clientX + (target - current) * wpx;
+      }
+      replaying = true; // 合成事件同样会被本模块的捕获监听收到，需短路防递归
+      try {
+        canvas.dispatchEvent(new MouseEvent(type, {
+          bubbles: true, cancelable: true, view: window,
+          clientX: x, clientY: e.clientY,
+          button: e.button, buttons: e.buttons, detail: e.detail,
+          ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey
+        }));
+      } finally {
+        replaying = false;
+      }
+    }
+
     function onMouseDown(e) {
+      if (replaying) return;
       if (e.button !== 0) return;
       if (e.target !== canvas) return;
       if (wpf.currentTool() !== 'select') return;
       if (bar) hideBar();
-      // 不拦截：让混淆核心的 select 工具自己启动原生 range selection（紫色对齐框选）。
       const r = canvas.getBoundingClientRect();
       marquee.active = true;
       marquee.dragging = false;
       marquee.startX = marquee.curX = e.clientX - r.left;
       marquee.startY = marquee.curY = e.clientY - r.top;
+      if (wpf.editGranularity() !== 'substep') {
+        // 整步：拦截真实事件，改派发对齐后的合成事件
+        e.stopImmediatePropagation();
+        e.preventDefault();
+        dispatchAligned('mousedown', e, false);
+      }
+      // 子步：放行真实事件，核心原生按格子绘制
     }
 
     function onMouseMove(e) {
+      if (replaying) return;
       if (!marquee.active) return;
       const r = canvas.getBoundingClientRect();
       const nx = e.clientX - r.left;
@@ -346,19 +434,31 @@
       }
       marquee.curX = nx;
       marquee.curY = ny;
-      // 不拦截：核心负责更新原生框选
+      if (wpf.editGranularity() !== 'substep') {
+        // 整步：始终拦截，避免核心收到未对齐的真实 move 而破坏整步边界
+        e.stopImmediatePropagation();
+        e.preventDefault();
+        dispatchAligned('mousemove', e, true);
+      }
+      // 子步：放行，核心负责更新原生框选
     }
 
     function onMouseUp(e) {
+      if (replaying) return;
       if (!marquee.active) return;
       marquee.active = false;
+      if (wpf.editGranularity() !== 'substep') {
+        e.stopImmediatePropagation();
+        e.preventDefault();
+        dispatchAligned('mouseup', e, true);
+      }
       if (!marquee.dragging) {
         // 单击：核心自己处理（选中信号/对象等），本模块不干预
         marquee.dragging = false;
         return;
       }
       marquee.dragging = false;
-      const region = regionFromPoints();
+      const region = alignRegion(regionFromPoints());
       window.__wpf.selection = region;
       // value-edit 的 Ctrl/Vector 弹窗会话（nativeRangeSession.active）接管弹窗，
       // 本模块不弹批量工具条；其余情况弹出批量工具条。

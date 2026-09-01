@@ -46,6 +46,17 @@
         inputEl.value = String(defaultValue == null ? '' : defaultValue);
         inputEl.classList.remove('wp-modal-error');
         overlay.classList.remove('hidden');
+
+        // 需求：弹出即可直接键入，回车 / 点击别处直接写入；不输入点击别处 = 取消。
+        // 因此隐藏核心 #wp-modal 自带的「确定」「取消」按钮，保留右上角关闭 X。
+        const prevOkDisplay = okBtn.style.display;
+        const prevCancelDisplay = cancelBtn ? cancelBtn.style.display : '';
+        okBtn.style.display = 'none';
+        if (cancelBtn) cancelBtn.style.display = 'none';
+        // 点「取消」/ X 时输入框会先失焦，此时不应误触发「失焦即提交」
+        let suppressBlur = false;
+        function markSuppress() { suppressBlur = true; }
+
         inputEl.focus();
         inputEl.select();
         function finish(val) {
@@ -55,25 +66,40 @@
         function cleanup() {
           promptActive = false;
           overlay.classList.add('hidden');
+          okBtn.style.display = prevOkDisplay;
+          if (cancelBtn) cancelBtn.style.display = prevCancelDisplay;
           inputEl.removeEventListener('keydown', onKey, true);
+          inputEl.removeEventListener('blur', onBlur);
           okBtn.removeEventListener('click', onOk);
-          cancelBtn.removeEventListener('click', onCancel);
-          closeBtn.removeEventListener('click', onClose);
+          if (cancelBtn) cancelBtn.removeEventListener('click', onCancel);
+          if (cancelBtn) cancelBtn.removeEventListener('mousedown', markSuppress);
+          if (closeBtn) closeBtn.removeEventListener('click', onClose);
+          if (closeBtn) closeBtn.removeEventListener('mousedown', markSuppress);
           overlay.removeEventListener('mousedown', onOverlayDown, true);
         }
         function onKey(e) {
           e.stopPropagation(); // R5：输入框内按键不触发全局快捷键
-          if (e.key === 'Enter') { e.preventDefault(); onOk(); }
-          else if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
+          if (e.key === 'Enter') { e.preventDefault(); finish(String(inputEl.value || '').trim()); }
+          else if (e.key === 'Escape') { e.preventDefault(); finish(null); }
         }
-        function onOk() { finish(inputEl.value); }
+        // 失焦即提交：有值写入、无值取消
+        function onBlur() {
+          if (suppressBlur) { suppressBlur = false; return; }
+          const text = String(inputEl.value || '').trim();
+          if (!text) { finish(null); return; }
+          finish(text);
+        }
+        function onOk() { finish(String(inputEl.value || '').trim()); }
         function onCancel() { finish(null); }
         function onClose() { finish(null); }
         function onOverlayDown(e) { if (e.target === overlay) finish(null); }
         okBtn.addEventListener('click', onOk);
-        cancelBtn.addEventListener('click', onCancel);
-        closeBtn.addEventListener('click', onClose);
+        if (cancelBtn) cancelBtn.addEventListener('click', onCancel);
+        if (cancelBtn) cancelBtn.addEventListener('mousedown', markSuppress);
+        if (closeBtn) closeBtn.addEventListener('click', onClose);
+        if (closeBtn) closeBtn.addEventListener('mousedown', markSuppress);
         inputEl.addEventListener('keydown', onKey, true);
+        inputEl.addEventListener('blur', onBlur);
         overlay.addEventListener('mousedown', onOverlayDown, true);
       });
     }
