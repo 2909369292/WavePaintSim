@@ -256,8 +256,11 @@
       mode: null // 'native' = Ctrl/Vector 会话（切 select，原生框选）
     };
 
-    // 切换工具（'select'/'paint'）：通过点击工具栏按钮让核心 currentTool 同步
+    // 切换工具（'select'/'paint'）：通过点击工具栏按钮让核心 currentTool 同步。
+    // ⚠ 核心工具按钮是「切换」语义：对已激活的按钮再 click 会取消工具（currentTool
+    // 变 null），导致后续框选全部失效。因此已处于目标工具时直接返回。
     function switchTool(tool) {
+      if (currentTool() === tool) return;
       const sel2 = (tool === 'select') ? '.tool-btn[data-tool="select"]' : '.tool-btn[data-tool="paint"]';
       const b = document.querySelector(sel2);
       if (b) b.click();
@@ -293,9 +296,9 @@
 
       if (e.ctrlKey || e.metaKey || isVector) {
         // Ctrl/Vector：切 select 工具，**不拦截** → 核心原生 range selection
-        // 接管本次拖动（紫色对齐框选）；feature-select 同步记录起止、不弹工具条。
+        // 接管本次拖动（紫色对齐框选）；feature-select 记录起止并弹批量工具条
+        // （用户要求：编辑模式下 Ctrl 框选完全复用框选模式的代码/工具条）。
         sel.mode = 'native';
-        wpf.nativeRangeSession.active = true;
         switchTool('select');
       } else {
         // Bit 普通按下：不切工具、不拦截 → feature-draw 准备 TimeGen 绘制

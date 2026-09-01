@@ -37,7 +37,8 @@
       // 按下点的原始信息（驱动核心时要用按下点的行 y，而不是当前 y）
       startClientX: 0, startClientY: 0, startSample: -1,
       dir: null,   // 'fwd' 向左→右 / 'back' 向右→左；决定按下点是首格还是末格
-      sent: false  // 是否已向核心派发过 mousedown
+      sent: false, // 是否已向核心派发过 mousedown
+      hadSelection: false // 按下时是否已有选框（单击=清除 或 新框选的判定依据）
     };
     const clip = { data: null }; // 复制剪贴板 {rows: [{signalIndex, values: []}], sampleCount}
     let bar = null;
@@ -48,7 +49,82 @@
     function hideBar() {
       if (bar && bar.parentElement) bar.parentElement.removeChild(bar);
       bar = null;
+      // 菜单消失时选框必须同步消失（用户要求：视觉与编辑菜单同步出现同步消失）。
+      // 让核心重置并清除其原生 range selection。
+      clearCoreSelectionFromAnchor();
       window.__wpf.selection = null;
+      window.__wpf._selAnchor = null;
+    }
+
+    // value-edit 的 Ctrl/Vector 会话标志：现在 Ctrl/Vector 完全复用框选工具条，
+    // 不再需要抑制工具条，此标志仅保留兼容（恒 false）。
+    function nativeRangeSessionActive() {
+      const s = window.__wpf.nativeRangeSession;
+      return !!(s && s.active);
+    }
+
+    // 记录选框范围 + 一个「锚点」（按下点，在信号行上），供清除选框时定位。
+    function setSelection(region, ax, ay) {
+      window.__wpf.selection = region || null;
+      window.__wpf._selAnchor = (region && ax != null && ay != null) ? { x: ax, y: ay } : null;
+    }
+
+    // 向核心派发一个原始坐标的合成鼠标事件（不被 dispatchAt 的坐标对齐干扰）
+    function dispatchRaw(type, clientX, clientY, buttons) {
+      canvas.dispatchEvent(new MouseEvent(type, {
+        bubbles: true, cancelable: true, view: window,
+        clientX: clientX, clientY: clientY,
+        button: 0, buttons: buttons, detail: 1,
+        ctrlKey: false, shiftKey: false, altKey: false, metaKey: false
+      }));
+    }
+
+    // 清除核心原生 range selection：在同一点派发 mousedown+mouseup。
+    // 核心 mousedown（select 工具、信号行上）会重置 start=end=该格并 rangeSelecting=true，
+    // mouseup 判定「无拖动」→ rangeSelActive=false 并清空 start/end → 选框消失。
+    // 不能用 Esc：核心 deleteSelection 只在 rangeSelActive 时触发，子步单格残留态
+    // 是 rangeSelecting=true（rangeSelActive=false），Esc 不会清除。
+    function clearCoreSelection(px, py) {
+      if (!canvas) return;
+      const anchor = window.__wpf._selAnchor;
+      const m = wpf.mapAt(px, py) || (anchor ? wpf.mapAt(anchor.x, anchor.y) : null);
+      if (!m) return;
+      const sample = Number(m.signalSampleIndex);
+      if (!(sample >= 0)) return; // 不在有效信号格上，无法通过 mousedown 重置核心
+      const y = (anchor ? anchor.y : py);
+      const x = xForSample(y, sample);
+      replaying = true;
+      try {
+        dispatchRaw('mousedown', x, y, 1);
+        dispatchRaw('mouseup', x, y, 0);
+      } finally {
+        replaying = false;
+      }
+    }
+
+    function clearCoreSelectionFromAnchor() {
+      const anchor = window.__wpf._selAnchor;
+      if (anchor) clearCoreSelection(anchor.x, anchor.y);
+    }
+
+    // 框选完成后弹工具条：等核心同步处理完 mouseup 再弹，并把核心可能残留的
+    // #wp-modal 遮罩收起（防挡住后续点击）。
+    function showBarAfter(e) {
+      const region = window.__wpf.selection;
+      if (!region || nativeRangeSessionActive()) return;
+      setTimeout(function () {
+        if (!window.__wpf.selection) return;
+        // 防御：框选会话中核心可能把工具切走（如 closeModal 流程）。保持 select，
+        // 避免后续框选在 paint/null 工具下失效。t===null 时不强制（尊重切换）。
+        const t = wpf.currentTool();
+        if (t !== 'select' && t !== null) {
+          const selBtn = document.querySelector('.tool-btn[data-tool="select"]');
+          if (selBtn && !selBtn.classList.contains('active')) selBtn.click();
+        }
+        const ov = document.getElementById('wp-modal-overlay');
+        if (ov && ov.className.indexOf('hidden') < 0) ov.classList.add('hidden');
+        showBar(e.clientX, e.clientY);
+      }, 0);
     }
 
     // 计算框选区域覆盖的 {signalStart, signalEnd, sampleStart, sampleEnd}
@@ -189,17 +265,32 @@
       wpf.pushUndoSnapshot();
       const touched = new Set();
       for (const { sig } of regionSignals(region)) {
-        // 粒度收敛（整步=每主步首格，writeValue 铺满全步）——v0.3.0 R2
-        const targets = wpf.indicesByGranularity(range, wpf.stride());
-        // 相对操作（翻转）必须先基于原始值算好结果，再统一写，避免整步覆盖后二次取反
-        const results = new Map();
-        for (const i of targets) {
-          if (i >= sig.values.length) continue;
-          results.set(i, nextValue(sig, sig.values[i], kind));
-        }
-        for (const i of targets) {
-          if (i >= sig.values.length) continue;
-          wpf.writeValue(sig, i, results.get(i));
+        if (kind === 'invert') {
+          // 翻转必须逐格取反，不能走 writeValue（整步模式下它会铺满整个主步，
+          // 交替时钟 1,0,1,0 翻完变 0,0,0,0 → 恒 0/1——用户实测的 bug）。
+          // 整步模式下也要展开到主步所有格、每格独立取反，保持波形形状（交替仍交替）。
+          const stride = wpf.stride();
+          const cells = new Set();
+          for (const i of range) {
+            if (i >= sig.values.length) continue;
+            if (wpf.editGranularity() !== 'substep') {
+              const start = Math.floor(i / stride) * stride;
+              const end = Math.min(start + stride, sig.values.length);
+              for (let k = start; k < end; k += 1) cells.add(k);
+            } else {
+              cells.add(i);
+            }
+          }
+          for (const i of cells) {
+            sig.values[i] = nextValue(sig, sig.values[i], 'invert');
+          }
+        } else {
+          // 设值（设1/设0/设x）：整步模式按主步铺满（用户预期：写整个主步）。
+          const targets = wpf.indicesByGranularity(range, wpf.stride());
+          for (const i of targets) {
+            if (i >= sig.values.length) continue;
+            wpf.writeValue(sig, i, nextValue(sig, sig.values[i], kind));
+          }
         }
         touched.add(sig);
       }
@@ -394,6 +485,8 @@
     }
 
     // 派发「按粒度对齐坐标」的合成鼠标事件给核心（核心原生绘制选框）
+    // ⚠ 合成事件必须去掉 ctrlKey/metaKey：否则核心会误判为 Ctrl+框选（走缩放/其它
+    //   特殊分支），导致框选行为异常、状态错乱（用户实测 Ctrl 框选后一切点选失效）。
     function dispatchAt(type, e, sampleIndex, clientY) {
       const y = (clientY === undefined || clientY === null) ? e.clientY : clientY;
       const x = xForSample(y, sampleIndex);
@@ -403,7 +496,7 @@
           bubbles: true, cancelable: true, view: window,
           clientX: x, clientY: y,
           button: e.button, buttons: e.buttons, detail: e.detail,
-          ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey
+          ctrlKey: false, shiftKey: false, altKey: false, metaKey: false
         }));
       } finally {
         replaying = false;
@@ -426,7 +519,10 @@
       if (e.button !== 0) return;
       if (e.target !== canvas) return;
       if (wpf.currentTool() !== 'select') return;
-      if (bar) hideBar();
+      marquee.hadSelection = !!window.__wpf.selection;
+      // 只隐藏菜单，选框的清除/替换由本次交互（mouseup）统一决定：
+      //   单击已有选框 → 清除；拖动 → 新框选覆盖；单击无选框 → 框选一个单位。
+      if (bar) hideBarKeepSelection();
       const r = canvas.getBoundingClientRect();
       const m = wpf.mapAt(e.clientX, e.clientY);
       marquee.active = true;
@@ -496,45 +592,57 @@
       e.preventDefault();
 
       if (!marquee.dragging) {
-        // 单击 = 一次框选：只框「一个粒度单位」（整步 = 一个主步，子步 = 一格），
-        // 同样交给核心原生绘制。派发 mousedown → mousemove → mouseup 三个事件，
-        // 让核心的 rangeSelecting 完整走一遍（否则仅有 down/up 可能不绘制选框）。
+        // ---------------- 单击 ----------------
+        if (marquee.hadSelection) {
+          // 已有选框：点击别处 = 清除选框（不框新格、不弹菜单）。
+          // 让核心 mousedown+mouseup 同点走「无拖动」分支清掉高亮。
+          clearCoreSelection(marquee.startClientX, marquee.startClientY);
+          window.__wpf.selection = null;
+          window.__wpf._selAnchor = null;
+          return;
+        }
+        // 无选框：单击 = 一次框选，只框「一个粒度单位」
+        //（整步 = 一个主步，子步 = 一格），交核心原生绘制。
         if (marquee.startSample >= 0) {
           const lo = alignSample(marquee.startSample, false);
           const hi = alignSample(marquee.startSample, true);
-          dispatchAt('mousedown', e, lo, marquee.startClientY);
-          dispatchAt('mousemove', e, hi, marquee.startClientY);
-          if (!isVectorSignal(marquee.startClientX, marquee.startClientY)) {
-            dispatchAt('mouseup', e, hi, marquee.startClientY);
+          const y = marquee.startClientY;
+          const xLo = xForSample(y, lo);
+          const xHi = xForSample(y, hi);
+          const isVec = isVectorSignal(marquee.startClientX, marquee.startClientY);
+          replaying = true;
+          try {
+            dispatchRaw('mousedown', xLo, y, 1);
+            dispatchRaw('mousemove', xHi, y, 1);
+            // 核心判定「拖动」的条件是 rangeSelEnd > rangeSelStart（跨格）。整步单格
+            //（lo 首格 < hi 末格）满足 → mouseup 后保留选框（rangeSelActive=true）。
+            // 子步单格（lo==hi）不满足 → mouseup 会清掉选框（视觉闪一下）。所以
+            // 子步单格不派发 mouseup：核心停在 rangeSelecting 态持续绘制选框，
+            // 视觉保留；清除时机由 clearCoreSelection（下次交互）负责。
+            // Vector：同样不派发 mouseup（核心会弹自带弹窗 + 切走工具）。
+            if (lo < hi && !isVec) dispatchRaw('mouseup', xHi, y, 0);
+          } finally {
+            replaying = false;
           }
-          window.__wpf.selection = regionFromSamples(lo, hi);
+          setSelection(regionFromSamples(lo, hi), marquee.startClientX, marquee.startClientY);
+          showBarAfter(e);
         }
-      } else {
-        const m = wpf.mapAt(e.clientX, e.clientY);
-        const curSample = m ? Number(m.signalSampleIndex) : marquee.startSample;
-        if (!marquee.sent) {
-          dispatchAt('mousedown', e, alignSample(marquee.startSample, false), marquee.startClientY);
-          marquee.sent = true;
-        }
-        if (!isVectorSignal(marquee.startClientX, marquee.startClientY)) {
-          dispatchAt('mouseup', e, alignSample(curSample, marquee.dir !== 'back'), e.clientY);
-        }
-        window.__wpf.selection = alignRegion(regionFromPoints());
+        return;
       }
-      const region = window.__wpf.selection;
-      // value-edit 的 Ctrl/Vector 弹窗会话（nativeRangeSession.active）接管弹窗，
-      // 本模块不弹批量工具条；其余情况弹出批量工具条。
-      if (region && !(window.__wpf.nativeRangeSession && window.__wpf.nativeRangeSession.active)) {
-        // 等核心完成 mouseup 处理（原生高亮保留在画布上）后再弹工具条；
-        // 同时把核心可能自带的弹窗（Vector Value 遮罩）收起，避免挡住后续点击。
-        setTimeout(function () {
-          if (region === window.__wpf.selection) {
-            const ov = document.getElementById('wp-modal-overlay');
-            if (ov && ov.className.indexOf('hidden') < 0) ov.classList.add('hidden');
-            showBar(e.clientX, e.clientY);
-          }
-        }, 0);
+
+      // ---------------- 拖动框选 ----------------
+      const m = wpf.mapAt(e.clientX, e.clientY);
+      const curSample = m ? Number(m.signalSampleIndex) : marquee.startSample;
+      if (!marquee.sent) {
+        dispatchAt('mousedown', e, alignSample(marquee.startSample, false), marquee.startClientY);
+        marquee.sent = true;
       }
+      if (!isVectorSignal(marquee.startClientX, marquee.startClientY)) {
+        dispatchAt('mouseup', e, alignSample(curSample, marquee.dir !== 'back'), e.clientY);
+      }
+      const region = alignRegion(regionFromPoints());
+      setSelection(region, marquee.startClientX, marquee.startClientY);
+      if (region) showBarAfter(e);
     }
 
     document.addEventListener('mousedown', onMouseDown, true);
@@ -562,7 +670,16 @@
     }, true);
 
     document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape') dismissBar();
+      if (e.key === 'Escape') {
+        // 有框选工具条时：自己关菜单 + 清选框。stopImmediatePropagation 阻止核心
+        // 的 Esc 处理（cancelCurrentTool 会把工具切走、或对 rangeSelActive 调 deleteSelection），
+        // 避免工具意外切换。无工具条时放行核心（取消其它操作）。
+        if (bar) {
+          e.stopImmediatePropagation();
+          e.preventDefault();
+          dismissBar();
+        }
+      }
     }, true);
 
     // 切到别的工具后，遗留的框选工具条也应消失
