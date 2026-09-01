@@ -364,12 +364,15 @@ function readWaveDocument() {
     signals: signals.map((sig, index) => {
       const rawValues = Array.isArray(sig?.values) ? sig.values : [];
       const width = inferWidth(sig, rawValues);
-      // 时钟若按子步粒度翻转（每格交替，见 addPortSignalsToCanvas），把每格序列原样
-      // 传给 buildAutoTestbench，由 TB 用分数时间驱动 → 仿真频率与画布显示一致。
-      // ⚠ 只对 isClockPattern/kind=clock 信号生效（第五轮 isAlternating 教训）。
+      // 时钟信号总是按「每格序列」传给 buildAutoTestbench，由 TB 用分数时间逐格驱动
+      // （每格 1/stride 时间单位，一个主步内完成翻转 → 每主步一个上升沿）。
+      // ⚠ 不能要求 isAlternatingCells（整条完美交替）：用户修改激励后 clk 未必还是
+      //    1,0,1,0…，若此时退回「主步整值驱动」，主步内无翻转 → 无上升沿 →
+      //    输出恒 0（用户实测：第一次 sim 后修改激励/结果波形再 sim，结果恒 0）。
+      //    逐格驱动忠实地反映画布真实波形，无论 clk 画成交替还是任意形状。
       const isClock = !!sig.isClockPattern || sig.kind === "clock";
-      const altClock = width <= 1 && isClock && isAlternatingCells(rawValues);
-      const clockCells = altClock ? rawValues.map(fromNativeBitValue) : undefined;
+      const clockCells = width <= 1 && isClock && rawValues.length >= 2
+        ? rawValues.map(fromNativeBitValue) : undefined;
       const values = Array.from({ length: timeSteps }, (_, cell) => {
         // 兜底采样：主值（每步第 1 个）优先；若主值为 x/空，取该主步内第一个确定值。
         // 解决“用户画在子步下标（奇数）时仿真采不到”导致的恒 0 问题。

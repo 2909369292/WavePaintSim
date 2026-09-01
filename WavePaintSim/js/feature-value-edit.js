@@ -198,7 +198,10 @@
         : 'Enter bit value (1/0/x/z, 或位串如 1010):';
       const defVal = defaultInput(sig, indices, isVector);
       showPrompt(title, hint, defVal, granLabel).then(function (raw) {
-        clearHighlight(); // 弹窗关闭，选区高亮一并收起
+        // 弹窗关闭：清所有蓝框 + 切回画笔工具
+        wpf.clearAllMarquees();
+        if (sel.mode === 'native') switchTool('paint');
+        sel.mode = null;
         if (raw == null) return; // 取消
         if (applyToRange(sig, indices, raw)) return;
         // R8 非法输入：红框 + 重开
@@ -213,13 +216,16 @@
     // Bit 普通拖动交给 feature-draw，纯点击 → Bit 弹窗。
     const sel = {
       active: false, signalIndex: -1, start: -1, end: -1, moved: false,
-      x0: 0, y0: 0, sample0: 0, sampleWidth: 0, band: null
+      x0: 0, y0: 0, ex: 0, ey: 0,
+      sample0: 0, sampleWidth: 0, band: null,
+      mode: null // 'native' = Ctrl/Vector 切 select 走 feature-select 原生蓝框
+                 // 'draw'   = Bit 单击（不可切工具的会话），自己画蓝框
     };
 
-    // ---------------------------------------------------------- 选区高亮
-    // 复用 wpf.showRangeHighlight（复刻核心 range selection 的紫色半透明矩形），
-    // 使「Ctrl/⌘+拖动框选」「点击 Vector/Bit 单格」的视觉与核心选择工具完全一致。
-    // 单比特信号因此获得与多比特相同的框选效果。
+    // ---------------------------------------------------------- 选区高亮（蓝框）
+    // 复刻 feature-select 的 marquee 蓝框（用户明确要求「原本自带的样式」即此
+    // 蓝虚线 + 浅蓝填充），用于 Bit 单击等不能切 select 工具的弹窗会话。
+    // Ctrl/Vector 切 select 的会话由 feature-select 画原生蓝框，不走这里。
     // 测量「一格占多少 CSS 像素」：用相距一定距离的两点反推（核心的
     // sample→x 换算是线性的）。失败时回退 0（调用方用估算值）。
     function measureSampleWidth(clientX, clientY, sampleAtX) {
@@ -239,7 +245,7 @@
       return Math.abs((b.x - clientX) / (b.s - sampleAtX));
     }
 
-    function drawHighlight() {
+    function drawSessionRect() {
       if (!sel.band) return;
       const canvas = wpf.canvas();
       if (!canvas) return;
@@ -249,11 +255,19 @@
       const wpx = sel.sampleWidth > 0 ? sel.sampleWidth : 12;
       const x = (sel.x0 - r.left) + (lo - sel.sample0) * wpx;
       const w = (hi - lo + 1) * wpx;
-      wpf.showRangeHighlight({ x: x, y: sel.band.top, w: w, h: sel.band.height });
+      wpf.showSessionMarquee({ x: x, y: sel.band.top, w: w, h: sel.band.height });
     }
 
-    function clearHighlight() {
-      wpf.clearRangeHighlight();
+    function clearSessionRect() {
+      wpf.clearSessionMarquee();
+    }
+
+    // 切换工具：'select' 切到选择工具（蓝框由 feature-select 画），
+    //           'paint'  切回画笔工具并清自己的 session 蓝框
+    function switchTool(tool) {
+      const sel2 = (tool === 'select') ? '.tool-btn[data-tool="select"]' : '.tool-btn[data-tool="paint"]';
+      const b = document.querySelector(sel2);
+      if (b) b.click();
     }
 
     function currentTool() {
@@ -262,12 +276,12 @@
     }
 
     function onMouseDown(e) {
-      if (promptActive) return; // 弹窗打开时不再接管
+      if (promptActive) return;
       if (e.button !== 0) return;
       if (currentTool() !== 'paint') return;
       if (!canvas || e.target !== canvas) return;
       const m = wpf.mapAt(e.clientX, e.clientY);
-      if (!m || m.clickedOnName) return; // 名称区放行原版
+      if (!m || m.clickedOnName) return;
       const sigIndex = m.signalIndex;
       if (!(sigIndex >= 0)) return;
       const dw = window.document_wave;
@@ -282,61 +296,92 @@
       sel.vector = isVector;
       sel.signalIndex = sigIndex;
       sel.start = sel.end = idx;
-      sel.x0 = e.clientX;
-      sel.y0 = e.clientY;
+      sel.x0 = sel.ex = e.clientX;
+      sel.y0 = sel.ey = e.clientY;
       sel.sample0 = idx;
       sel.band = wpf.signalRowBand(e.clientX, e.clientY, sigIndex);
       sel.sampleWidth = measureSampleWidth(e.clientX, e.clientY, idx);
 
       if (e.ctrlKey || e.metaKey || isVector) {
-        // Ctrl+拖动 / 点击 Vector：接管做框选，并立即显示原生风格的高亮
-        drawHighlight();
-        // Ctrl+拖动：接管做框选；Vector 点击：接管拦截核心弹窗，自弹自写
-        e.stopImmediatePropagation();
-        e.preventDefault();
+        // Ctrl+拖动 / Vector：切到 select 工具，**不拦截** → feature-select
+        // 看到 mousedown 后接管画其原生蓝框（用户明确要求「原本自带的样式」）。
+        sel.mode = 'native';
+        switchTool('select');
+      } else {
+        // Bit 普通按下：不切工具、不拦截 → feature-draw 准备 TimeGen 绘制
+        sel.mode = null;
       }
-      // Bit 普通按下：不拦截，feature-draw 继续绘制（纯点击在 mouseup 判定弹窗）
     }
 
     function onMouseMove(e) {
       if (!sel.active || promptActive) return;
+      sel.ex = e.clientX;
+      sel.ey = e.clientY;
       if (!sel.moved && (Math.abs(e.clientX - sel.x0) > 4 || Math.abs(e.clientY - sel.y0) > 4)) {
         sel.moved = true;
       }
-      if (sel.moved && (e.ctrlKey || e.metaKey)) {
-        e.stopImmediatePropagation(); // 拦截 feature-draw 的拖动绘制
-        e.preventDefault();
+      if (sel.mode === 'native' && sel.moved) {
+        // 原生会话中：放行 feature-select 更新蓝框（不拦截）
+        const m = wpf.mapAt(e.clientX, e.clientY);
+        if (!m) return;
+        if (m.signalIndex === sel.signalIndex) {
+          sel.end = m.signalSampleIndex;
+        } else if (m.mainStep >= 0) {
+          sel.end = Math.max(0, Number(m.mainStep)) * wpf.stride();
+        }
       }
-      if (!sel.moved) return;
-      // 更新 end：指针在锁定行内用其下标，否则用主步号换算
-      const m = wpf.mapAt(e.clientX, e.clientY);
-      if (!m) return;
-      if (m.signalIndex === sel.signalIndex) {
-        sel.end = m.signalSampleIndex;
-      } else if (m.mainStep >= 0) {
-        sel.end = Math.max(0, Number(m.mainStep)) * wpf.stride();
-      }
-      // 框选（Ctrl/⌘）与 Vector 拖动：实时更新高亮；
-      // Bit 非 Ctrl 拖动是 TimeGen 绘制，不显示选区高亮。
-      if (e.ctrlKey || e.metaKey || sel.vector) drawHighlight();
+      // Bit 非 Ctrl 拖动：放行 feature-draw 绘制（不拦截）
     }
 
     function onMouseUp(e) {
       if (!sel.active) return;
       const sig = window.document_wave.m_signals[sel.signalIndex];
-      const isVector = !!(window.SignalType && sig.type === window.SignalType.Vector);
-      const wantPopup = (e.ctrlKey || e.metaKey) || isVector || !sel.moved;
+
+      // 判定弹窗
+      let wantPopup = false;
+      if (sel.mode === 'native') wantPopup = true;          // Ctrl/Vector 会话
+      else if (!sel.moved) wantPopup = true;                 // Bit 纯点击
+      // Bit 拖动 → feature-draw 已绘制，不弹窗
       sel.active = false;
-      if (!wantPopup) { clearHighlight(); return; } // Bit 普通拖动：feature-draw 已绘制
+
+      if (!wantPopup) {
+        sel.mode = null;
+        return;
+      }
+
+      // 阻止 feature-select 的 showBar（native 模式会触发批量工具条冲突）
       e.stopImmediatePropagation();
       e.preventDefault();
-      // 弹窗前把最终选区高亮画出来（拖动结束 → 弹窗期间选区仍可见）
-      drawHighlight();
-      const lo = Math.min(sel.start, sel.end);
-      const hi = Math.max(sel.start, sel.end);
+
+      // Bit 纯点击会话（mode=null + !moved）：工具仍是 paint，
+      // feature-select 没看到 mousedown 不会画蓝框 → 自己画同款蓝框
+      if (sel.mode === null) {
+        sel.mode = 'draw';
+        drawSessionRect();
+      }
+      // native 模式：feature-select 已经画了蓝框，不需要再画
+
+      // 起止坐标 → indices
+      const x0c = sel.x0, x1c = e.clientX;
+      const y0c = sel.y0, y1c = e.clientY;
+      const midY = (y0c + y1c) / 2;
+      const m0 = wpf.mapAt(x0c, midY);
+      const m1 = wpf.mapAt(x1c, midY);
+      let lo, hi;
+      if (m0 && m1 && m0.signalIndex === sel.signalIndex && m1.signalIndex === sel.signalIndex) {
+        lo = Math.min(Number(m0.signalSampleIndex), Number(m1.signalSampleIndex));
+        hi = Math.max(Number(m0.signalSampleIndex), Number(m1.signalSampleIndex));
+      } else {
+        lo = sel.start; hi = sel.end;
+      }
       const indices = [];
       for (let i = lo; i <= hi && i < sig.values.length; i += 1) indices.push(i);
-      if (!indices.length) { clearHighlight(); return; }
+      if (!indices.length) {
+        if (sel.mode === 'draw') clearSessionRect();
+        else switchTool('paint');
+        sel.mode = null;
+        return;
+      }
       openValuePrompt(sig, indices);
     }
 
@@ -345,7 +390,8 @@
     document.addEventListener('mouseup', onMouseUp, true);
     window.addEventListener('blur', function () {
       sel.active = false;
-      clearHighlight();
+      if (sel.mode === 'draw') clearSessionRect();
+      sel.mode = null;
     });
   }, 'feature-value-edit');
 })();

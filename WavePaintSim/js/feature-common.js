@@ -503,50 +503,51 @@
     return true;
   };
 
-  // ------------------------------------------------ 选区高亮叠加层（共享）
-  // 复刻混淆核心 range selection 的视觉（核心在 #4417-4418 处绘制）：
-  //   半透明紫色填充 rgba(81,1,255,0.2) + 同色描边，矩形按格子/整行对齐。
-  // feature-select（选择工具框选）与 feature-value-edit（画笔工具 Ctrl/点击框选）
-  // 共用同一层，保证两处框选视觉完全一致。
-  let rangeOverlay = null;
+  // ------------------------------------------------ 弹窗会话蓝框（复刻 select 原生）
+  // 复刻 feature-select 在 select 工具下画的 marquee 蓝框视觉（用户明确要求
+  // 「原本自带的样式」即此蓝色虚线 + 浅蓝填充），专供 feature-value-edit 的
+  // 值输入弹窗会话使用（Ctrl+拖动 / Vector 切 select 由 feature-select 自己画，
+  // Bit 单击等不能切工具的场景用本函数画同款蓝框）。
+  let sessionOverlay = null;
 
-  function syncRangeOverlaySize() {
+  function syncSessionOverlaySize() {
     const canvas = wpf.canvas();
-    if (!rangeOverlay || !canvas || !canvas.parentElement) return;
+    if (!sessionOverlay || !canvas || !canvas.parentElement) return;
     const r = canvas.getBoundingClientRect();
     const hr = canvas.parentElement.getBoundingClientRect();
-    rangeOverlay.style.left = (r.left - hr.left) + 'px';
-    rangeOverlay.style.top = (r.top - hr.top) + 'px';
-    rangeOverlay.style.width = Math.max(1, Math.round(r.width)) + 'px';
-    rangeOverlay.style.height = Math.max(1, Math.round(r.height)) + 'px';
-    if (rangeOverlay.width !== canvas.width || rangeOverlay.height !== canvas.height) {
-      rangeOverlay.width = canvas.width;
-      rangeOverlay.height = canvas.height;
+    sessionOverlay.style.left = (r.left - hr.left) + 'px';
+    sessionOverlay.style.top = (r.top - hr.top) + 'px';
+    sessionOverlay.style.width = Math.max(1, Math.round(r.width)) + 'px';
+    sessionOverlay.style.height = Math.max(1, Math.round(r.height)) + 'px';
+    if (sessionOverlay.width !== canvas.width || sessionOverlay.height !== canvas.height) {
+      sessionOverlay.width = canvas.width;
+      sessionOverlay.height = canvas.height;
     }
   }
 
-  function ensureRangeOverlay() {
+  function ensureSessionOverlay() {
     const canvas = wpf.canvas();
     if (!canvas || !canvas.parentElement) return null;
-    if (rangeOverlay && rangeOverlay.parentElement) {
-      syncRangeOverlaySize();
-      return rangeOverlay;
+    if (sessionOverlay && sessionOverlay.parentElement) {
+      syncSessionOverlaySize();
+      return sessionOverlay;
     }
-    rangeOverlay = document.createElement('canvas');
-    rangeOverlay.id = 'wpf-range-overlay';
-    // z-index 高于 feature-select 的旧叠加层（50），保证高亮不被遮挡
-    rangeOverlay.style.cssText = 'position:absolute;pointer-events:none;z-index:52;';
+    sessionOverlay = document.createElement('canvas');
+    sessionOverlay.id = 'wpf-session-overlay';
+    // 与 feature-select 的 marquee 同层（z-index:50），视觉上完全是同款蓝框
+    sessionOverlay.style.cssText = 'position:absolute;pointer-events:none;z-index:50;';
     const holder = canvas.parentElement;
     holder.style.position = holder.style.position || 'relative';
-    holder.appendChild(rangeOverlay);
-    syncRangeOverlaySize();
-    return rangeOverlay;
+    holder.appendChild(sessionOverlay);
+    syncSessionOverlaySize();
+    return sessionOverlay;
   }
 
-  // rect：{ x, y, w, h }，CSS 像素（相对 canvas 左上角）
-  wpf.showRangeHighlight = function (rect) {
+  // rect：{ x, y, w, h }（CSS 像素，相对 canvas 左上角），与 feature-select 蓝框同款：
+  //   浅蓝填充 rgba(30,136,229,0.10) + 蓝色虚线描边 #1e88e5 / dash [5,3]
+  wpf.showSessionMarquee = function (rect) {
     const canvas = wpf.canvas();
-    const el = ensureRangeOverlay();
+    const el = ensureSessionOverlay();
     if (!el || !canvas || !rect) return;
     const r = canvas.getBoundingClientRect();
     const dpr = r.width > 0 ? (canvas.width / r.width) : 1;
@@ -554,18 +555,33 @@
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, el.width, el.height);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = 'rgba(81, 1, 255, 0.2)';
+    ctx.save();
+    ctx.fillStyle = 'rgba(30, 136, 229, 0.10)';
     ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-    ctx.strokeStyle = 'rgba(81, 1, 255, 0.9)';
+    ctx.strokeStyle = '#1e88e5';
     ctx.lineWidth = 1;
+    ctx.setLineDash([5, 3]);
     ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, Math.max(1, rect.w - 1), Math.max(1, rect.h - 1));
+    ctx.restore();
   };
 
-  wpf.clearRangeHighlight = function () {
-    if (!rangeOverlay) return;
-    const ctx = rangeOverlay.getContext('2d');
+  wpf.clearSessionMarquee = function () {
+    if (!sessionOverlay) return;
+    const ctx = sessionOverlay.getContext('2d');
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, rangeOverlay.width, rangeOverlay.height);
+    ctx.clearRect(0, 0, sessionOverlay.width, sessionOverlay.height);
+  };
+
+  // 弹窗关闭时统一清两个蓝框（feature-select 的 marquee + 本模块的 session），
+  // 避免切回 paint 工具时残留。
+  wpf.clearAllMarquees = function () {
+    wpf.clearSessionMarquee();
+    const selOv = document.getElementById('wpf-select-overlay');
+    if (selOv) {
+      const ctx = selOv.getContext('2d');
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, selOv.width, selOv.height);
+    }
   };
 
   // 按当前编辑粒度把「目标下标列表」收敛为实际要写入的下标：
