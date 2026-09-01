@@ -32,7 +32,13 @@
     // marquee：只记录鼠标起止位置（用于换算选区），框选的视觉完全交给
     // 混淆核心自带的原生 range selection（select 工具下由核心绘制紫色对齐矩形）。
     // 本模块不再自绘任何 marquee/overlay（用户明确要求：不要自己画的，完全复用原生）。
-    const marquee = { active: false, startX: 0, startY: 0, curX: 0, curY: 0, dragging: false };
+    const marquee = {
+      active: false, startX: 0, startY: 0, curX: 0, curY: 0, dragging: false,
+      // 按下点的原始信息（驱动核心时要用按下点的行 y，而不是当前 y）
+      startClientX: 0, startClientY: 0, startSample: -1,
+      dir: null,   // 'fwd' 向左→右 / 'back' 向右→左；决定按下点是首格还是末格
+      sent: false  // 是否已向核心派发过 mousedown
+    };
     const clip = { data: null }; // 复制剪贴板 {rows: [{signalIndex, values: []}], sampleCount}
     let bar = null;
     // 整步粒度下会派发合成鼠标事件给核心（坐标已按主步对齐），这些合成事件同样
@@ -364,43 +370,55 @@
       };
     }
 
-    // 一格占多少 CSS 像素（核心的 sample→x 换算是线性的，取两点反推）
-    function measureSampleWidth(clientX, clientY, sampleAtX) {
+    // 求「使核心 mapCanvasPosition(x, y).signalSampleIndex === sample」的精确 clientX。
+    // 不能用「平均格宽线性反算」：格子宽存在累积舍入，反算出的 x 常落在相邻格，
+    // 核心于是拿到子步位置的 sample —— 这正是「起点落在整步后半部分时选框仍是子步」
+    // 的根因。这里改用二分定位，保证核心拿到的就是目标格。
+    function xForSample(clientY, sample) {
       const r = canvas.getBoundingClientRect();
-      const probeAt = function (dx) {
-        const x = clientX + dx;
-        if (x < r.left + 1 || x > r.right - 1) return null;
+      const at = function (x) {
         const m = wpf.mapAt(x, clientY);
-        if (!m) return null;
-        const s = Number(m.signalSampleIndex);
-        return s >= 0 ? { x: x, s: s } : null;
+        return m ? Number(m.signalSampleIndex) : -1;
       };
-      const b = probeAt(200) || probeAt(120) || probeAt(60) || probeAt(-200) || probeAt(-120) || probeAt(-60);
-      if (!b || b.s === sampleAtX) return 0;
-      return Math.abs((b.x - clientX) / (b.s - sampleAtX));
+      const target = Number(sample);
+      let lo = r.left;
+      let hi = r.right - 1;
+      if (at(lo) >= target) return lo + 1;
+      if (at(hi) < target) return hi;
+      // 二分：找最小的 x 使 at(x) >= target
+      while (hi - lo > 0.5) {
+        const mid = (lo + hi) / 2;
+        if (at(mid) >= target) hi = mid; else lo = mid;
+      }
+      return hi + 0.5; // 落进该格内部，避免正好压在边界上
     }
 
     // 派发「按粒度对齐坐标」的合成鼠标事件给核心（核心原生绘制选框）
-    function dispatchAligned(type, e, isEnd) {
-      let x = e.clientX;
-      const m = wpf.mapAt(e.clientX, e.clientY);
-      if (m && m.signalSampleIndex >= 0) {
-        const current = Number(m.signalSampleIndex);
-        const target = alignSample(current, isEnd);
-        const wpx = measureSampleWidth(e.clientX, e.clientY, current);
-        if (wpx > 0) x = e.clientX + (target - current) * wpx;
-      }
+    function dispatchAt(type, e, sampleIndex, clientY) {
+      const y = (clientY === undefined || clientY === null) ? e.clientY : clientY;
+      const x = xForSample(y, sampleIndex);
       replaying = true; // 合成事件同样会被本模块的捕获监听收到，需短路防递归
       try {
         canvas.dispatchEvent(new MouseEvent(type, {
           bubbles: true, cancelable: true, view: window,
-          clientX: x, clientY: e.clientY,
+          clientX: x, clientY: y,
           button: e.button, buttons: e.buttons, detail: e.detail,
           ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey
         }));
       } finally {
         replaying = false;
       }
+    }
+
+    // 单击框选：只框「一个粒度单位」，行固定为按下时那一行
+    function regionFromSamples(lo, hi) {
+      const m = wpf.mapAt(marquee.startClientX, marquee.startClientY);
+      const si = m ? Number(m.signalIndex) : -1;
+      if (si < 0) return null;
+      return {
+        signalStart: si, signalEnd: si,
+        sampleStart: Math.min(lo, hi), sampleEnd: Math.max(lo, hi)
+      };
     }
 
     function onMouseDown(e) {
@@ -410,17 +428,20 @@
       if (wpf.currentTool() !== 'select') return;
       if (bar) hideBar();
       const r = canvas.getBoundingClientRect();
+      const m = wpf.mapAt(e.clientX, e.clientY);
       marquee.active = true;
       marquee.dragging = false;
       marquee.startX = marquee.curX = e.clientX - r.left;
       marquee.startY = marquee.curY = e.clientY - r.top;
-      if (wpf.editGranularity() !== 'substep') {
-        // 整步：拦截真实事件，改派发对齐后的合成事件
-        e.stopImmediatePropagation();
-        e.preventDefault();
-        dispatchAligned('mousedown', e, false);
-      }
-      // 子步：放行真实事件，核心原生按格子绘制
+      marquee.startClientX = e.clientX;
+      marquee.startClientY = e.clientY;
+      marquee.startSample = m ? Number(m.signalSampleIndex) : -1;
+      marquee.dir = null;
+      marquee.sent = false;
+      // 拦截：框选完全由本模块按粒度驱动核心原生 range selection 绘制。
+      // mousedown 暂不派发——要等拖动方向确定后才知道按下点该对齐成首格还是末格。
+      e.stopImmediatePropagation();
+      e.preventDefault();
     }
 
     function onMouseMove(e) {
@@ -434,32 +455,55 @@
       }
       marquee.curX = nx;
       marquee.curY = ny;
-      if (wpf.editGranularity() !== 'substep') {
-        // 整步：始终拦截，避免核心收到未对齐的真实 move 而破坏整步边界
-        e.stopImmediatePropagation();
-        e.preventDefault();
-        dispatchAligned('mousemove', e, true);
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      if (!marquee.dragging) return;
+
+      const m = wpf.mapAt(e.clientX, e.clientY);
+      const curSample = m ? Number(m.signalSampleIndex) : -1;
+      // 方向决定「按下点」是范围的左端还是右端：
+      //   向右拖 → 按下点是左端（对齐首格），当前点是右端（对齐末格）
+      //   向左拖 → 按下点是右端（对齐末格），当前点是左端（对齐首格）
+      // 方向一变就必须用新规则重设核心的起点，否则整步边界会偏半步。
+      const dir = (e.clientX >= marquee.startClientX) ? 'fwd' : 'back';
+      const dirChanged = (dir !== marquee.dir);
+      marquee.dir = dir;
+      if (dirChanged || !marquee.sent) {
+        const startSample = alignSample(marquee.startSample, dir === 'back');
+        dispatchAt('mousedown', e, startSample, marquee.startClientY);
+        marquee.sent = true;
       }
-      // 子步：放行，核心负责更新原生框选
+      dispatchAt('mousemove', e, alignSample(curSample, dir === 'fwd'), e.clientY);
     }
 
     function onMouseUp(e) {
       if (replaying) return;
       if (!marquee.active) return;
       marquee.active = false;
-      if (wpf.editGranularity() !== 'substep') {
-        e.stopImmediatePropagation();
-        e.preventDefault();
-        dispatchAligned('mouseup', e, true);
-      }
+      e.stopImmediatePropagation();
+      e.preventDefault();
+
       if (!marquee.dragging) {
-        // 单击：核心自己处理（选中信号/对象等），本模块不干预
-        marquee.dragging = false;
-        return;
+        // 单击 = 一次框选：只框「一个粒度单位」（整步 = 一个主步，子步 = 一格），
+        // 同样交给核心原生绘制。
+        if (marquee.startSample >= 0) {
+          const lo = alignSample(marquee.startSample, false);
+          const hi = alignSample(marquee.startSample, true);
+          dispatchAt('mousedown', e, lo, marquee.startClientY);
+          dispatchAt('mouseup', e, hi, marquee.startClientY);
+          window.__wpf.selection = regionFromSamples(lo, hi);
+        }
+      } else {
+        const m = wpf.mapAt(e.clientX, e.clientY);
+        const curSample = m ? Number(m.signalSampleIndex) : marquee.startSample;
+        if (!marquee.sent) {
+          dispatchAt('mousedown', e, alignSample(marquee.startSample, false), marquee.startClientY);
+          marquee.sent = true;
+        }
+        dispatchAt('mouseup', e, alignSample(curSample, marquee.dir !== 'back'), e.clientY);
+        window.__wpf.selection = alignRegion(regionFromPoints());
       }
-      marquee.dragging = false;
-      const region = alignRegion(regionFromPoints());
-      window.__wpf.selection = region;
+      const region = window.__wpf.selection;
       // value-edit 的 Ctrl/Vector 弹窗会话（nativeRangeSession.active）接管弹窗，
       // 本模块不弹批量工具条；其余情况弹出批量工具条。
       if (region && !(window.__wpf.nativeRangeSession && window.__wpf.nativeRangeSession.active)) {
