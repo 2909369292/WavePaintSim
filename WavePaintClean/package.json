@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "acorn": "^8.18.0",
+    "escodegen": "^2.1.0"
+  }
+}
