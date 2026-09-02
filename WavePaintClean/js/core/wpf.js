@@ -1,26 +1,22 @@
 // ============================================================================
-// WavePaintSim feature-common.js —— 新增功能模块的共享工具集
+// WavePaintClean js/core/wpf.js —— 历史共享层 window.__wpf（迁移中）
 // ----------------------------------------------------------------------------
-// 功能说明：
-//   为 feature-*.js 系列模块提供公共能力，避免各模块重复实现：
-//   - window.__wpf 全局命名空间（模块间通信：光标、选区、剪贴板等）
-//   - 等 WavePaint 混淆核心就绪（ready/init 模板）
-//   - 画布坐标映射封装（mapCanvasPosition 的 canvas 相对坐标包装）
-//   - 位状态读取/写入（自动 0/1 模式判定、固定值映射）
-//   - 信号行高探测（用于"上半画 1 / 下半画 0"）
-//   - 撤销栈快照（与原版 m_undoStack 条目格式一致）
-//   - 重绘节流（requestAnimationFrame）
-//   - 信号元数据数组同步（resize 时保持长度一致）
-// 依赖：混淆核心暴露的 window.document_wave / Signal / SignalType /
-//       drawWaveform / updateSidePanels / mapCanvasPosition
+// 背景：早期 WavePaintSim 时代由 feature-common.js 提供各 feature-* 模块的公共
+// 能力。项目重构（WavePaintClean 主项目 + editor/sim 分层）后本文件保留为
+// window.__wpf 共享层，新代码应优先经 window.__core（见 __core.js）。
+// 现职责：
+//   - 等核心/文档就绪（wpf.ready，与 __core.ready 并存）
+//   - 画布坐标/信号行带映射封装（mapAt / signalRowBand / canvas）
+//   - 位状态读写（currentBitState / bitStateToValue / setBitState…）
+//   - 撤销快照（pushUndoSnapshot，优先委托核心原型实现）
+//   - 重绘节流 / 信号元数据同步（scheduleRedraw / syncSignalMeta）
+//   - 编辑粒度（editGranularity / writeValue / indicesByGranularity）
+//   - 总线进制（busRadix / applyBusRadix / refreshBusLabels / valueLabel…）
+//   - 启动侧任务（默认浅色主题、工具栏控件绑定、进制恢复）
+// 依赖：解混淆核心 wavepaint.clean.js 暴露的全局（document_wave / SignalType /
+//       Radix / drawWaveform / updateSidePanels / mapCanvasPosition / applyTheme）
 // 修改记录：
-//   2026-08-30 初版（对应 docs/绘图功能实施规格.md F2~F10 公共部分）
-//   2026-08-30 新增 stride()/writeValue()，统一鼠标与方向键的粒度写入口径
-//   2026-08-30 P1-2 编辑力度 UI 绑定（syncGranularityUI / bindGranularityUI）
-//   2026-08-30 P2-2 signalRowBand 改二分查找（逐像素扫描 → ~10 次探测）
-//   2026-08-30 P2-3 pushUndoSnapshot 优先委托核心 WaveDocument.prototype 版
-//   2026-08-30 P3-4 wpf.ready() 就绪超时改为明确告警（原来是静默无限重试）
-//   2026-08-30 P3-5 F9 总线进制切换（工具栏 Hex/Dec/Bin + 启动恢复 + labels 重算）
+//   2026-09-02 头注释随 Phase-3 收口更新（删除已下沉核心的补丁描述）
 // ============================================================================
 (function () {
   'use strict';
@@ -243,13 +239,6 @@
   // ---------------------------------------------------------------- 小工具
   wpf.clamp = function (v, min, max) { return Math.max(min, Math.min(max, v)); };
 
-  // ---------------------------------------------------------------- 子步数
-  // 返回画布子步数（>=0），与数据模型 m_subStepCount 一致
-  wpf.subSteps = function () {
-    const dw = window.document_wave;
-    return Math.max(0, Number(dw && dw.m_subStepCount) || 0);
-  };
-
   // ---------------------------------------------------------------- 编辑粒度
   // step: 一次写入整个主步；substep: 仅写入单个子步
   wpf.editGranularity = function () {
@@ -411,6 +400,13 @@
     wpf.syncBusRadixUI();
   };
 
+  // ---------------------------------------------------------------- 子步数
+  // 返回画布子步数（>=0），与数据模型 m_subStepCount 一致
+  wpf.subSteps = function () {
+    const dw = window.document_wave;
+    return Math.max(0, Number(dw && dw.m_subStepCount) || 0);
+  };
+
   // stride = 每主步占的下标数（子步数 + 1）
   wpf.stride = function () {
     return Math.max(1, wpf.subSteps() + 1);
@@ -473,20 +469,6 @@
       return out.sort(function (a, b) { return a - b; });
     }
     return Array.isArray(indices) ? indices.slice() : [];
-  };
-
-  // 在指定父元素后插入节点（index.html 不便逐个改动菜单时的辅助）
-  wpf.el = function (tag, attrs, children) {
-    const node = document.createElement(tag);
-    if (attrs) {
-      Object.keys(attrs).forEach(function (k) {
-        if (k === 'style') node.style.cssText = attrs[k];
-        else if (k === 'text') node.textContent = attrs[k];
-        else node.setAttribute(k, attrs[k]);
-      });
-    }
-    (children || []).forEach(function (c) { node.appendChild(c); });
-    return node;
   };
 
   // ------------------------------------------------- 默认浅色主题
