@@ -1,19 +1,14 @@
 // ============================================================================
-// WavePaintSim feature-value-edit.js —— 值输入编辑（v0.3.0 R1/R2/R3/R4/R5）
+// WavePaintClean js/editor/value-input.js —— 值输入编辑（Bit/Vector 弹窗）
 // ----------------------------------------------------------------------------
-// 需求来源：docs/功能需求_框选与总线编辑_v0.3.0.md
-//  R1  Bit 信号获得「总线式」值输入编辑（点击弹 Bit Value 弹窗）
-//  R2  所有「选择→输入值」写入遵循顶部「整步/子步」开关
-//     ① 接管核心「Vector Value」弹窗（画笔下点击 Vector 格），按粒度写入
-//     ② feature-select 框选输入值（已在 feature-select.js 内改造）
-//  R3  交互统一：复用核心 #wp-modal 弹窗 DOM（wpPrompt 未暴露，自建驱动）
-//  R4  写入前 pushUndoSnapshot，Ctrl+Z 整体回退
-//  R5  与 TimeGen 绘制（feature-draw）互不冲突：
-//      - 普通拖动 = 绘制（交给 feature-draw）
-//      - Ctrl/⌘+拖动 = 框选（本模块接管）
-//      - 单击 Bit / Vector 波形格 = 弹窗（Vector 拦截核心弹窗）
-//      - 输入框内按键 stopPropagation，不误触全局快捷键
-// 依赖：feature-common.js（wpf.*）、model.js（window.__wpfVec）、混淆核心全局 API
+// 职责（画笔工具 tool-paint 下）：
+//   - Bit 单击（无拖动）→ 弹值输入弹窗（整步/子步粒度写入）
+//   - Ctrl/⌘+拖动 / Vector 单击 → 切 select 工具，交给 editor/selection.js
+//     （复用框选工具条，不再弹本模块弹窗）
+//   - Bit 普通拖动 → 交给 editor/draw.js（TimeGen 绘制）
+// 弹窗交互：自动聚焦、回车/点击别处即写入、无输入点别处即取消、Esc 取消
+// （隐藏 #wp-modal 自带确定/取消按钮，保留右上角 X）。
+// 依赖：core/wpf.js（window.__wpf）、sim/project-model.js（window.__wpfVec）
 // ============================================================================
 (function () {
   'use strict';
@@ -25,86 +20,20 @@
     const canvas = wpf.canvas();
 
     // ---------------------------------------------------------------- 弹窗
-    // 复用核心 #wp-modal DOM（index.html 已存在），自己驱动显示/隐藏与回调。
-    // 返回 Promise<string|null>：确定→输入串；取消/关闭/点遮罩→null。
-    let promptActive = false;
-    let promptOk = false;
-    function showPrompt(title, message, defaultValue, subtitle) {
-      return new Promise(function (resolve) {
-        const overlay = document.getElementById('wp-modal-overlay');
-        const titleEl = document.getElementById('wp-modal-title');
-        const msgEl = document.getElementById('wp-modal-message');
-        const inputEl = document.getElementById('wp-modal-input');
-        const okBtn = document.getElementById('wp-modal-ok');
-        const cancelBtn = document.getElementById('wp-modal-cancel');
-        const closeBtn = document.getElementById('wp-modal-close');
-        if (!overlay || !inputEl || !okBtn) { resolve(null); return; }
-        promptActive = true;
-        wpf._promptActive = true; // 告诉抑制器：这是我们自己的弹窗，不要拦截
-        promptOk = false;
-        titleEl.textContent = title;
-        msgEl.textContent = message + (subtitle ? '\n（当前粒度：' + subtitle + '）' : '');
-        inputEl.value = String(defaultValue == null ? '' : defaultValue);
-        inputEl.classList.remove('wp-modal-error');
-        overlay.classList.remove('hidden');
-
-        // 需求：弹出即可直接键入，回车 / 点击别处直接写入；不输入点击别处 = 取消。
-        // 因此隐藏核心 #wp-modal 自带的「确定」「取消」按钮，保留右上角关闭 X。
-        const prevOkDisplay = okBtn.style.display;
-        const prevCancelDisplay = cancelBtn ? cancelBtn.style.display : '';
-        okBtn.style.display = 'none';
-        if (cancelBtn) cancelBtn.style.display = 'none';
-        // 点「取消」/ X 时输入框会先失焦，此时不应误触发「失焦即提交」
-        let suppressBlur = false;
-        function markSuppress() { suppressBlur = true; }
-
-        inputEl.focus();
-        inputEl.select();
-        function finish(val) {
-          cleanup();
-          resolve(val);
-        }
-        function cleanup() {
-          promptActive = false;
-          wpf._promptActive = false;
-          overlay.classList.add('hidden');
-          okBtn.style.display = prevOkDisplay;
-          if (cancelBtn) cancelBtn.style.display = prevCancelDisplay;
-          inputEl.removeEventListener('keydown', onKey, true);
-          inputEl.removeEventListener('blur', onBlur);
-          okBtn.removeEventListener('click', onOk);
-          if (cancelBtn) cancelBtn.removeEventListener('click', onCancel);
-          if (cancelBtn) cancelBtn.removeEventListener('mousedown', markSuppress);
-          if (closeBtn) closeBtn.removeEventListener('click', onClose);
-          if (closeBtn) closeBtn.removeEventListener('mousedown', markSuppress);
-          overlay.removeEventListener('mousedown', onOverlayDown, true);
-        }
-        function onKey(e) {
-          e.stopPropagation(); // R5：输入框内按键不触发全局快捷键
-          if (e.key === 'Enter') { e.preventDefault(); finish(String(inputEl.value || '').trim()); }
-          else if (e.key === 'Escape') { e.preventDefault(); finish(null); }
-        }
-        // 失焦即提交：有值写入、无值取消
-        function onBlur() {
-          if (suppressBlur) { suppressBlur = false; return; }
-          const text = String(inputEl.value || '').trim();
-          if (!text) { finish(null); return; }
-          finish(text);
-        }
-        function onOk() { finish(String(inputEl.value || '').trim()); }
-        function onCancel() { finish(null); }
-        function onClose() { finish(null); }
-        function onOverlayDown(e) { if (e.target === overlay) finish(null); }
-        okBtn.addEventListener('click', onOk);
-        if (cancelBtn) cancelBtn.addEventListener('click', onCancel);
-        if (cancelBtn) cancelBtn.addEventListener('mousedown', markSuppress);
-        if (closeBtn) closeBtn.addEventListener('click', onClose);
-        if (closeBtn) closeBtn.addEventListener('mousedown', markSuppress);
-        inputEl.addEventListener('keydown', onKey, true);
-        inputEl.addEventListener('blur', onBlur);
-        overlay.addEventListener('mousedown', onOverlayDown, true);
+    // 统一走核心弹窗：__core.prompt → 核心 wpQuickPrompt（[PATCH-A5] 已把
+    // 「回车/失焦即写入、空值取消、隐藏确定/取消、非法输入红框」整套输入流收进核心）。
+    // 本模块不再直接操作 #wp-modal DOM —— 历史那份实现约 80 行，且与核心的
+    // wpModalState 脱节（全局快捷键抑制只能靠自己 stopPropagation 勉强挡）。
+    // 返回 Promise<string|null>：写入→去空格后的输入串；取消→null。
+    function showPrompt(title, message, defaultValue, subtitle, invalid) {
+      return window.__core.prompt({
+        title: title,
+        message: message + (subtitle ? '\n（当前粒度：' + subtitle + '）' : ''),
+        value: defaultValue == null ? '' : defaultValue,
+        invalid: !!invalid
       });
     }
+    function promptActive() { return window.__core.promptActive(); }
 
     // ---------------------------------------------------------- 输入解析
     function vectorWidth(sig) {
@@ -204,8 +133,9 @@
       const i = indices[0];
       if (i == null || i >= sig.values.length) return '';
       if (isVector) {
-        if (typeof wpf.busRadixLabel === 'function') {
-          return wpf.busRadixLabel(sig.values[i], vectorWidth(sig));
+        // 按信号自身进制显示当前值（与波形标签同一实现，避免"弹窗里是 A、画布上是 10"）
+        if (typeof wpf.valueLabel === 'function') {
+          return wpf.valueLabel(sig.values[i], sig.radix);
         }
         return String(sig.values[i]);
       }
@@ -217,43 +147,34 @@
     }
 
     // ---------------------------------------------------------- 弹窗入口
-    function openValuePrompt(sig, indices) {
+    function openValuePrompt(sig, indices, invalid) {
       const isVector = !!(window.SignalType && sig.type === window.SignalType.Vector);
       const granLabel = wpf.editGranularity() === 'substep' ? '子步' : '整步';
-      const title = isVector ? 'Vector Value' : 'Bit Value';
+      const title = isVector ? '矢量值' : '位值';
       const hint = isVector
-        ? 'Enter vector value or label:'
-        : 'Enter bit value (1/0/x/z, 或位串如 1010):';
+        ? '输入矢量值或标签：'
+        : '输入位值（1/0/x/z，或位串如 1010）：';
       const defVal = defaultInput(sig, indices, isVector);
-      showPrompt(title, hint, defVal, granLabel).then(function (raw) {
-        // 弹窗关闭：结束原生会话（feature-select 恢复批量工具条）、切回画笔工具
-        if (sel.mode === 'native') {
-          wpf.nativeRangeSession.active = false;
-          switchTool('paint');
-        }
-        sel.mode = null;
+      showPrompt(title, hint, defVal, granLabel, invalid).then(function (raw) {
         wpf.clearAllMarquees();
         if (raw == null) return; // 取消
         if (applyToRange(sig, indices, raw)) return;
-        // R8 非法输入：红框 + 重开
-        const inputEl = document.getElementById('wp-modal-input');
-        if (inputEl) inputEl.classList.add('wp-modal-error');
-        openValuePrompt(sig, indices);
+        // R8 非法输入：以红框态重开（用户一敲键盘即恢复正常）
+        openValuePrompt(sig, indices, true);
       });
     }
 
     // ---------------------------------------------------------- 鼠标接管
     // 画笔工具下：
-    //  - Ctrl/⌘+拖动 / Vector：切到 select 工具 → 混淆核心的 select 工具启动
-    //    **原生 range selection**（紫色对齐框选，用户明确要求完全复用原生，不自绘）。
-    //    mouseup 后本模块弹值输入弹窗（用 nativeRangeSession 标志让 feature-select
-    //    不弹批量工具条）；弹窗关闭后切回画笔工具。
-    //  - Bit 普通拖动：交给 feature-draw（TimeGen 绘制，不弹窗）
-    //  - Bit 纯点击：弹 Bit Value 弹窗（不切工具）
+    //  - Ctrl/⌘+拖动 / Vector：切到 select 工具 → editor/selection.js 接管框选
+    //    （直驱核心原生 range selection），弹框选工具条（用户要求 Ctrl 框选
+    //    完全复用框选模式代码，本模块不再弹窗）。
+    //  - Bit 普通拖动：交给 editor/draw.js（TimeGen 绘制，不弹窗）
+    //  - Bit 纯点击：弹值输入弹窗（不切工具）
     const sel = {
       active: false, signalIndex: -1, start: -1, end: -1, moved: false,
       x0: 0, y0: 0, ex: 0, ey: 0,
-      mode: null // 'native' = Ctrl/Vector 会话（切 select，原生框选）
+      mode: null // 'native' = Ctrl/Vector 会话（切 select，交给 selection.js）
     };
 
     // 切换工具（'select'/'paint'）：通过点击工具栏按钮让核心 currentTool 同步。
@@ -272,7 +193,7 @@
     }
 
     function onMouseDown(e) {
-      if (promptActive) return;
+      if (promptActive()) return;
       if (e.button !== 0) return;
       if (currentTool() !== 'paint') return;
       if (!canvas || e.target !== canvas) return;
@@ -307,7 +228,7 @@
     }
 
     function onMouseMove(e) {
-      if (!sel.active || promptActive) return;
+      if (!sel.active || promptActive()) return;
       sel.ex = e.clientX;
       sel.ey = e.clientY;
       if (!sel.moved && (Math.abs(e.clientX - sel.x0) > 4 || Math.abs(e.clientY - sel.y0) > 4)) {

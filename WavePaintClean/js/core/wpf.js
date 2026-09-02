@@ -327,51 +327,18 @@
     return null;
   };
 
-  // 本地进制换算（与 model.js 的 formatVectorValue 等价）。
-  // ⚠ 不依赖 ESM 是否加载成功：此前若 model.js 模块加载失败，标签会退回核心的坏实现
-  //   （位串原样输出 / 带 0x 前缀），造成「切了进制但显示不变」。内联后永不再发生。
-  function localFormatVector(value, width, name) {
-    const w = Math.max(1, Number(width) || 1);
-    const text = String(value ?? '').trim().toLowerCase();
-    let bits;
-    if (/^[01xz]+$/.test(text)) {
-      bits = text.length >= w ? text.slice(-w)
-        : text.padStart(w, (text[0] === 'x' || text[0] === 'z') ? text[0] : '0');
-    } else if (/^[+-]?\d+$/.test(text)) {
+  // 值 → 显示标签（唯一实现在核心 [PATCH-A3] 的 valueToLabel）。
+  // radix 缺省时用全局进制；传数字枚举则按该进制（单信号自身进制）。
+  // 所有显示路径（波形标签 / 弹窗默认值 / 核心自己重算）都经此一处，口径天然一致。
+  wpf.valueLabel = function (value, radix) {
+    const dw = window.document_wave;
+    const r = (radix == null) ? wpf.busRadixValue() : radix;
+    if (dw && typeof dw.valueToLabel === 'function') {
       try {
-        let n = BigInt(text);
-        if (n < 0n) n += (1n << BigInt(w));
-        bits = (n & ((1n << BigInt(w)) - 1n)).toString(2).padStart(w, '0');
-      } catch (e) { bits = '0'.repeat(w); }
-    } else {
-      bits = '0'.repeat(w);
+        return String(dw.valueToLabel(value, r)).replace(/^0[xXbB]/, '');
+      } catch (e) { /* 落到下面的兜底 */ }
     }
-    if (/[xz]/.test(bits)) return bits.includes('z') && !bits.includes('x') ? 'Z' : 'X';
-    if (w <= 1) return bits;
-    if (name === 'binary') return bits;
-    try {
-      const num = BigInt('0b' + bits);
-      if (name === 'decimal') return num.toString(10);
-      return num.toString(16).toUpperCase().padStart(Math.ceil(w / 4), '0');
-    } catch (e) { return bits; }
-  }
-
-  // 标签格式化（单个矢量值 → 显示文本）。
-  // ⚠ 不能用核心的 valueToLabel：它假定 value 是数字，而矢量信号存的是字符串位串
-  //   （如 "0011"）——字符串的 toString(radix) 会忽略参数原样返回，
-  //   于是十进制显示成 "0011"、十六进制还多出 "0x" 前缀。
-  // radixName：可选覆盖（'hex'|'bin'|'dec'）。按「信号自身进制」重算时必须传，
-  // 否则一律退回全局进制 —— 这正是此前「右键切换单个信号进制不生效」的原因。
-  wpf.busRadixLabel = function (value, width, radixName) {
-    const name = radixName || wpf.busRadix();
-    const fmtName = name === 'hex' ? 'hexadecimal' : name === 'bin' ? 'binary' : 'decimal';
-    let label = null;
-    const mod = window.__wpfVec;
-    if (mod && typeof mod.formatVectorValue === 'function') {
-      try { label = mod.formatVectorValue(value, width, fmtName); } catch (e) { label = null; }
-    }
-    if (label == null) label = localFormatVector(value, width, fmtName);
-    return String(label).replace(/^0[xXbB]/, '');
+    return String(value ?? '');
   };
 
   // 按「信号自身 radix」重算单个矢量信号的全部标签；返回 1 表示处理过。
@@ -379,37 +346,11 @@
   wpf.refreshBusLabels = function (sig) {
     if (!sig || !Array.isArray(sig.values) || !Array.isArray(sig.labels)) return 0;
     const width = Math.max(1, Number(sig.width) || 1);
-    const name = wpf.radixNameOf(sig.radix) || wpf.busRadix();
+    const radix = (sig.radix == null) ? wpf.busRadixValue() : sig.radix;
     for (let k = 0; k < sig.values.length && k < sig.labels.length; k += 1) {
-      sig.labels[k] = width > 1 ? wpf.busRadixLabel(sig.values[k], width, name) : '';
+      sig.labels[k] = width > 1 ? wpf.valueLabel(sig.values[k], radix) : '';
     }
     return 1;
-  };
-
-  // 修补核心 valueToLabel：位串按位宽正确换算并去前缀。
-  // 无论标签最终由我们（refreshBusLabels）还是核心自己重算，显示都正确。
-  wpf.patchCoreValueToLabel = function () {
-    const dw = window.document_wave;
-    if (!dw) return false;
-    const patched = function (value, radix) {
-      if (value === -1 || value === '-1') return 'X';
-      const text = String(value ?? '').trim();
-      if (/^[01xz]+$/i.test(text) && text.length > 1) {
-        return wpf.busRadixLabel(text, text.length, wpf.radixNameOf(radix) || undefined);
-      }
-      return text;
-    };
-    try { dw.valueToLabel = patched; } catch (e) { /* 忽略 */ }
-    // 原型链也要补：核心内部可能通过原型方法调用（window.WaveDocument 不一定暴露）。
-    // 沿原型链把所有 valueToLabel 都换掉，覆盖「实例方法 / 原型方法」两种调用方式。
-    let proto = Object.getPrototypeOf(dw);
-    while (proto && proto !== Object.prototype) {
-      if (typeof proto.valueToLabel === 'function') { try { proto.valueToLabel = patched; } catch (e2) { /* 忽略 */ } }
-      proto = Object.getPrototypeOf(proto);
-    }
-    const P = window.WaveDocument && window.WaveDocument.prototype;
-    if (P && typeof P.valueToLabel === 'function') { try { P.valueToLabel = patched; } catch (e3) { /* 忽略 */ } }
-    return true;
   };
 
   // 把当前进制写到所有矢量信号并重算标签；返回命中的矢量信号数
@@ -514,10 +455,6 @@
     }
   };
 
-  // value-edit 的 Ctrl/Vector 弹窗会话标志：active 时 feature-select 不弹批量工具条
-  // （弹窗由 value-edit 自己弹）。框选视觉由混淆核心原生绘制。
-  wpf.nativeRangeSession = { active: false };
-
   // 按当前编辑粒度把「目标下标列表」收敛为实际要写入的下标：
   //   'step'   ：每个主步只留首格（writeValue 会铺满整个主步的 stride 格）
   //   'substep'：原样返回（每个下标单独写）
@@ -605,43 +542,15 @@
   wpf.ready(function () {
     let tries = 0;
     (function attempt() {
-      wpf.patchCoreValueToLabel(); // 幂等：核心文档就绪后立即打上 valueToLabel 补丁
       const n = wpf.applyBusRadix();
       tries += 1;
       // 文档是异步载入/导入的，多试几次直到出现矢量信号（或放弃）
       if (n === 0 && tries < 6) { setTimeout(attempt, 400); return; }
       if (n > 0) wpf.scheduleRedraw();
     })();
-
-    // ------------------------------------------------ 抑制核心自带的弹窗
-    // 混淆核心在 select 工具下框选 Vector（总线）信号后，会在 mouseup 弹它自带的
-    // 「Vector Value」弹窗（#wp-modal），与我们的框选工具条/值编辑冲突；且关闭后
-    // 核心会把工具切回画笔 → 后续框选粒度逻辑失效（用户实测：先框 Vector 再框 Bit，
-    // 粒度不稳定）。
-    // 处理：MutationObserver 监听 #wp-modal-overlay，只要它被核心显示而我们自己的
-    // 弹窗（feature-value-edit 的 Bit/Vector Value，wpf._promptActive=true）没在
-    // 使用，就立即隐藏。这样核心弹窗根本不出现，框选流程完全由我们接管。
-    const modalOv = document.getElementById('wp-modal-overlay');
-    if (modalOv && typeof MutationObserver === 'function') {
-      const suppressCoreModal = function () {
-        if (wpf._promptActive) return;
-        const visible = !modalOv.classList.contains('hidden')
-          || (modalOv.style && modalOv.style.display && modalOv.style.display !== 'none');
-        if (visible) {
-          modalOv.classList.add('hidden');
-          if (modalOv.style) modalOv.style.display = 'none';
-          // 核心弹「Vector Value」后可能把工具切回画笔（closeModal 流程同步执行）。
-          // setTimeout 在核心弹窗流程跑完后把工具抵消回 select。
-          setTimeout(function () {
-            const selBtn = document.querySelector('.tool-btn[data-tool="select"]');
-            if (selBtn && !selBtn.classList.contains('active')) selBtn.click();
-          }, 0);
-        }
-      };
-      const obs = new MutationObserver(suppressCoreModal);
-      // 核心可能通过 class 或 style 显示弹窗，监听全部属性变化
-      obs.observe(modalOv, { attributes: true, attributeFilter: ['class', 'style'] });
-    }
+    // （历史）曾用 MutationObserver 抑制核心 select 工具框选 Vector 后自弹的
+    // 「Vector Value」弹窗 —— 混淆核心时代产物。解混淆后 editor/selection.js
+    // 直接驱动 __core.selection 且拦截真实鼠标事件，核心不再自行弹窗，故已删除。
   }, 'bus-radix');
 
   // ------------------------------------------------- 总线进制右键菜单（需求 7.6）
@@ -649,6 +558,7 @@
   //   自绘 → 与核心菜单并存；注入 → 分隔线风格不符、二次右键闪烁、
   //   且核心右键菜单**本身就自带进制转换项**，注入属于重复冲突。
   //   最终方案：直接用核心自带的右键进制项，本模块只保证转换结果的正确性 ——
-  //   即 patchCoreValueToLabel（位串按位宽换算、去前缀）+ refreshBusLabels（按信号自身 radix）。
+  //   即核心 [PATCH-A3] 的 valueToLabel（同时支持位串与数字、无 0x/0b 前缀）
+  //   + refreshBusLabels（按信号自身 radix 重算）。
   //   setSignalRadix 仍保留供编程调用，但不再挂任何 UI。
 })();

@@ -75,6 +75,28 @@ window.__core = window.__core || {};
   // ---------------------------------------------------------------- 画布
   C.redraw = function () { if (typeof drawWaveform === 'function') drawWaveform(); };
 
+  // ---------------------------------------------------------------- 弹窗
+  // 统一入口：所有输入型弹窗都走核心 #wp-modal（核心已汉化 [PATCH-A2]、
+  // 并内置快速录入模式 [PATCH-A5]），外部模块不再自己驱动弹窗 DOM。
+  //
+  // 用法：__core.prompt({ title, message, value, invalid }) → Promise<string|null>
+  //   确定（回车 / 失焦且有值）→ 去空格后的输入串；取消（Esc / X / 遮罩 / 空值失焦）→ null
+  //   invalid=true 时以红框态打开，用户一敲键盘即恢复正常（非法输入重开用）
+  C.prompt = function (options) {
+    const opt = options || {};
+    if (typeof wpQuickPrompt !== 'function') return Promise.resolve(null);
+    return wpQuickPrompt(
+      opt.message || '',
+      opt.value == null ? '' : String(opt.value),
+      opt.title || 'Input',
+      !!opt.invalid
+    );
+  };
+  // 弹窗是否打开中（供鼠标/快捷键处理判断是否该让位给弹窗）
+  C.promptActive = function () {
+    return !!(typeof wpModalState !== 'undefined' && wpModalState && wpModalState.isOpen);
+  };
+
   // ---------------------------------------------------------------- 原生选框驱动
   // 核心 drawRangeSelection 以 rangeSel* + rangeSelActive 为状态源（tool 为 select 时绘制）。
   // 外部直接置状态 + 重绘即可“原生”显示/清除选框 —— 替代历史里伪造 mousedown/up

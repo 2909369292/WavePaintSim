@@ -524,8 +524,52 @@ test("编辑粒度读写与 localStorage 持久化", () => {
   assert.equal(wpf.editGranularity(), "step", "非法值应回落为 step");
 });
 
+// 从解混淆核心中抽出真实的 valueToLabel 实现（[PATCH-A3]）。
+// 进制标签的唯一实现就在核心里，回归必须跑真代码，而不是再写一份「替身实现」
+// （历史上正是因为替身与核心两套口径，才出现「切了进制显示不变」）。
+function loadCoreValueToLabel() {
+  const src = readFileSync(join(root, "js/wavepaint.clean.js"), "utf8");
+  const marker = "['valueToLab' + 'el'](";
+  const at = src.indexOf(marker);
+  assert.ok(at > 0, "核心中应存在 valueToLabel 实现（[PATCH-A3]）");
+  const open = src.indexOf("{", at);
+  let depth = 0;
+  let end = -1;
+  for (let i = open; i < src.length; i += 1) {
+    if (src[i] === "{") depth += 1;
+    else if (src[i] === "}") {
+      depth -= 1;
+      if (depth === 0) { end = i + 1; break; }
+    }
+  }
+  assert.ok(end > open, "valueToLabel 实现应有完整方法体");
+  const params = src.slice(at + marker.length - 1, open); // "(_0x178009, _0x44e224) "
+  const body = src.slice(open, end);
+  return new Function("Radix", "return function" + params + body + ";")(globalThis.window.Radix);
+}
+
+test("核心 valueToLabel：位串与数字都按 radix 换算且无 0x/0b 前缀（[PATCH-A3]）", () => {
+  const valueToLabel = loadCoreValueToLabel();
+  const R = globalThis.window.Radix;
+  assert.equal(valueToLabel("1010", R.Hexadecimal), "A", "位串 → hex（去 0x）");
+  assert.equal(valueToLabel("1010", R.Decimal), "10", "位串 → dec（不是原样返回 1010）");
+  assert.equal(valueToLabel("1010", R.Binary), "1010", "位串 → bin（去 0b）");
+  assert.equal(valueToLabel("00001010", R.Hexadecimal), "0A", "hex 按位宽补零（8 位 → 2 位十六进制）");
+  assert.equal(valueToLabel("10x1", R.Hexadecimal), "X", "含 x 的位串 → X");
+  assert.equal(valueToLabel("10z1", R.Hexadecimal), "Z", "含 z 不含 x 的位串 → Z");
+  assert.equal(valueToLabel("x0z1", R.Hexadecimal), "X", "同时含 x 与 z 时 x 优先");
+  assert.equal(valueToLabel(-1, R.Hexadecimal), "X", "-1 → X（x 态）");
+  assert.equal(valueToLabel(-1, R.Decimal), "X", "-1 → X（与进制无关）");
+  assert.equal(valueToLabel(255, R.Hexadecimal), "FF", "数字 → hex（生成器写入的数值形态）");
+  assert.equal(valueToLabel(255, R.Decimal), "255", "数字 → dec");
+  assert.equal(valueToLabel(255, R.Binary), "11111111", "数字 → bin");
+  // ⚠ 陷阱：数字 10 的 "10" 全由 0/1 组成，若按「长得像位串」判定会算成 2
+  assert.equal(valueToLabel(10, R.Hexadecimal), "A", "数字 10 → A（不是位串 0b10=2）");
+  assert.equal(valueToLabel(11, R.Hexadecimal), "B", "数字 11 → B（不是位串 0b11=3）");
+  assert.equal(valueToLabel("10", R.Hexadecimal), "2", "字符串 \"10\" 才是位串 → 2");
+});
+
 test("总线进制映射到核心 Radix 枚举并作用于全部矢量信号", () => {
-  const used = [];
   const dw = {
     m_signals: [
       { name: "clk", type: 0, radix: 1, width: 1, values: ["0"], labels: ["0"] },
@@ -540,14 +584,10 @@ test("总线进制映射到核心 Radix 枚举并作用于全部矢量信号", (
       },
       { name: "addr", type: 1, radix: 1, width: 4, values: ["0011"], labels: ["old"] }
     ],
-    valueToLabel(v, radix) {
-      used.push([v, radix]);
-      return String(v) + "@" + radix;
-    }
+    // 走核心真实实现：标签口径与画布显示天然一致
+    valueToLabel: loadCoreValueToLabel()
   };
   globalThis.window.document_wave = dw;
-  // 让 busRadixLabel 走真实生产路径（model.js 的 formatVectorValue，去 0x/0b 前缀）
-  globalThis.window.__wpfVec = { formatVectorValue, normalizeVectorValue };
   localStorage.removeItem("wpf.busRadix");
   assert.equal(wpf.busRadix(), "dec", "默认十进制");
   assert.equal(wpf.busRadixValue(), 1, "dec → Radix.Decimal(1)");
@@ -579,13 +619,20 @@ test("总线进制映射到核心 Radix 枚举并作用于全部矢量信号", (
   assert.deepEqual(dw.m_signals[1].labels, ["10", "15"], "其他信号不受影响（仍是 dec）");
   assert.equal(wpf.busRadix(), "dec", "全局进制不被单信号切换改动");
 
-  // valueToLabel 补丁：位串按位宽正确换算（hex 去前缀），-1 → X
-  globalThis.window.document_wave.valueToLabel = null; // 确认补丁不依赖原实现
-  wpf.patchCoreValueToLabel();
-  assert.equal(wpf.patchCoreValueToLabel(), true, "补丁可重复调用（幂等）");
-  assert.equal(window.document_wave.valueToLabel("1010", window.Radix.Hexadecimal), "A", "补丁：hex 位串去前缀");
-  assert.equal(window.document_wave.valueToLabel("1010", window.Radix.Decimal), "10", "补丁：dec 位串换算为十进制");
-  assert.equal(window.document_wave.valueToLabel(-1, window.Radix.Decimal), "X", "补丁：-1 仍显示 X");
+  // 标签重算必须走「信号自身 radix」：核心实现被调用时收到的应是 sig.radix，
+  // 而不是全局进制 —— 这正是历史上「右键给单个信号切进制不生效」的根因。
+  const seen = [];
+  dw.valueToLabel = function (v, radix) { seen.push(radix); return loadCoreValueToLabel()(v, radix); };
+  addr.radix = 0; // 该信号自建为 hex，其余仍是 dec
+  wpf.refreshBusLabels(addr);
+  assert.deepEqual(seen, [0], "refreshBusLabels 传的是信号自身 radix（hex=0）");
+  assert.deepEqual(addr.labels, ["3"], "按信号自身 hex 重算：0011→3");
+
+  // 核心未就绪时不应抛错（退化为空串/原值，不阻断 UI）
+  const saved = globalThis.window.document_wave;
+  globalThis.window.document_wave = null;
+  assert.equal(wpf.valueLabel("1010", 0), "1010", "无核心时退化显示，不抛错");
+  globalThis.window.document_wave = saved;
 });
 
 // ---------------------------------------------------------------------------

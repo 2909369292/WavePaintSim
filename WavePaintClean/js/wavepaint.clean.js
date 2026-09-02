@@ -545,28 +545,37 @@ class WaveDocument {
     const _0x538a9f = this['effectiveS' + 'ampleCount'](), _0x21f3af = new Signal(_0x27c6ab, SignalType['Bit'], _0x538a9f);
     return _0x21f3af['values']['fill'](6158 + 9331 + -15489), this['m_signals']['push'](_0x21f3af), _0x45c056['YoRDn'](this['m_signals']['length'], -33 * -161 + 3 * 1181 + -5 * 1771);
   }
+  // [PATCH-A3] 值 → 波形上显示的总线标签（原实现假定 value 恒为数字，
+  // 遇到矢量信号的位串存储形态（"0101"）会原样返回或带出 0x/0b 前缀，
+  // 历史上只能靠外部原型补丁兜底。这里改成同时支持两种值形态：
+  //   · 位串字符串（"0101"）：手绘 / 导入 / 值输入写入矢量值的形态
+  //   · 数字（5、-1）      ：核心生成器（ramp / walking-one / gray…）写入的形态
+  // ⚠ 判定必须看「值的类型」而不是「字符串长得像不像位串」：数字 10 的 "10" 完全由
+  //   0/1 组成，按位串解读会算出 2（十六进制该是 A）。只有真正的字符串才走位串分支。
+  // 两种形态都按 radix 正确换算，且一律不带 0x/0b 前缀（波形上只显示数值本身）。
   ['valueToLab' + 'el'](_0x178009, _0x44e224) {
-    const _0x5cf656 = _0x16e202, _0x29f17e = _0x16e202, _0x42b305 = {
-        'uLncU': function (_0x256d7e, _0x2aa06a) {
-          return _0x256d7e === _0x2aa06a;
-        },
-        'HJuZT': function (_0x2f2c4f, _0xfd0889) {
-          return _0x2f2c4f + _0xfd0889;
-        },
-        'RPTeJ': function (_0x4e2e40, _0x52dda5) {
-          return _0x4e2e40 + _0x52dda5;
-        }
-      };
-    if (_0x42b305['uLncU'](-(2 * 1718 + 1270 * 1 + -4705), _0x178009))
+    if (_0x178009 === -1 || _0x178009 === '-1')
       return 'X';
-    switch (_0x44e224) {
-    case Radix['Binary']:
-      return _0x42b305['HJuZT']('0b', _0x178009['toString'](91 * 83 + -4994 + 2557 * -1));
-    case Radix['Decimal']:
-      return _0x178009['toString'](7 * -621 + 4621 + 33 * -8);
-    default:
-      return _0x42b305['RPTeJ']('0x', _0x178009['toString'](1 * 7653 + -1 * -7083 + 1840 * -8)['toUpperCas' + 'e']());
+    const _0x2f7c19 = String(_0x178009 ?? '')['trim']();
+    if (typeof _0x178009 === 'string' && /^[01xz]+$/i['test'](_0x2f7c19) && _0x2f7c19['length'] > 1) {
+      const _0x4f1d2b = _0x2f7c19['toLowerCase']();
+      if (/[xz]/['test'](_0x4f1d2b))
+        return _0x4f1d2b['includes']('z') && !_0x4f1d2b['includes']('x') ? 'Z' : 'X';
+      if (_0x44e224 === Radix['Binary'])
+        return _0x4f1d2b;
+      const _0x1c8f4e = BigInt('0b' + _0x4f1d2b);
+      if (_0x44e224 === Radix['Decimal'])
+        return _0x1c8f4e['toString'](10);
+      return _0x1c8f4e['toString'](16)['toUpperCase']()['padStart'](Math['ceil'](_0x4f1d2b['length'] / 4), '0');
     }
+    const _0x3ba1c5 = Number(_0x178009);
+    if (!Number['isFinite'](_0x3ba1c5))
+      return _0x2f7c19;
+    if (_0x44e224 === Radix['Binary'])
+      return _0x3ba1c5['toString'](2);
+    if (_0x44e224 === Radix['Decimal'])
+      return _0x3ba1c5['toString'](10);
+    return _0x3ba1c5['toString'](16)['toUpperCase']();
   }
   ['addVectorS' + 'ignal'](_0x2193e5) {
     const _0x21b2c7 = {
@@ -23793,6 +23802,47 @@ function bitStateToValue(_0x44e58a) {
     return _0xedfb01['PULLDOWN'];
   }
 }
+
+// —— 全局弹窗文案翻译 ——
+// 重构（2026-09-02）：原 patch/zh.js 用 MutationObserver 在 DOM 层拦截翻译弹窗
+// 文本；解混淆后改为在核心弹窗唯一入口 openWpModal 里直接翻译（标题/消息/按钮
+// 赋值前过一遍 wpText）。等价且少一个外部补丁。未命中的文案原样返回。
+function wpText(_0x11c3a2) {
+  if (typeof _0x11c3a2 !== 'string') return _0x11c3a2;
+  const t = _0x11c3a2.trim();
+  const dict = {
+    // 通用按钮 / 对话框标题
+    'OK': '确定', 'Cancel': '取消', 'Input': '输入', 'Confirm': '确认',
+    'Notice': '提示', 'Dialog': '对话框', 'Yes': '是', 'No': '否',
+    // —— 添加信号对话框标题 ——
+    'Add Clock Signal': '添加时钟信号', 'Add Counter Signal': '添加计数器信号',
+    'Add Reset Signal': '添加复位信号', 'Add Pulse Signal': '添加脉冲信号',
+    'Add Strobe Signal': '添加选通信号', 'Add PWM Signal': '添加 PWM 信号',
+    'Add Ramp Signal': '添加斜坡信号', 'Add Walking One Signal': '添加走查1信号',
+    'Add Walking Zero Signal': '添加走查0信号', 'Add Bus Idle Signal': '添加总线空闲信号',
+    'Add Alternating Signal': '添加交替信号', 'Add Gray Code Counter Signal': '添加格雷码计数器信号',
+    // —— 提示消息 ——
+    'Clock name:': '时钟名称：', 'Counter name:': '计数器名称：',
+    'Signal name:': '信号名称：', 'Period (samples):': '周期（采样）：',
+    'High time (samples):': '高电平时间（采样）：', 'Low time (samples)': '低电平时间（采样）',
+    'Low time (samples):': '低电平时间（采样）：', 'Pulse width': '脉冲宽度',
+    'Pulse width:': '脉冲宽度：', 'Duty cycle': '占空比', 'Duty cycle:': '占空比：',
+    'Active cycles': '有效周期数', 'Active cycles:': '有效周期数：',
+    'Samples per': '每周期采样数', 'Samples per cycle': '每周期采样数',
+    'Bit width:': '位宽：', 'From value:': '起始值：', 'To value:': '结束值：',
+    'End value:': '结束值：', 'Number of samples:': '采样数：',
+    'Steps:': '步数：', 'Sub-Steps:': '子步数：'
+  };
+  if (dict.hasOwnProperty(t)) return dict[t];
+  // 前缀匹配（有些消息后跟更多说明文字）
+  for (const k in dict) {
+    if (dict.hasOwnProperty(k) && k.length > 3 && t.indexOf(k) === 0) {
+      return dict[k] + t.substring(k.length);
+    }
+  }
+  return _0x11c3a2;
+}
+
 function openWpModal(_0x3bef6e) {
   const _0x324d5a = {
       _0x4cd228: 3336,
@@ -23879,15 +23929,17 @@ function openWpModal(_0x3bef6e) {
       'ok': !(-70 * -83 + 9369 + -7589 * 2),
       'value': null
     });
-  wpModalState['isOpen'] = !(-4086 + 1 * 8661 + -4575), wpModalState['options'] = _0x3bef6e, _0x4f09bf['textConten' + 't'] = _0x3bef6e['title'] || _0x3ae84d['sERfi'], _0x50452e['textConten' + 't'] = _0x3bef6e['message'] || '', _0x5bf437['style']['display'] = _0x3bef6e['showInput'] ? _0x3ae84d['hpfLk'] : 'none', _0x5bf437['type'] = _0x3bef6e['inputType'] || 'text', _0x5bf437['value'] = _0x3bef6e['defaultVal' + 'ue'] || '', _0x1c6854['textConten' + 't'] = _0x3bef6e['okText'] || 'OK', _0x1456ec['textConten' + 't'] = _0x3bef6e['cancelText'] || _0x3ae84d['JShwY'], _0x1456ec['style']['display'] = _0x3ae84d['vgLYt'](!(-792 + -687 * -3 + -1268 * 1), _0x3bef6e['showCancel']) ? 'none' : 'inline-blo' + 'ck', _0x550f2e['style']['display'] = !(-5487 * -1 + 7089 + -25 * 503) === _0x3bef6e['showCancel'] ? _0x3ae84d['KxDrX'] : _0x3ae84d['xqzNr'], _0x51c8bb['classList']['remove']('hidden'), _0x315b0b['style']['transform'] = _0x3ae84d['ftIBR'], _0x315b0b['style']['left'] = '50%', _0x315b0b['style']['top'] = '50%', _0x3bef6e['showInput'] ? _0x3ae84d['utpiL'](setTimeout, () => {
+  wpModalState['isOpen'] = !(-4086 + 1 * 8661 + -4575), wpModalState['options'] = _0x3bef6e, _0x4f09bf['textConten' + 't'] = wpText(_0x3bef6e['title'] || _0x3ae84d['sERfi']), _0x50452e['textConten' + 't'] = wpText(_0x3bef6e['message'] || ''), _0x5bf437['style']['display'] = _0x3bef6e['showInput'] ? _0x3ae84d['hpfLk'] : 'none', _0x5bf437['type'] = _0x3bef6e['inputType'] || 'text', _0x5bf437['value'] = _0x3bef6e['defaultVal' + 'ue'] || '', _0x1c6854['textConten' + 't'] = wpText(_0x3bef6e['okText'] || 'OK'), _0x1456ec['textConten' + 't'] = wpText(_0x3bef6e['cancelText'] || _0x3ae84d['JShwY']), _0x1456ec['style']['display'] = _0x3ae84d['vgLYt'](!(-792 + -687 * -3 + -1268 * 1), _0x3bef6e['showCancel']) ? 'none' : 'inline-blo' + 'ck', _0x550f2e['style']['display'] = !(-5487 * -1 + 7089 + -25 * 503) === _0x3bef6e['showCancel'] ? _0x3ae84d['KxDrX'] : _0x3ae84d['xqzNr'], _0x51c8bb['classList']['remove']('hidden'), _0x315b0b['style']['transform'] = _0x3ae84d['ftIBR'], _0x315b0b['style']['left'] = '50%', _0x315b0b['style']['top'] = '50%', _0x3bef6e['showInput'] ? _0x3ae84d['utpiL'](setTimeout, () => {
     const _0x20234e = _0x5d4ed2, _0x54ea1e = _0x3a3286;
     _0x5bf437['focus'](), _0x5bf437['select']();
   }, 9166 + -8889 + -1 * 277) : setTimeout(() => _0x1c6854['focus'](), 104 * 43 + -566 * -1 + -5038);
+  // [PATCH-A5] 快速录入模式的清理钩子：关闭弹窗时统一解绑（由下面的关闭流程调用）
+  let _0x_wpfQuickCleanup = null;
   const _0x13b5f7 = _0x24286d => {
       const _0xe5225a = _0x5d4ed2, _0x372d93 = _0x5d4ed2;
       if (!wpModalState['isOpen'])
         return;
-      wpModalState['isOpen'] = !(-50 * 78 + 401 * -23 + 4 * 3281), _0x51c8bb['classList']['add'](_0x3ae84d['AfqsU']), document['removeEven' + 'tListener']('keydown', _0x2507bb);
+      wpModalState['isOpen'] = !(-50 * 78 + 401 * -23 + 4 * 3281), _0x51c8bb['classList']['add'](_0x3ae84d['AfqsU']), document['removeEven' + 'tListener']('keydown', _0x2507bb), _0x_wpfQuickCleanup && _0x_wpfQuickCleanup(), _0x_wpfQuickCleanup = null;
       const _0x542bd4 = _0x3bef6e['showInput'] ? _0x5bf437['value'] : null;
       wpModalState['resolve'] && wpModalState['resolve']({
         'ok': _0x24286d,
@@ -23897,6 +23949,37 @@ function openWpModal(_0x3bef6e) {
       const _0x10b7f0 = _0x3a3286, _0x3e4d9a = _0x3a3286;
       wpModalState['isOpen'] && (_0x3ae84d['vgLYt'](_0x3ae84d['xgFef'], _0x557db1['key']) && !(5656 + 7669 + -13324 * 1) !== _0x3bef6e['showCancel'] ? (_0x557db1['preventDef' + 'ault'](), _0x46c120()) : _0x3ae84d['ujdbT'] === _0x557db1['key'] && (_0x557db1['preventDef' + 'ault'](), _0x3ae84d['fcPJG'](_0x2f888a)));
     };
+  // [PATCH-A5] 快速录入模式（quickCommit）：位值/矢量值输入用的输入流。
+  // 交互约定（沿用 v0.3.0 R6~R8，历史实现在外部模块里直接操作 #wp-modal DOM）：
+  //   · 隐藏自带的「确定/取消」按钮，保留右上角 X —— 输入完回车或点别处即写入
+  //   · 输入框失焦：有值写入、无值取消
+  //   · 点遮罩 / 点 X：取消（mousedown 先于 blur，用标志位避免误提交）
+  //   · invalid：以红框态打开，首次键入即清除（非法输入重开时用）
+  if (_0x3bef6e['quickCommit'] && _0x3bef6e['showInput']) {
+    let _0x_wpfSuppressBlur = false;
+    const _0x_wpfMarkSuppress = () => {
+      _0x_wpfSuppressBlur = true;
+    }, _0x_wpfClearError = () => {
+      _0x5bf437['classList']['remove']('wp-modal-error');
+    }, _0x_wpfOnBlur = () => {
+      if (_0x_wpfSuppressBlur) {
+        _0x_wpfSuppressBlur = false;
+        return;
+      }
+      const _0x_wpfText = String(_0x5bf437['value'] || '')['trim']();
+      _0x5bf437['value'] = _0x_wpfText;
+      _0x_wpfText ? _0x2f888a() : _0x46c120();
+    };
+    _0x1c6854['style']['display'] = 'none', _0x1456ec['style']['display'] = 'none';
+    _0x5bf437['classList'][_0x3bef6e['invalid'] ? 'add' : 'remove']('wp-modal-error');
+    _0x51c8bb['addEventListener']('mousedown', _0x_wpfMarkSuppress, true), _0x550f2e['addEventListener']('mousedown', _0x_wpfMarkSuppress, true);
+    _0x5bf437['addEventListener']('blur', _0x_wpfOnBlur), _0x5bf437['addEventListener']('input', _0x_wpfClearError);
+    _0x_wpfQuickCleanup = () => {
+      _0x51c8bb['removeEventListener']('mousedown', _0x_wpfMarkSuppress, true), _0x550f2e['removeEventListener']('mousedown', _0x_wpfMarkSuppress, true);
+      _0x5bf437['removeEventListener']('blur', _0x_wpfOnBlur), _0x5bf437['removeEventListener']('input', _0x_wpfClearError);
+      _0x1c6854['style']['display'] = '', _0x1456ec['style']['display'] = '';
+    };
+  }
   return _0x1c6854['onclick'] = _0x2f888a, _0x1456ec['onclick'] = _0x46c120, _0x550f2e['onclick'] = _0x46c120, _0x51c8bb['onclick'] = _0x4e026a => {
     const _0x5f2ed2 = _0x5d4ed2, _0x4e2baf = _0x5d4ed2;
     _0x4e026a['target'] === _0x51c8bb && !(41 + -8189 + 8149) !== _0x3bef6e['showCancel'] && _0x46c120();
@@ -23942,6 +24025,22 @@ function wpPrompt(_0x26751c, _0x36f1e8 = '', _0x1a064b = 'Input') {
     'okText': 'OK',
     'cancelText': _0x420fd4['PhvLA']
   })['then'](_0x153f60 => _0x153f60['ok'] ? _0x153f60['value'] : null);
+}
+// [PATCH-A5] 快速录入弹窗（位值 / 矢量值等高频输入）：
+// 回车或失焦即写入、无输入失焦即取消、Esc 取消；隐藏自带确定/取消、保留右上角 X。
+// 参数：message、defaultValue、title、invalid（是否以「非法输入」红框态打开）。
+function wpQuickPrompt(_0x1e7b31, _0x2c6f13 = '', _0x4a0d51 = 'Input', _0x3d9d5a = false) {
+  return openWpModal({
+      'title': _0x4a0d51,
+      'message': _0x1e7b31,
+      'showInput': true,
+      'defaultValue': _0x2c6f13,
+      'showCancel': true,
+      'okText': 'OK',
+      'cancelText': 'Cancel',
+      'quickCommit': true,
+      'invalid': !!_0x3d9d5a
+    })['then'](_0x2b7f18 => _0x2b7f18['ok'] ? String(_0x2b7f18['value'] ?? '')['trim']() : null);
 }
 function wpConfirm(_0xde325b, _0x46308e = 'Confirm') {
   const _0x1caf84 = {
