@@ -52,7 +52,7 @@
       if (mod && typeof mod.normalizeVectorValue === 'function') {
         try { return mod.normalizeVectorValue(raw, w); } catch (e) { /* 回退 */ }
       }
-      // 本地回退（与 feature-select 的 parseBusInput 一致）
+      // 本地回退（与 editor/selection.js 的 parseBusInput 一致）
       const text = String(raw == null ? '' : raw).trim().toLowerCase().replace(/_/g, '').replace(/\s+/g, '');
       if (!text) return null;
       if (/^[01xz]+$/.test(text)) {
@@ -217,12 +217,12 @@
 
       if (e.ctrlKey || e.metaKey || isVector) {
         // Ctrl/Vector：切 select 工具，**不拦截** → 核心原生 range selection
-        // 接管本次拖动（紫色对齐框选）；feature-select 记录起止并弹批量工具条
+        // 接管本次拖动（紫色对齐框选）；editor/selection.js 记录起止并弹批量工具条
         // （用户要求：编辑模式下 Ctrl 框选完全复用框选模式的代码/工具条）。
         sel.mode = 'native';
         switchTool('select');
       } else {
-        // Bit 普通按下：不切工具、不拦截 → feature-draw 准备 TimeGen 绘制
+        // Bit 普通按下：不切工具、不拦截 → editor/draw.js 准备 TimeGen 绘制
         sel.mode = null;
       }
     }
@@ -244,7 +244,7 @@
           sel.end = Math.max(0, Number(m.mainStep)) * wpf.stride();
         }
       }
-      // Bit 非 Ctrl 拖动：放行 feature-draw 绘制（不拦截）
+      // Bit 非 Ctrl 拖动：放行 editor/draw.js 绘制（不拦截）
     }
 
     function onMouseUp(e) {
@@ -255,15 +255,15 @@
 
       if (mode === 'native') {
         // Ctrl/Vector：已切 select 工具，不拦截、不弹窗——
-        // feature-select 负责框选并弹批量工具条。
+        // editor/selection.js 负责框选并弹批量工具条。
         sel.mode = null;
         return;
       }
 
       if (sel.moved || currentTool() !== 'paint') {
-        // Bit 拖动：feature-draw 已绘制，不弹窗；
+        // Bit 拖动：editor/draw.js 已绘制，不弹窗；
         // 当前已不是画笔工具（如 select 工具下的点击）也不属于本模块的单击弹窗
-        // 场景（交给 feature-select 框选）。防御：残留的 sel 状态在此彻底清理，
+        // 场景（交给 editor/selection.js 框选）。防御：残留的 sel 状态在此彻底清理，
         // 避免误弹 #wp-modal（曾导致核心弹窗抑制器放行 → 遮罩挡住后续操作）。
         sel.mode = null;
         return;
@@ -286,5 +286,5 @@
       sel.active = false;
       sel.mode = null;
     });
-  }, 'feature-value-edit');
+  }, 'editor/value-input');
 })();

@@ -29,9 +29,9 @@ const state = {
 
 const refs = {};
 
-// 原版 WavePaint 的 Bit 值数字编码（window.__wpConstants.WaveValue 默认值）：
+// WavePaint 核心的 Bit 值数字编码（window.__wpConstants.WaveValue 默认值）：
 //   0=低, 1=高, -1=未定义(x), 2=高阻(z), 3=上拉(u), 4=下拉(d)
-// 原版渲染 Bit 波形时只识别这些数字；若 values 是字符串 "0"/"1" 等，
+// 核心渲染 Bit 波形时只识别这些数字；若 values 是字符串 "0"/"1" 等，
 // 会被当作无效值而不绘制（波形空白）。
 function toNativeBitValue(value) {
   const t = String(value ?? "").trim().toLowerCase();
@@ -43,12 +43,12 @@ function toNativeBitValue(value) {
   return -1; // x / 未知 → UNDEFINED
 }
 
-// 总线标签统一不带 0x/0b 前缀（与 feature-common 的 busRadixLabel 口径一致）
+// 总线标签统一不带 0x/0b 前缀（与 core/wpf.js 的 busRadixLabel 口径一致）
 function busLabel(value, width, radix) {
   return String(formatVectorValue(value, width, radix || "hexadecimal")).replace(/^0[xXbB]/, "");
 }
 
-// 反向：原版数字编码 → 字符串（供仿真/项目模型使用）
+// 反向：核心数字编码 → 字符串（供仿真/项目模型使用）
 function fromNativeBitValue(value) {
   const n = Number(value);
   if (Number.isFinite(n)) {
@@ -149,10 +149,10 @@ function canvasTimeSteps() {
   return Math.max(4, steps);
 }
 
-// 画布有效采样数 = 主步数 × (子步+1)，与 WavePaint 原版数据模型一致：
+// 画布有效采样数 = 主步数 × (子步+1)，与 WavePaint 核心数据模型一致：
 // 每个时间步在 values 中占 (子步+1) 个下标，主值为该步第 1 个值。
 //
-// ⚠ 口径必须与 feature-common.js 的 wpf.subSteps() 完全一致（允许 0）。
+// ⚠ 口径必须与 core/wpf.js 的 wpf.subSteps() 完全一致（允许 0）。
 // 旧实现用 Math.max(1, ...) 把子步数 0 当成 1，导致：
 //   canvasEffectiveCount() 把新建信号撑成主步数的 2 倍 →
 //   用户绘制（writeValue 用 stride=1）只写满前半段，后半段留 x →
@@ -224,9 +224,9 @@ function normalizeSignalType(width) {
   return width > 1 ? SignalType.Vector : SignalType.Bit;
 }
 
-// 创建原版 Signal。length 为画布有效长度（主步数 × (子步+1)）；
+// 创建核心 Signal（new window.Signal）。length 为画布有效长度（主步数 × (子步+1)）；
 // output.values 按主步给出（长度 = 主步数），这里按模型铺开：每个主步的
-// (子步+1) 个格子都填该步的主值，与原版绘制/导出/仿真采样语义一致。
+// (子步+1) 个格子都填该步的主值，与核心绘制/导出/仿真采样语义一致。
 function toNativeSignal(output, index, template, effectiveCount, options = {}) {
   const width = Math.max(1, Number(output?.width) || 1);
   const SignalCtor = window.Signal;
@@ -356,7 +356,7 @@ function readWaveDocument() {
   const stride = canvasSubSteps() + 1;
 
   return {
-    name: "WavePaintSim",
+    name: "WavePaintClean",
     timeSteps,
     subSteps: canvasSubSteps(),
     zoom: 1,
@@ -556,7 +556,7 @@ async function runSimulation() {
         + "  1. 应用进程已退出（窗口检测或异常导致）\n"
         + "  2. iverilog 编译/仿真卡死或超时\n"
         + "  3. RTL 含导致 iverilog 崩溃的内容\n"
-        + "请重启 WavePaintSim，或查看日志：%TEMP%\\WavePaintSim_sim.log"
+        + "请重启应用，或查看日志：%TEMP%\\WavePaintClean_sim.log"
       : message;
     refs.modulePreview.textContent = friendly;
     setStatus(friendly);

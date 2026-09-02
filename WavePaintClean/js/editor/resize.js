@@ -1,20 +1,20 @@
 // ============================================================================
-// WavePaintSim feature-resize.js —— 步数/子步变化智能自适应
+// WavePaintClean js/editor/resize.js —— 步数/子步变化智能自适应
 // ----------------------------------------------------------------------------
 // 功能说明（对应实施规格 F3，用户点名需求）：
 //   1. 增大步数：
 //      - 时钟类信号（isClockPattern）：按已画内容的周期自动延续（如 0101…）
 //      - 其它信号：延续最后一个确定值；整行未定义则补 x
-//   2. 减小步数：截断保留前部（可通过原版撤销栈 Ctrl+Z 撤销）。
+//   2. 减小步数：截断保留前部（可通过核心撤销栈 Ctrl+Z 撤销）。
 //   3. 子步数变化：按"主步 × (子步+1)"重排——主值保留，新增子步填主值。
-//      （原版在此场景会把 0101 时钟错乱成 0000，本模块修正该行为）
-//   4. 修改前压入原版撤销栈快照，Ctrl+Z 可整体撤销。
+//      （核心原生在此场景会把 0101 时钟错乱成 0000，本模块修正该行为）
+//   4. 修改前压入核心撤销栈快照，Ctrl+Z 可整体撤销。
 // 实现要点：
 //   核心对两个 spin 已直接绑定 change（失焦/回车提交，避免每键 input 全量重绘闪烁）；
 //   本模块在 document 捕获阶段先于核心收到 spin 的 input / change，
 //   input 一律吞掉（防任何逐键重绘），change 则接管执行本模块的智能 resize，
 //   使核心原生的"尾部补空"resize 不再执行。
-// 依赖：feature-common.js、混淆核心全局 API
+// 依赖：core/wpf.js（window.__wpf）、解混淆核心 wavepaint.clean.js 全局 API
 // 修改记录：
 //   2026-08-30 初版（F3）
 //   2026-08-30 P0-3 不再缓存 document_wave 引用（核心重建文档后 resize 失效）
@@ -144,7 +144,7 @@
     }, true);
 
     // change（blur/Enter）提交时执行智能 resize。
-    // stop 阻止原版（若有）的 change 监听器再次执行"尾部补空"resize。
+    // stop 阻止核心（若有）的 change 监听器再次执行"尾部补空"resize。
     document.addEventListener('change', function (e) {
       const id = e.target && e.target.id;
       if (id !== 'sample-spin' && id !== 'substep-spin') return;
@@ -159,7 +159,7 @@
       resizeSignals(newSteps, newSubs);
     }, true);
 
-    // 撤销/重做后（原版会恢复 sampleCount/subStepCount），无需额外处理：
+    // 撤销/重做后（核心会恢复 sampleCount/subStepCount），无需额外处理：
     // 本模块始终通过 doc() 读取 window.document_wave 的当前值，不存在过期缓存。
-  }, 'feature-resize');
+  }, 'editor/resize');
 })();

@@ -45,10 +45,10 @@
       }
       tries += 1;
       if (tries === 100) {
-        console.warn('[WavePaintSim] 等待混淆核心就绪超时（10s），'
+        console.warn('[WavePaintClean] 等待核心就绪超时（10s），'
           + (label ? '模块 ' + label + ' ' : '') + '功能未启用。缺少：' + need.join(', '));
       } else if (tries > 100 && tries % 300 === 0) {
-        console.warn('[WavePaintSim] 仍未就绪（' + Math.round(tries / 10) + 's），缺少：' + need.join(', '));
+        console.warn('[WavePaintClean] 仍未就绪（' + Math.round(tries / 10) + 's），缺少：' + need.join(', '));
       }
       setTimeout(attempt, 100);
     }
@@ -131,7 +131,7 @@
     return st === '1' || st === '0';
   };
 
-  // 位状态 → 原版 Bit 数字编码（0=低 1=高 -1=x 2=z 3=u 4=d）
+  // 位状态 → 核心原生 Bit 数字编码（0=低 1=高 -1=x 2=z 3=u 4=d）
   wpf.bitStateToValue = function (state) {
     switch (state) {
       case '0': return 0;
@@ -157,11 +157,11 @@
   };
 
   // ---------------------------------------------------------------- 撤销快照
-  // 向原版撤销栈压入一个全量快照（格式与原版 resize/绘制产生的条目一致），
-  // 使 feature 模块做的批量修改可以通过原版 Ctrl+Z 撤销。
+  // 向核心撤销栈压入一个全量快照（格式与核心 resize/绘制产生的条目一致），
+  // 使扩展模块做的批量修改可以通过核心 Ctrl+Z 撤销。
   //
-  // 优先委托给混淆核心自带的 WaveDocument.prototype.pushUndoSnapshot（P2-3）。
-  // 已静态确证其核心实现（wavepaint.63e6dade.js 偏移 162831 处）：
+  // 优先委托给解混淆核心自带的 WaveDocument.prototype.pushUndoSnapshot（P2-3）。
+  // 已静态确证其核心实现（早期混淆版 wavepaint.63e6dade.js 偏移 162831 处的等价逻辑）：
   //   push(signals/markers/timeJumps/timeSpanMarkers/arrows/textAnnotations/
   //        sampleCount/subStepCount 的 JSON 深拷贝)
   //   → if (m_undoStack.length > 100) m_undoStack.shift()
@@ -210,7 +210,7 @@
   };
 
   // ---------------------------------------------------------------- 元数据同步
-  // 将信号的相关数组同步到 newLen 长度（原版 resize 同步这些数组）
+  // 将信号的相关数组同步到 newLen 长度（核心 resize 同步这些数组）
   wpf.syncSignalMeta = function (sig, newLen) {
     const fit = function (arr, fill) {
       const src = Array.isArray(arr) ? arr : [];
@@ -416,7 +416,7 @@
   //   step（默认）：写入该主步的全部 stride 个下标 —— 与仿真采样口径一致，
   //                 避免"画在子步下标导致 readWaveDocument 采不到 → 结果恒 0"。
   //   substep      ：只写入命中的那一个下标（用于画时钟沿等精细场景）。
-  // feature-draw（鼠标）与 feature-shortcuts（方向键）共用，保证两处行为一致。
+  // editor/draw.js（鼠标）与 editor/shortcuts.js（方向键）共用，保证两处行为一致。
   wpf.writeValue = function (sig, sampleIndex, value) {
     if (!sig || !Array.isArray(sig.values)) return false;
     if (!(sampleIndex >= 0) || sampleIndex >= sig.values.length) return false;
@@ -440,8 +440,8 @@
     return true;
   };
 
-  // 弹窗关闭时清掉 feature-select 残留的自绘 marquee overlay（wpf-select-overlay）。
-  // 原生框选由混淆核心绘制，这里只负责清我们以前可能残留的图层。
+  // 弹窗关闭时清掉 editor/selection.js 历史残留的自绘 marquee overlay（wpf-select-overlay）。
+  // 原生框选由核心绘制，这里只负责清我们以前可能残留的图层。
   wpf.clearAllMarquees = function () {
     const selOv = document.getElementById('wpf-select-overlay');
     if (selOv) {
@@ -472,7 +472,7 @@
   };
 
   // ------------------------------------------------- 默认浅色主题
-  // 混淆核心首次启动会带上深色主题（body.dark）。这里在启动阶段切回浅色，但只做一次：
+  // 核心默认深色主题（body.dark）。这里在启动阶段切回浅色，但只做一次：
   // 之后用户通过「主题」菜单的选择一律尊重（核心的 applyTheme 会自行持久化）。
   const THEME_FLAG = 'wpf.defaultLightThemeApplied';
   const flagStore = {
@@ -507,7 +507,7 @@
   }
 
   // ------------------------------------------------- 工具栏「编辑力度」初始化
-  // 只依赖 DOM，不必等混淆核心就绪，故单独在 DOMContentLoaded 后绑定一次。
+  // 只依赖 DOM，不必等核心就绪，故单独在 DOMContentLoaded 后绑定一次。
   function bindToolbarWhenReady() {
     try { ensureDefaultLightTheme(); } catch (e) { /* 忽略：主题失败不影响使用 */ }
     try { wpf.bindGranularityUI(); } catch (e) { /* 忽略：控件缺失不影响绘图 */ }
@@ -530,9 +530,9 @@
       if (n === 0 && tries < 6) { setTimeout(attempt, 400); return; }
       if (n > 0) wpf.scheduleRedraw();
     })();
-    // （历史）曾用 MutationObserver 抑制核心 select 工具框选 Vector 后自弹的
-    // 「Vector Value」弹窗 —— 混淆核心时代产物。解混淆后 editor/selection.js
-    // 直接驱动 __core.selection 且拦截真实鼠标事件，核心不再自行弹窗，故已删除。
+    // （历史）曾用 MutationObserver 抑制框选 Vector 后核心自弹的「Vector Value」弹窗。
+    // 解混淆后 editor/selection.js 直接驱动 __core.selection 且拦截真实鼠标事件，
+    // 核心不再自行弹窗，此抑制逻辑已删除。
   }, 'bus-radix');
 
   // ------------------------------------------------- 总线进制右键菜单（需求 7.6）

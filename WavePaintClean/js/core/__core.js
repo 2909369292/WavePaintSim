@@ -99,8 +99,8 @@ window.__core = window.__core || {};
 
   // ---------------------------------------------------------------- 原生选框驱动
   // 核心 drawRangeSelection 以 rangeSel* + rangeSelActive 为状态源（tool 为 select 时绘制）。
-  // 外部直接置状态 + 重绘即可“原生”显示/清除选框 —— 替代历史里伪造 mousedown/up
-  // 合成事件的做法（feature-select 的 dispatchAt/dispatchRaw/clearCoreSelection…）。
+  // 外部直接置状态 + 重绘即可"原生"显示/清除选框 —— 替代历史里伪造 mousedown/up
+  // 合成事件驱动框选的做法（已随重构删除的 dispatchAt/dispatchRaw/clearCoreSelection…）。
   C.selection = {
     // 设置一段原生选框并重绘（等效于拖动完成后的核心状态）
     set: function (startSignal, startSample, endSignal, endSample) {

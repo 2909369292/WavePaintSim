@@ -1,5 +1,5 @@
 // ============================================================================
-// WavePaintSim feature-generator.js —— 波形生成器
+// WavePaintClean js/editor/generator.js —— 波形生成器
 // ----------------------------------------------------------------------------
 // 功能说明（对应实施规格 F7）：
 //   在「添加信号」菜单新增"波形生成器"子菜单：
@@ -7,8 +7,8 @@
 //   点击后弹出参数对话框（名称、周期、相位等），按当前画布步数×(子步+1)
 //   生成 Bit 信号并追加到画布（生成前压撤销快照，可 Ctrl+Z 撤销）。
 //   位模式说明：正弦/三角/锯齿按 50% 阈值转为 0/1 电平（位信号语义）。
-// 依赖：feature-common.js、混淆核心全局 API；菜单入口在 index.html
-//   （a[data-wpf-action^="gen-"]）。
+// 依赖：core/wpf.js（window.__wpf）、解混淆核心 wavepaint.clean.js 全局 API；
+//   菜单入口在 index.html（a[data-wpf-action^="gen-"]）。
 // 修改记录：
 //   2026-08-30 初版（F7）
 // ============================================================================
@@ -210,8 +210,8 @@
       const gen = generators[a.getAttribute('data-wpf-action')];
       if (!gen) return;
       e.preventDefault();
-      e.stopPropagation(); // 不让原版 data-action 处理器介入
+      e.stopPropagation(); // 不让核心 data-action 处理器介入
       openDialog(gen.title, gen.fields, gen.run);
     });
-  }, 'feature-generator');
+  }, 'editor/generator');
 })();

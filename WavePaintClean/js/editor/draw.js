@@ -1,15 +1,15 @@
 // ============================================================================
-// WavePaintSim feature-draw.js —— TimeGen 式鼠标绘制（上移画 1 / 下移画 0）
+// WavePaintClean js/editor/draw.js —— 鼠标绘制（上移画 1 / 下移画 0，TimeGen 式）
 // ----------------------------------------------------------------------------
 // 功能说明（对应实施规格 F2，用户点名需求）：
 //   1. 位状态选择器处于 1 或 0 时进入"自动 0/1 模式"：
 //      - 指针位于信号行上半区 → 写 1
 //      - 指针位于信号行下半区 → 写 0
 //   2. 按住左键拖动可连续绘制；按下时锁定首个信号行，拖到别的行不改别行。
-//   3. 位状态选择器选 x/z/u/d 时保持原版"固定值绘制"（不拦截，交给原版）。
+//   3. 位状态选择器选 x/z/u/d 时保持核心"固定值绘制"（不拦截，交给核心）。
 //   4. 按住 Shift 拖动 = 擦除（写 x）。
-//   5. 点在信号名称区 / 空白行 / 非画笔工具时不启用，原版行为不受影响。
-// 依赖：feature-common.js（window.__wpf）、混淆核心全局 API
+//   5. 点在信号名称区 / 空白行 / 非画笔工具时不启用，核心自带行为不受影响。
+// 依赖：core/wpf.js（window.__wpf 共享层）、解混淆核心 wavepaint.clean.js 全局 API
 // 实现要点：在 document 上以捕获阶段监听鼠标事件（先于画布目标监听器），
 //   仅在"自动模式 + 画笔工具"时 stopImmediatePropagation 接管。
 // 修改记录：
@@ -68,7 +68,7 @@
       const sig = window.document_wave.m_signals[hit.signalIndex];
       // 按编辑粒度写入（整步：写满该主步的 stride 个下标），并同步清时钟标记
       wpf.writeValue(sig, hit.sampleIndex, hit.value);
-      // 记录光标位置供 feature-shortcuts.js 的方向键使用
+      // 记录光标位置供 editor/shortcuts.js 的方向键使用
       window.__wpf.cursor = { signalIndex: hit.signalIndex, sampleIndex: hit.sampleIndex };
       wpf.scheduleRedraw();
     }
@@ -135,18 +135,18 @@
 
     function onMouseDown(e) {
       if (e.button !== 0) return;
-      // Ctrl/⌘+拖动：让位给 feature-value-edit 的框选输入（v0.3.0 R5）
+      // Ctrl/⌘+拖动：让位给 editor/value-input.js 的框选输入（v0.3.0 R5）
       if (e.ctrlKey || e.metaKey) return;
-      // 无激活工具时视为画笔（与原版默认画笔一致），确保 TimeGen 默认接管，
-      // 否则用户不手动点「画笔」时落回原版绘制写子步下标 → 仿真采样不到 → 结果 0
+      // 无激活工具时视为画笔（与核心默认画笔一致），确保 TimeGen 默认接管，
+      // 否则用户不手动点「画笔」时落回核心绘制写子步下标 → 仿真采样不到 → 结果 0
       const tool = wpf.currentTool();
       if (tool !== 'paint' && tool !== null) return;
       const target = e.target;
       if (!target || target !== wpf.canvas()) return;
-      if (!wpf.isAutoBitMode() && !e.shiftKey) return; // 固定值模式：交给原版
+      if (!wpf.isAutoBitMode() && !e.shiftKey) return; // 固定值模式：交给核心
       const hit = hitTest(e);
-      if (!hit) return;                                // 名称区/空白行等：交给原版
-      // 接管后原版的 canvas mousedown 不会再执行，它本该压入的撤销快照由我们补上。
+      if (!hit) return;                                // 名称区/空白行等：交给核心
+      // 接管后核心的 canvas mousedown 不会再执行，它本该压入的撤销快照由我们补上。
       // 整次拖拽只压一次（不是每格一条）：否则一次拖 60 格就压 60 条快照，
       // 会把核心 100 条的撤销栈上限挤爆，用户真正想保留的历史被冲掉。
       wpf.pushUndoSnapshot();
@@ -177,7 +177,7 @@
       wpf.scheduleRedraw();
     }
 
-    // 捕获阶段挂在 document 上（先于画布上的原版目标监听器执行）
+    // 捕获阶段挂在 document 上（先于画布上的核心目标监听器执行）
     document.addEventListener('mousedown', onMouseDown, true);
     document.addEventListener('mousemove', onMouseMove, true);
     document.addEventListener('mouseup', onMouseUp, true);
@@ -187,5 +187,5 @@
       drag.signalIndex = -1;
       drag.lastIndex = -1;
     });
-  }, 'feature-draw');
+  }, 'editor/draw');
 })();

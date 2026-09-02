@@ -1,5 +1,5 @@
 // ============================================================================
-// WavePaintSim feature-templates.js —— 协议模板库
+// WavePaintClean js/editor/templates.js —— 协议模板库
 // ----------------------------------------------------------------------------
 // 功能说明（对应实施规格 F8）：
 //   在「添加信号」菜单新增"协议模板"子菜单，一键生成常用协议时序信号组：
@@ -10,8 +10,8 @@
 //   生成前压撤销快照（Ctrl+Z 可整体撤销），信号追加到画布末尾。
 //   说明：SPI 为模式 0（CPOL=0/CPHA=0，MSB first）；I2C 含 START/ACK/STOP；
 //   UART 为 8N1、LSB first、空闲高。
-// 依赖：feature-common.js、混淆核心全局 API；菜单入口在 index.html
-//   （a[data-wpf-action^="tpl-"]）。
+// 依赖：core/wpf.js（window.__wpf）、解混淆核心 wavepaint.clean.js 全局 API；
+//   菜单入口在 index.html（a[data-wpf-action^="tpl-"]）。
 // 修改记录：
 //   2026-08-30 初版（F8）
 // ============================================================================
@@ -184,5 +184,5 @@
       e.stopPropagation();
       byteDialog(tpl, a.getAttribute('data-wpf-action'));
     });
-  }, 'feature-templates');
+  }, 'editor/templates');
 })();

@@ -1,14 +1,14 @@
 // ============================================================================
-// WavePaintSim feature-measure.js —— 时间光标与测量（GTKWave 风格）
+// WavePaintClean js/editor/measure.js —— 时间光标与测量（GTKWave 风格）
 // ----------------------------------------------------------------------------
 // 功能说明（对应实施规格 F6）：
 //   1. 鼠标悬停画布时显示竖线幽灵光标 + 顶部步号标签（纯叠加层，不改数据）。
 //   2. Alt+左键 点击画布放置测量光标 A / B（交替），显示两光标步号差 Δ；
 //      只有一个光标时显示其步号。再次 Alt+点击 循环更新 A→B→A。
-//   3. Escape 清除测量光标（feature-shortcuts 已把 Escape 用于清选区，
+//   3. Escape 清除测量光标（editor/shortcuts.js 已把 Escape 用于清选区，
 //      本模块仅在无选区时响应清除光标）。
-//   4. 不干扰任何原版工具：叠加层 pointer-events:none，监听不阻止传播。
-// 依赖：feature-common.js、混淆核心全局 API
+//   4. 不干扰任何核心自带工具：叠加层 pointer-events:none，监听不阻止传播。
+// 依赖：core/wpf.js（window.__wpf）、解混淆核心 wavepaint.clean.js 全局 API
 // 修改记录：
 //   2026-08-30 初版（F6）
 //   2026-08-30 P2-4 overlay 补 CSS 尺寸对齐（BUG-005，缩放/HiDPI 错位）
@@ -170,5 +170,5 @@
     window.addEventListener('resize', onResize);
     // 画布重绘后叠加层可能错位（缩放等），监听一次低频同步
     setInterval(syncSize, 1000);
-  }, 'feature-measure');
+  }, 'editor/measure');
 })();

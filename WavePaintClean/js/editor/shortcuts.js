@@ -1,14 +1,14 @@
 // ============================================================================
-// WavePaintSim feature-shortcuts.js —— 键盘快捷键绘制
+// WavePaintClean js/editor/shortcuts.js —— 键盘快捷键绘制
 // ----------------------------------------------------------------------------
 // 功能说明（对应实施规格 F4）：
 //   1. 焦点不在输入框时，数字/字母键切换位状态（等效点击位状态选择器）：
 //      1=高电平  0=低电平  X=未定义  Z=高阻  U=上拉  D=下拉
-//   2. Ctrl+Z / Ctrl+Y（及 Ctrl+Shift+Z）：原版撤销/重做。
-//   3. Delete / Backspace：删除当前选中对象（原版 deleteSelection）。
-//   4. 方向键移动绘制光标并写入当前位状态值（光标由 feature-draw 的绘制位置
+//   2. Ctrl+Z / Ctrl+Y（及 Ctrl+Shift+Z）：核心撤销/重做。
+//   3. Delete / Backspace：删除当前选中对象（核心 deleteSelection）。
+//   4. 方向键移动绘制光标并写入当前位状态值（光标由 editor/draw.js 的绘制位置
 //      初始化；←→ 移动格子，↑↓ 切换信号行；Escape 清除选区/光标）。
-// 依赖：feature-common.js（window.__wpf）、混淆核心全局 API
+// 依赖：core/wpf.js（window.__wpf）、解混淆核心 wavepaint.clean.js 全局 API
 // 修改记录：
 //   2026-08-30 初版（F4）
 //   2026-08-30 P0-2 方向键绘制前压撤销快照，并改用 wpf.writeValue 支持编辑粒度
@@ -129,5 +129,5 @@
     }
 
     document.addEventListener('keydown', onKeyDown, true);
-  }, 'feature-shortcuts');
+  }, 'editor/shortcuts');
 })();
