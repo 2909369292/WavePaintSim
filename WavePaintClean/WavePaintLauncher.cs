@@ -57,6 +57,9 @@ namespace WaveWorkbench
                 else if (resource.StartsWith("img_")) { subdir = "img"; relative = resource.Substring(4); }
                 else if (resource.StartsWith("lib_")) { subdir = "lib"; relative = resource.Substring(4); }
                 string destination = subdir.Length == 0 ? Path.Combine(root, relative) : Path.Combine(root, subdir, relative);
+                // 资源名可能带子路径（如 js_core/__core.js → js/core/__core.js），确保目录存在
+                string destDir = Path.GetDirectoryName(destination);
+                if (!string.IsNullOrEmpty(destDir)) Directory.CreateDirectory(destDir);
                 using (var input = asm.GetManifestResourceStream(resource))
                 using (var output = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None))
                 {

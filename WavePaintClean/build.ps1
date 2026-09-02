@@ -1,27 +1,24 @@
 ﻿$ErrorActionPreference = 'Stop'
+# 强制在脚本所在目录执行（避免外层 shell cwd 漂移导致相对路径/中文路径解析错误）
+Set-Location -LiteralPath $PSScriptRoot
+
+# 1) Generate resource manifest with Node (cross-platform, handles js/ subdirs)
+node "tools\gen-resources.mjs"
+if ($LASTEXITCODE -ne 0) { throw "gen-resources.mjs failed" }
+
 $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 if (-not (Test-Path $csc)) { $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework\v4.0.30319\csc.exe" }
-$root = (Get-Location).Path
+
 $resArgs = @()
-$specs = @(
-  @("index.html", "root_"),
-  @("css\*", "css_"),
-  @("js\*", "js_"),
-  @("img\*", "img_"),
-  @("lib\*", "lib_")
-)
-foreach ($sp in $specs) {
-  $pat = $sp[0]; $prefix = $sp[1]
-  foreach ($f in Get-ChildItem -File $pat | Where-Object { $sp[0] -ne 'js\*' -or $_.Name -ne 'wavepaint.63e6dade.js' }) {
-    $rel = $f.FullName.Substring($root.Length + 1)
-    $resArgs += ("/resource:" + $rel + "," + $prefix + $f.Name)
-  }
+Get-Content "resources.txt" | ForEach-Object {
+  $t = $_.Trim()
+  if ($t.Length -gt 0) { $resArgs += ("/resource:" + $t) }
 }
-# 内嵌 iverilog 便携包（运行时用 .NET 解压）
-if (Test-Path "ivl.zip") { $resArgs += "/resource:ivl.zip,ivl.zip" }
-# 应用图标：/win32icon 决定 exe 在资源管理器里的图标（此前缺失空白）。
+
 $iconArg = ""
-if (Test-Path "img\app.ico") { $iconArg = "/win32icon:img\app.ico" } else { Write-Host "警告：缺少 img\app.ico，exe 将没有图标（可用 node 生成）" }
+if (Test-Path "img\app.ico") { $iconArg = "/win32icon:img\app.ico" }
+
 & $csc /nologo /target:winexe $iconArg /r:System.Windows.Forms.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll /out:WavePaintClean.exe $resArgs WavePaintLauncher.cs
 Write-Host "csc exit: $LASTEXITCODE"
+Write-Host ("res count: " + $resArgs.Count)
 if (Test-Path "WavePaintClean.exe") { Write-Host ("WavePaintClean.exe size: " + (Get-Item "WavePaintClean.exe").Length) }
