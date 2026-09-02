@@ -10,9 +10,10 @@
 //      （原版在此场景会把 0101 时钟错乱成 0000，本模块修正该行为）
 //   4. 修改前压入原版撤销栈快照，Ctrl+Z 可整体撤销。
 // 实现要点：
-//   step-commit-patch.js 会在 blur/change 时补发一次 input 事件触发原版 resize；
-//   本模块在 document 捕获阶段拦截这些 spin 的 input 事件（阻止原版 resize），
-//   并在 change 提交时执行本模块的智能 resize。
+//   核心对两个 spin 已直接绑定 change（失焦/回车提交，避免每键 input 全量重绘闪烁）；
+//   本模块在 document 捕获阶段先于核心收到 spin 的 input / change，
+//   input 一律吞掉（防任何逐键重绘），change 则接管执行本模块的智能 resize，
+//   使核心原生的"尾部补空"resize 不再执行。
 // 依赖：feature-common.js、混淆核心全局 API
 // 修改记录：
 //   2026-08-30 初版（F3）
@@ -133,8 +134,8 @@
       };
     }
 
-    // 拦截 spin 的 input（step-commit-patch 在 change 时补发的 input 会走到这里；
-    // 原版监听器在目标节点上，此处 stop 后原版"尾部补空"的 resize 不会执行）
+    // 拦截 spin 的 input（核心已改绑 change，不再有逐键监听；此兜底阻止任何
+    // 残留的 input 级 resize，杜绝逐键全量重绘的闪烁）
     document.addEventListener('input', function (e) {
       const id = e.target && e.target.id;
       if (id === 'sample-spin' || id === 'substep-spin') {

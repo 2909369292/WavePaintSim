@@ -41,10 +41,9 @@ js/
                            measure / resize / generator / templates）
   sim/                     仿真（engine 纯逻辑 / project-model 数据模型 / ui-bridge 面板）
   util/id.js               工具（uid / deepClone / clamp）
-  patch/                   对核心输入/文案的修正（step-commit / zh）
 ```
 
-`index.html` 加载顺序：核心 → `js/core/__core.js` → patch → wpf → editor/* → sim/*。
+`index.html` 加载顺序：核心 → `js/core/__core.js` → wpf → editor/* → sim/*。
 目录/命名规范见 `docs/03_代码与目录规范.md`。
 
 ## 打包为独立 exe（装有 Edge 的任意 Windows 电脑）

@@ -30073,10 +30073,10 @@ function initToolbarHandlers() {
   _0x5ccaed && _0x5ccaed['addEventLi' + 'stener']('click', async function () {
     const _0x7cb12f = _0x486494, _0xccce78 = await openColorPicker(getCurrentPaintColor(), _0x5ccaed, 'Paint Colo' + 'r');
     _0xccce78 && (selectedPaintColor = _0xccce78, _0x44615c['rZGGb'](updatePaintColorBox));
-  }), updatePaintColorBox(), _0x44615c['qoIHA'](initDropdownHandlers), document['getElement' + 'ById']('sample-spi' + 'n')['addEventLi' + 'stener']('input', function () {
+  }), updatePaintColorBox(), _0x44615c['qoIHA'](initDropdownHandlers), document['getElement' + 'ById']('sample-spi' + 'n')['addEventLi' + 'stener']('change', function () { // [A6-沉核心] 失焦/回车提交：逐键 input 全量重绘会闪烁，故绑 change
     const _0x8fc361 = _0x486494, _0x1ee4ff = _0x486494;
     document_wave['setSampleC' + 'ount'](_0x44615c['tfTLd'](parseInt, this['value'])), _0x44615c['rZGGb'](drawWaveform);
-  }), document['getElement' + 'ById']('substep-sp' + 'in')['addEventLi' + 'stener']('input', function () {
+  }), document['getElement' + 'ById']('substep-sp' + 'in')['addEventLi' + 'stener']('change', function () { // [A6-沉核心] 子步同：change 提交
     const _0x1aab92 = _0x130e43, _0x5ef333 = _0x130e43;
     document_wave['setSubStep' + 'Count'](parseInt(this['value'])), drawWaveform();
   }), document['getElement' + 'ById']('signal-col' + 'or')['addEventLi' + 'stener']('input', function () {

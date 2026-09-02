@@ -7,9 +7,16 @@
 //   1. 删除旧端口文件 → 启动 WavePaintClean.exe → 等 ~10s
 //   2. node tools/exe-smoke.mjs
 // ⚠ 判断「exe 是否真包含新代码」还得配合 grep 内嵌标记（见 docs/03 验证门槛）。
+// ⚠ Edge profile / 系统 TEMP 走 D 盘 .e2e-tmp：headless Edge 组件更新器会往 C 盘写
+//   msedge_url_fetcher_*（150MB+），C 盘曾被写满 0GB。禁组件更新 + TEMP 重定向。
+// ⚠ 每次运行用「唯一新 profile」（沙箱拦截 node 里递归删大目录；新 profile 天然无旧缓存）。
 // ============================================================================
 import { spawn } from 'node:child_process';
+import { mkdirSync } from 'node:fs';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const e2eRoot = 'D:/Files/Code/波形/.e2e-tmp';
+const sysTmp = e2eRoot + '/system-tmp';
+mkdirSync(sysTmp, { recursive: true });
 await sleep(5000);
 const port = await (async () => {
   // 读取最新端口文件
@@ -22,10 +29,9 @@ const port = await (async () => {
   return fs.readFileSync(dir + '/' + latest, 'utf8').trim();
 })();
 console.log('端口:', port);
-const edgeProfile = 'D:/Files/Code/波形/.e2e-tmp/edge-exe-zh';
-const fs0 = await import('node:fs');
-try { fs0.rmSync(edgeProfile, { recursive: true, force: true }); } catch (e) { /* 忽略 */ }
-spawn('C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', ['--headless=new', '--disable-gpu', '--remote-debugging-port=9505', '--user-data-dir=' + edgeProfile, '--no-first-run', 'http://127.0.0.1:' + port + '/index.html'], { stdio: 'ignore' });
+const edgeProfile = e2eRoot + '/edge-exe-zh-' + Date.now();
+const edgeEnv = { ...process.env, TEMP: sysTmp, TMP: sysTmp, TMPDIR: sysTmp };
+spawn('C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', ['--headless=new', '--disable-gpu', '--disable-component-update', '--disable-features=msEdgeComponentUpdate', '--remote-debugging-port=9505', '--user-data-dir=' + edgeProfile, '--no-first-run', 'http://127.0.0.1:' + port + '/index.html'], { stdio: 'ignore', env: edgeEnv });
 let t = null;
 for (let i = 0; i < 24; i++) {
   await sleep(500);

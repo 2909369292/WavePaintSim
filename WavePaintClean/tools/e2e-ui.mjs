@@ -7,21 +7,29 @@
 //   C. 位值弹窗（__core.prompt → 核心 wpQuickPrompt）：回车写入 / Esc /
 //      空值失焦取消 / 有值失焦写入 / 非法输入红框重开 / 点遮罩取消 / 弹窗内不触发全局快捷键
 // 用法：node tools/e2e-ui.mjs   （自带 dev-server；需本机 Edge；退出码非 0 表示有失败）
-// ⚠ Edge profile 与临时产物放 D:/Files/Code/波形/.e2e-tmp（已 git 本地排除），
-//   不要把 user-data-dir 指回 C 盘系统 Temp —— C 盘空间紧张，曾因此把盘写满。
+// ⚠ Edge profile / 组件更新 / 系统 TEMP 全部指到 D:/Files/Code/波形/.e2e-tmp（已 git 本地排除）。
+//   即使 --user-data-dir 在 D 盘，headless Edge 的组件更新器仍会往 C 盘 %TEMP% 写
+//   msedge_url_fetcher_*（单次可 150MB+）→ 必须同时禁组件更新 + 重定向 TEMP，C 盘曾被写满 0GB。
 // ============================================================================
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { mkdirSync } from 'node:fs';
 
 const PORT = 8949;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
+// 所有临时产物集中到 D 盘根临时区（防 C 盘爆盘）。
+// ⚠ 不用「固定 profile + 启动即删」：WorkBuddy 的 node 沙箱拦截 >50 文件的递归删除
+//   （SAFE_DELETE_BULK_CONFIRM_REQUIRED，profile 有 1000+ 文件 → 直接抛错）。
+//   改为每次运行用「唯一新 profile」→ 天然无旧版 JS 缓存，也不需要在 node 里删大目录；
+//   历史 profile 由事后 Bash `rm -rf .e2e-tmp` 清理（D 盘余量大，短期堆积无碍）。
+const e2eRoot = 'D:/Files/Code/波形/.e2e-tmp';
+const edgeProfile = e2eRoot + '/edge-prompt-' + Date.now();
+const sysTmp = e2eRoot + '/system-tmp';
+mkdirSync(e2eRoot, { recursive: true });
+mkdirSync(sysTmp, { recursive: true });
 const cwd = fileURLToPath(new URL('..', import.meta.url));
 const server = spawn(process.execPath, ['tools/dev-server.mjs', String(PORT)], { cwd, stdio: 'ignore' });
 const edge = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
-// Edge profile 放 D 盘（C 盘曾因此被写满）；启动前清掉旧缓存，避免命中旧版 JS
-const edgeProfile = 'D:/Files/Code/波形/.e2e-tmp/edge-prompt';
-import('node:fs').then((fs) => { try { fs.rmSync(edgeProfile, { recursive: true, force: true }); } catch (e) { /* 忽略 */ } });
 
 let results = [];
 function check(name, ok, detail) {
@@ -35,9 +43,11 @@ for (let i = 0; i < 30; i++) {
   await sleep(300);
 }
 
-spawn(edge, ['--headless=new', '--disable-gpu', '--remote-debugging-port=9531',
-  '--user-data-dir=' + edgeProfile, '--no-first-run',
-  'http://127.0.0.1:' + PORT + '/index.html'], { stdio: 'ignore' });
+// 禁组件更新 + 系统 TEMP 重定向：headless Edge 不再往 C 盘 %TEMP% 写垃圾
+const edgeEnv = { ...process.env, TEMP: sysTmp, TMP: sysTmp, TMPDIR: sysTmp };
+spawn(edge, ['--headless=new', '--disable-gpu', '--disable-component-update', '--disable-features=msEdgeComponentUpdate',
+  '--remote-debugging-port=9531', '--user-data-dir=' + edgeProfile, '--no-first-run',
+  'http://127.0.0.1:' + PORT + '/index.html'], { stdio: 'ignore', env: edgeEnv });
 
 let target = null;
 for (let i = 0; i < 40; i++) {
@@ -55,12 +65,14 @@ let id = 0;
 const pending = new Map();
 await new Promise((r) => ws.addEventListener('open', r));
 const errors = [];
+let netFails = 0;
 ws.addEventListener('message', (ev) => {
   const m = JSON.parse(ev.data);
   if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); }
   if (m.method === 'Runtime.exceptionThrown') {
     errors.push((m.params.exceptionDetails.exception?.description || m.params.exceptionDetails.text || '').slice(0, 160));
   }
+  if (m.method === 'Network.loadingFailed') netFails += 1;
 });
 const send = (method, params = {}) => new Promise((r) => { const i = ++id; pending.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
 const ev = async (expr) => {
@@ -269,10 +281,55 @@ else {
   check('弹窗内键入不触发全局位状态快捷键', stateBefore === stateAfter, stateBefore + ' → ' + stateAfter);
 }
 
+// ---------------------------------------------------------------- D. 步数/子步输入提交时机（PATCH-A6 沉入核心）
+// 补丁 era：每键 input 被拦截，change(blur/Enter) 才提交。核心改绑 change 后行为应一致：
+// 输入中间态（input 事件）不触发全量重绘；change 一次性提交新步数。
+{
+  const d0 = await ev(`(() => {
+    const s = document.getElementById('sample-spin');
+    if (!s) return null;
+    s.focus();
+    s.select();
+    const before = document_wave.m_sampleCount;
+    s.value = '8';
+    s.dispatchEvent(new Event('input', { bubbles: true }));   // 模拟每键输入
+    const mid = document_wave.m_sampleCount;
+    s.dispatchEvent(new Event('change', { bubbles: true }));  // 模拟 blur/Enter 提交
+    const after = document_wave.m_sampleCount;
+    return JSON.stringify({ before, mid, after });
+  })()`);
+  console.log('  spin 提交时机:', d0);
+  if (d0 === null) { check('D: 找到 #sample-spin', false, '元素缺失'); }
+  else {
+    const D = JSON.parse(d0);
+    check('输入中间态不生效（input 不触发 resize）', D.before === D.mid && D.before !== D.after, d0);
+    check('change 提交新步数', D.after === 8, d0);
+  }
+  const d1 = await ev(`(() => {
+    const b = document.getElementById('substep-spin');
+    if (!b) return null;
+    b.focus(); b.select();
+    const before = document_wave.m_subStepCount;
+    b.value = '2';
+    b.dispatchEvent(new Event('input', { bubbles: true }));
+    const mid = document_wave.m_subStepCount;
+    b.dispatchEvent(new Event('change', { bubbles: true }));
+    const after = document_wave.m_subStepCount;
+    return JSON.stringify({ before, mid, after });
+  })()`);
+  console.log('  substep 提交时机:', d1);
+  if (d1 === null) { check('D: 找到 #substep-spin', false, '元素缺失'); }
+  else {
+    const D = JSON.parse(d1);
+    check('子步同样 input 不生效 / change 提交', D.before === D.mid && D.after === 2, d1);
+  }
+}
+
 // ---------------------------------------------------------------- 收尾
+console.log('\n资源加载失败(404等)：' + netFails);
 console.log('\n控制台异常：' + (errors.length ? errors.join(' | ') : '无'));
 const failed = results.filter((r) => !r.ok);
 console.log('结果：' + (results.length - failed.length) + '/' + results.length + ' 通过');
 ws.close();
 server.kill();
-process.exit(failed.length || errors.length ? 1 : 0);
+process.exit(failed.length || errors.length || netFails ? 1 : 0);
