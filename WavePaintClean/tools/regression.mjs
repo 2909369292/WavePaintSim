@@ -17,7 +17,7 @@ import assert from "node:assert/strict";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { formatVectorValue, normalizeVectorValue } from "../js/model.js";
+import { formatVectorValue, normalizeVectorValue } from "../js/sim/project-model.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
@@ -45,7 +45,7 @@ function group(title) {
 // ---------------------------------------------------------------------------
 group("utils.js");
 
-const utils = await import(new URL("../js/utils.js", import.meta.url).href);
+const utils = await import(new URL("../js/util/id.js", import.meta.url).href);
 
 test("clamp 边界正确", () => {
   assert.equal(utils.clamp(5, 0, 10), 5);
@@ -82,7 +82,7 @@ test("uid 格式稳定（不因 Math.random() 过小而退化）", () => {
 // ---------------------------------------------------------------------------
 group("model.js");
 
-const model = await import(new URL("../js/model.js", import.meta.url).href);
+const model = await import(new URL("../js/sim/project-model.js", import.meta.url).href);
 
 test("normalizeVectorValue 按宽度补齐/截断", () => {
   assert.equal(model.normalizeVectorValue("1", 4), "0001");
@@ -145,7 +145,7 @@ test("stride = 子步数 + 1，主值下标 = 主步 × stride", () => {
 // ---------------------------------------------------------------------------
 group("sim.js");
 
-const sim = await import(new URL("../js/sim.js", import.meta.url).href);
+const sim = await import(new URL("../js/sim/engine.js", import.meta.url).href);
 
 const COUNTER_SRC = `module counter(
   input clk,
@@ -444,7 +444,7 @@ installBrowserStub({
 
 // 每个测试组用新的模块实例，避免 localStorage 互相污染
 async function loadCommon() {
-  const url = new URL("../js/feature-common.js", import.meta.url).href + "?t=" + Date.now() + Math.random();
+  const url = new URL("../js/core/wpf.js", import.meta.url).href + "?t=" + Date.now() + Math.random();
   return import(url).then(() => globalThis.window.__wpf);
 }
 const wpf = await loadCommon();

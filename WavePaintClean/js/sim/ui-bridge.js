@@ -1,5 +1,5 @@
-import { buildAutoTestbench, buildSimulationPayload, createPortStimulus, createSignalFromPort, diagnoseSimulation, parseVerilogDesign, vcdToProjectOutputs } from "./sim.js";
-import { formatVectorValue, normalizeVectorValue } from "./model.js";
+import { buildAutoTestbench, buildSimulationPayload, createPortStimulus, createSignalFromPort, diagnoseSimulation, parseVerilogDesign, vcdToProjectOutputs } from "./engine.js";
+import { formatVectorValue, normalizeVectorValue } from "./project-model.js";
 
 const DEFAULT_SOURCE = `module counter(
   input clk,

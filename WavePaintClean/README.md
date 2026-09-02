@@ -35,15 +35,17 @@ UI/功能与原版完全一致（原样引用，非复刻），持续进行“�
 ```
 js/
   wavepaint.clean.js       解混淆核心（行为 = 原混淆，黑盒底线，可重跑生成）
-  core/__core.js           ★ 官方核心桥接层（window.__core）
-                            state() 只读快照 / selection.set|clear 原生选框
-                            / redraw / ready / Value 常量 / SignalType
-  feature-*.js             扩展模块（迁移中；逐步改用 __core、删 hack）
-  sim.js / sim-bridge.js   仿真后端（解析/TB/VCD/回填）
-  model.js utils.js zh-lang-patch.js step-commit-patch.js
+  core/__core.js           官方核心桥接 window.__core（state/selection/redraw/…）
+  core/wpf.js              历史共享层（迁移中）
+  editor/                  画布编辑域（draw / selection / value-input / shortcuts /
+                           measure / resize / generator / templates）
+  sim/                     仿真（engine 纯逻辑 / project-model 数据模型 / ui-bridge 面板）
+  util/id.js               工具（uid / deepClone / clamp）
+  patch/                   对核心输入/文案的修正（step-commit / zh）
 ```
 
-`index.html` 加载顺序：核心 → `js/core/__core.js` → 扩展。
+`index.html` 加载顺序：核心 → `js/core/__core.js` → patch → wpf → editor/* → sim/*。
+目录/命名规范见 `docs/03_代码与目录规范.md`。
 
 ## 打包为独立 exe（装有 Edge 的任意 Windows 电脑）
 
@@ -61,9 +63,10 @@ exe 运行时：资源解压到 `%TEMP%\WavePaintClean_<用户>\` → 随机端�
 
 ```
 css/  img/  lib/         UI 资产（原样）
-index.html               入口（引 clean 核心 + core/__core.js）
+index.html               入口（引 clean 核心 + core/editor/sim 分层脚本）
 index.obf.html           引原混淆核心的对照页
-js/                      见上
+js/                      分层结构（见上；docs/03 有规范与迁移对照表）
+docs/                    功能总览 / 补丁清单 / 重构方案 / 代码规范
 tools/deobfuscate.mjs    解混淆管线
 tools/gen-resources.mjs  内嵌资源清单生成（递归 js/ 子目录）
 tools/dev-server.mjs     开发服务器（含 /api/sim）

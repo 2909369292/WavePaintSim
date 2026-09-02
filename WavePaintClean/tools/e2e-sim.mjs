@@ -22,8 +22,8 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
 
-const simNs = await import(new URL("../js/sim.js", import.meta.url).href);
-const modelNs = await import(new URL("../js/model.js", import.meta.url).href);
+const simNs = await import(new URL("../js/sim/engine.js", import.meta.url).href);
+const modelNs = await import(new URL("../js/sim/project-model.js", import.meta.url).href);
 
 // ---------------------------------------------------------------------------
 // 1. 准备 iverilog（解压 ivl.zip 到临时目录，跨运行缓存）
@@ -47,7 +47,7 @@ function prepareIvl() {
 // 2. 用 stub 浏览器环境加载真实的 sim-bridge.js
 //    （把 ESM 源码注入 new Function，避免改动任何构建产物）
 // ---------------------------------------------------------------------------
-const bridgeSrc = readFileSync(join(root, "js", "sim-bridge.js"), "utf8")
+const bridgeSrc = readFileSync(join(root, "js", "sim", "ui-bridge.js"), "utf8")
   .replace(/^import\s+[\s\S]*?;\s*$/gm, "")
   + "\nreturn { readWaveDocument, replaceInjectedOutputs, canvasSubSteps, canvasTimeSteps,"
   + " canvasEffectiveCount, toNativeSignal };";

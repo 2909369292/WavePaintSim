@@ -646,27 +646,27 @@
     <!-- AppInit modular files (split from AppInit.js) -->
     <script src="js/wavepaint.clean.js"></script>
     <script src="js/core/__core.js"></script>
-    <script src="js/step-commit-patch.js"></script>
-    <script src="js/zh-lang-patch.js"></script>
+    <script src="js/patch/step-commit.js"></script>
+    <script src="js/patch/zh.js"></script>
     <!-- feature 模块（新增功能，勿改混淆核心） -->
-    <script src="js/feature-common.js"></script>
+    <script src="js/core/wpf.js"></script>
     <!-- v0.3.0：值输入编辑（Bit/Vector 弹窗 + 整步子步粒度 + Ctrl 框选）。
          必须加载在 feature-draw 之前，其 document 捕获监听才能先于绘制模块判定接管。 -->
-    <script src="js/feature-value-edit.js"></script>
-    <script src="js/feature-draw.js"></script>
-    <script src="js/feature-resize.js"></script>
-    <script src="js/feature-shortcuts.js"></script>
-    <script src="js/feature-select.js"></script>
-    <script src="js/feature-measure.js"></script>
-    <script src="js/feature-generator.js"></script>
-    <script src="js/feature-templates.js"></script>
+    <script src="js/editor/value-input.js"></script>
+    <script src="js/editor/draw.js"></script>
+    <script src="js/editor/resize.js"></script>
+    <script src="js/editor/shortcuts.js"></script>
+    <script src="js/editor/selection.js"></script>
+    <script src="js/editor/measure.js"></script>
+    <script src="js/editor/generator.js"></script>
+    <script src="js/editor/templates.js"></script>
     <!-- model.js 是 ESM，feature-* 都是普通 script 无法直接 import。
          这里把矢量值处理函数挂到 window，供 feature-select.js / feature-common.js 使用
          （module 为 defer 语义，晚于普通 script；使用方都在用户交互时才读取，故安全）。 -->
     <script type="module">
-        import { normalizeVectorValue, formatVectorValue } from './js/model.js';
+        import { normalizeVectorValue, formatVectorValue } from './js/sim/project-model.js';
         window.__wpfVec = { normalizeVectorValue, formatVectorValue };
     </script>
-    <script type="module" src="js/sim-bridge.js"></script>
+    <script type="module" src="js/sim/ui-bridge.js"></script>
 </body>
 </html>

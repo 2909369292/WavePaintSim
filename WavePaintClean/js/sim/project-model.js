@@ -1,4 +1,4 @@
-import { uid, deepClone } from "./utils.js";
+import { uid, deepClone } from "../util/id.js";
 
 function defaultSourceText() {
   return `module counter(
