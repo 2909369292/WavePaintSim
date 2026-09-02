@@ -73,9 +73,61 @@ tools/dev-server.mjs    开发服务器（含 /api/sim）
 tools/probe-core.mjs    混淆核心语句级探查（定位关键函数用）
 ```
 
+## 打包为独立 exe（在装有 Edge 的任意 Windows 电脑上运行）
+
+与 WavePaintSim 相同的封装方式：
+
+```powershell
+# 1. 构建（需 .NET Framework 4 的 csc，Win7+ 自带）
+.\build.ps1     # 产出 WavePaintClean.exe（22.4MB，自包含）
+
+# 2. 运行：双击 exe 或命令行启动
+WavePaintClean.exe
+```
+
+exe 运行时：
+- 把内嵌资源（index.html + css/img/js/lib + ivl.zip iverilog 便携包）解压到
+  `%TEMP%\WavePaintClean_<用户名>\`
+- 本机随机端口起 HttpListener（`http://127.0.0.1:<port>`），含 `/api/sim`
+  （iverilog 编译 + vvp 仿真，返回 VCD）、`/api/snapshot`、`/api/ping`
+- 自动找到本机 Edge（`msedge.exe`，注册表 + 常见路径），以
+  `--app="http://127.0.0.1:<port>/index.html"` 打开应用窗口
+- 单实例保护：mutex `WavePaintClean_SingleInstance`；端口文件
+  `%TEMP%\WavePaintClean_port_<PID>.txt`
+
+打包内容：`js/*` 全部内嵌但**排除源混淆核心** `wavepaint.63e6dade.js`
+（功能已由解混淆产物 `wavepaint.clean.js` 替代）。
+
+exe 端到端验证（本机 Edge headless + CDP，走 exe 的 HTTP 服务）：
+- 全局 API 就绪；RTL 解析 → 添加信号 clk/rst_n；激励绘制
+  `clk=11001100`（每主步交替）
+- 仿真：`Simulation done: 1 signals, tmax 30000`，q 输出正常计数
+- 运行时控制台异常 0
+
+构建脚本注意（与 WavePaintSim 相同）：build.ps1 需保留 UTF-8 BOM
+（PowerShell 5.1 无 BOM 会按 GBK 解码中文注释导致解析失败）；
+csc 失败时脚本仍 exit 0 —— 判断成功看 `WavePaintClean.exe` 体积/时间戳。
+
+## 目录
+
+```
+css/  img/  lib/        原样复制（UI 资产，未改）
+index.html              引用了 clean 核心
+index.obf.html          引用了原混淆核心（对照）
+js/wavepaint.clean.js   解混淆产物（33K 行）
+js/wavepaint.63e6dade.js 源混淆核心
+js/feature-*.js ...     现有扩展模块（WavePaintSim 自带，非混淆）
+tools/deobfuscate.mjs   解混淆管线
+tools/dev-server.mjs    开发服务器（含 /api/sim）
+tools/probe-core.mjs    混淆核心语句级探查（定位关键函数用）
+WavePaintLauncher.cs    exe 启动器（资源解压 + HttpListener + /api/sim + Edge 启动）
+build.ps1               构建脚本（内嵌全部资源 → WavePaintClean.exe）
+ivl.zip                 iverilog 便携包（仿真引擎）
+```
+
 ## 后续可做（未做）
 
 - 删除已失效的死代码（数组声明、解码器、rotate IIFE），进一步瘦身
-- 用语义工具（jsnice 等）给关键 `_0x…` 变量/函数批量重命名
+- 用语义工具（jsnice 等）给关键 _0x… 变量/函数批量重命名
 - 逐步手工还原核心业务模块（画布渲染、range selection、JSON 导入导出…），
   替换为具名实现 —— 但注意任何手工改写都必须再跑一轮像素级对比验证
