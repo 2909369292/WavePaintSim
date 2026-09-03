@@ -25,12 +25,13 @@
     // 本模块不再直接操作 #wp-modal DOM —— 历史那份实现约 80 行，且与核心的
     // wpModalState 脱节（全局快捷键抑制只能靠自己 stopPropagation 勉强挡）。
     // 返回 Promise<string|null>：写入→去空格后的输入串；取消→null。
-    function showPrompt(title, message, defaultValue, subtitle, invalid) {
+    function showPrompt(title, message, defaultValue, subtitle, invalid, onPreview) {
       return window.__core.prompt({
         title: title,
         message: message + (subtitle ? '\n（当前粒度：' + subtitle + '）' : ''),
         value: defaultValue == null ? '' : defaultValue,
-        invalid: !!invalid
+        invalid: !!invalid,
+        onPreview: onPreview
       });
     }
     function promptActive() { return window.__core.promptActive(); }
@@ -57,14 +58,15 @@
     // indices 是「该信号自己的 values 下标」（mousedown 的 signalSampleIndex 口径），
     // 因此按步收敛用 divisorOf(sig) 而不是全局 stride()：信号设了私有子步时，
     // 用全局口径求主步首格会框错格子。
-    function applyToRange(sig, indices, raw) {
+    function applyToRange(sig, indices, raw, opts) {
+      const skipSnapshot = !!(opts && opts.skipSnapshot);
       const isVector = !!(window.SignalType && sig.type === window.SignalType.Vector);
       const targets = wpf.indicesByGranularity(indices, wpf.divisorOf(sig));
       if (isVector) {
         // Vector：交给 wpf.parseValue 全格式解析（'A' 按信号 radix→10，不会变 '0'）
         const v = wpf.parseValue(raw, sig);
         if (v === null) return false;
-        wpf.pushUndoSnapshot(); // R4
+        if (!skipSnapshot) wpf.pushUndoSnapshot(); // R4
         for (const i of targets) {
           if (i < sig.values.length) wpf.writeValue(sig, i, v);
         }
@@ -74,7 +76,7 @@
       }
       const parsed = parseBitInput(raw);
       if (!parsed) return false;
-      wpf.pushUndoSnapshot(); // R4
+      if (!skipSnapshot) wpf.pushUndoSnapshot(); // R4
       if (parsed.value !== undefined) {
         for (const i of targets) {
           if (i < sig.values.length) wpf.writeValue(sig, i, parsed.value);
@@ -112,6 +114,11 @@
     }
 
     // ---------------------------------------------------------- 弹窗入口
+    // R6 实时预览（2026-09-04 落地）：每次键入合法值 → 立即写入目标范围并重绘，
+    // 让用户在弹窗里就能看到写入效果。撤销口径：
+    //   · 首次预览写入前压一条快照（本次编辑唯一一条）；
+    //   · 提交 → 目标格已是预览值，跳过重复快照（skipSnapshot）；
+    //   · 取消 → wpf.undo() 恢复快照，预览写入全部回退。
     function openValuePrompt(sig, indices, invalid) {
       const isVector = !!(window.SignalType && sig.type === window.SignalType.Vector);
       const granLabel = wpf.editGranularity() === 'substep' ? '子步' : '整步';
@@ -120,11 +127,44 @@
         ? '输入矢量值或标签：'
         : '输入位值（1/0/x/z，或位串如 1010）：';
       const defVal = defaultInput(sig, indices, isVector);
-      showPrompt(title, hint, defVal, granLabel, invalid).then(function (raw) {
+      let previewApplied = false; // 本次会话是否已发生预览写入（决定取消时是否回退）
+
+      const onPreview = function (raw) {
+        const text = String(raw == null ? '' : raw).trim();
+        if (!text) return;
+        // 预览解析成功才写（与提交同口径）；失败保持画布原样（红框由弹窗自理）
+        if (isVector) {
+          if (wpf.parseValue(text, sig) === null) return;
+        } else if (!parseBitInput(text)) {
+          return;
+        }
+        if (!previewApplied) {
+          wpf.pushUndoSnapshot();
+          previewApplied = true;
+        }
+        applyToRange(sig, indices, text, { skipSnapshot: true });
+      };
+
+      showPrompt(title, hint, defVal, granLabel, invalid, onPreview).then(function (raw) {
         wpf.clearAllMarquees();
-        if (raw == null) return; // 取消
-        if (applyToRange(sig, indices, raw)) return;
-        // R8 非法输入：以红框态重开（用户一敲键盘即恢复正常）
+        if (raw == null) {
+          // 取消：回退预览写入（快照 = 预览前状态）
+          if (previewApplied) {
+            wpf.undo();
+            if (isVector && typeof wpf.refreshBusLabels === 'function') wpf.refreshBusLabels(sig);
+            wpf.scheduleRedraw();
+          }
+          return;
+        }
+        if (applyToRange(sig, indices, raw, { skipSnapshot: previewApplied })) return;
+        // R8 非法输入：以红框态重开（用户一敲键盘即恢复正常）。
+        // 重开前先回退预览，避免半截预览值残留到下一次输入会话。
+        if (previewApplied) {
+          wpf.undo();
+          previewApplied = false;
+          if (isVector && typeof wpf.refreshBusLabels === 'function') wpf.refreshBusLabels(sig);
+          wpf.scheduleRedraw();
+        }
         openValuePrompt(sig, indices, true);
       });
     }

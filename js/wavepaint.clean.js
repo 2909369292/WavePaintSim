@@ -23972,11 +23972,22 @@ function openWpModal(_0x3bef6e) {
     };
     _0x1c6854['style']['display'] = 'none', _0x1456ec['style']['display'] = 'none';
     _0x5bf437['classList'][_0x3bef6e['invalid'] ? 'add' : 'remove']('wp-modal-error');
+    // [PATCH-A5/R6] 实时预览钩子：options.onPreview(当前输入串) 随每次键入触发
+    //   （先清红框）。供 editor/value-input.js 在写值前预览目标范围的新值；
+    //   预览副作用（撤销快照/恢复）由调用方自理，这里只负责转发输入。
+    const _0x_wpfOnInput = () => {
+      _0x_wpfClearError();
+      try {
+        const _0x_wpfOpts = wpModalState['options'];
+        _0x_wpfOpts && typeof _0x_wpfOpts['onPreview'] === 'function'
+          && _0x_wpfOpts['onPreview'](String(_0x5bf437['value'] || ''));
+      } catch (e) { /* 预览失败不阻断输入 */ }
+    };
     _0x51c8bb['addEventListener']('mousedown', _0x_wpfMarkSuppress, true), _0x550f2e['addEventListener']('mousedown', _0x_wpfMarkSuppress, true);
-    _0x5bf437['addEventListener']('blur', _0x_wpfOnBlur), _0x5bf437['addEventListener']('input', _0x_wpfClearError);
+    _0x5bf437['addEventListener']('blur', _0x_wpfOnBlur), _0x5bf437['addEventListener']('input', _0x_wpfOnInput);
     _0x_wpfQuickCleanup = () => {
       _0x51c8bb['removeEventListener']('mousedown', _0x_wpfMarkSuppress, true), _0x550f2e['removeEventListener']('mousedown', _0x_wpfMarkSuppress, true);
-      _0x5bf437['removeEventListener']('blur', _0x_wpfOnBlur), _0x5bf437['removeEventListener']('input', _0x_wpfClearError);
+      _0x5bf437['removeEventListener']('blur', _0x_wpfOnBlur), _0x5bf437['removeEventListener']('input', _0x_wpfOnInput);
       _0x1c6854['style']['display'] = '', _0x1456ec['style']['display'] = '';
     };
   }
@@ -24029,7 +24040,7 @@ function wpPrompt(_0x26751c, _0x36f1e8 = '', _0x1a064b = 'Input') {
 // [PATCH-A5] 快速录入弹窗（位值 / 矢量值等高频输入）：
 // 回车或失焦即写入、无输入失焦即取消、Esc 取消；隐藏自带确定/取消、保留右上角 X。
 // 参数：message、defaultValue、title、invalid（是否以「非法输入」红框态打开）。
-function wpQuickPrompt(_0x1e7b31, _0x2c6f13 = '', _0x4a0d51 = 'Input', _0x3d9d5a = false) {
+function wpQuickPrompt(_0x1e7b31, _0x2c6f13 = '', _0x4a0d51 = 'Input', _0x3d9d5a = false, _0x_wpfOnPreview = null) {
   return openWpModal({
       'title': _0x4a0d51,
       'message': _0x1e7b31,
@@ -24039,7 +24050,8 @@ function wpQuickPrompt(_0x1e7b31, _0x2c6f13 = '', _0x4a0d51 = 'Input', _0x3d9d5a
       'okText': 'OK',
       'cancelText': 'Cancel',
       'quickCommit': true,
-      'invalid': !!_0x3d9d5a
+      'invalid': !!_0x3d9d5a,
+      'onPreview': typeof _0x_wpfOnPreview === 'function' ? _0x_wpfOnPreview : null
     })['then'](_0x2b7f18 => _0x2b7f18['ok'] ? String(_0x2b7f18['value'] ?? '')['trim']() : null);
 }
 function wpConfirm(_0xde325b, _0x46308e = 'Confirm') {

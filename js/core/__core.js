@@ -104,7 +104,8 @@ window.__core = window.__core || {};
       opt.message || '',
       opt.value == null ? '' : String(opt.value),
       opt.title || 'Input',
-      !!opt.invalid
+      !!opt.invalid,
+      typeof opt.onPreview === 'function' ? opt.onPreview : null
     );
   };
   // 弹窗是否打开中（供鼠标/快捷键处理判断是否该让位给弹窗）

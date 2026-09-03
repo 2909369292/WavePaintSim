@@ -47,6 +47,27 @@
           wpf.redo();
           return;
         }
+        // Ctrl+C / Ctrl+V：框选内容的复制 / 粘贴。
+        // 核心自己有实现，但只在 select 工具下生效；这里补「任意工具」路径：
+        // select 工具下放行给核心（防双写），其余工具由本模块直接驱动核心函数
+        // （copySelection 读 rangeSel* 状态；pasteClipboard 自带空剪贴板守卫）。
+        if (key === 'c' && !e.shiftKey) {
+          const st = window.__core.state();
+          if (st.tool !== 'select' && st.range.active && typeof window.copySelection === 'function') {
+            e.preventDefault();
+            window.copySelection();
+          }
+          return;
+        }
+        if (key === 'v' && !e.shiftKey) {
+          const st = window.__core.state();
+          if (st.tool === 'select') return; // 核心分支已处理
+          if (typeof window.pasteClipboard === 'function') {
+            e.preventDefault();
+            window.pasteClipboard();
+          }
+          return;
+        }
         return;
       }
 

@@ -665,6 +665,10 @@
     <script src="js/editor/measure.js"></script>
     <script src="js/editor/generator.js"></script>
     <script src="js/editor/templates.js"></script>
+    <!-- 文件菜单修复（2026-09-04）：核心 initMenuHandlers 按英文文本绑定
+         New/Open/Save As 等，汉化后五个文件菜单项全部失效（死菜单）；
+         本模块按中文文本重绑并复用核心 .wp 工程存取（openFile/saveToFile）。 -->
+    <script src="js/editor/file-menu.js"></script>
     <!-- model.js 是 ESM，普通 script 无法直接 import。
          这里把矢量值处理函数挂到 window，供 editor/selection.js / core/wpf.js 使用
          （module 为 defer 语义，晚于普通 script；使用方都在用户交互时才读取，故安全）。 -->
