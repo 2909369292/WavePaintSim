@@ -450,6 +450,15 @@ function signalScore(signal, expectedName) {
   return score;
 }
 
+// VCD 回填范围（2026-09-04 定）：TB 顶层（""/"tb"）+ DUT 层次内（"tb.dut" 及
+// 更深实例）—— DUT 输出端口与内部信号都会回显到画布。
+// 旧实现只保留 tb 顶层 → tb.dut 内部信号永不回显，signalScore 的 tb.dut 加分
+// 成为死逻辑。深度过深（>4 层）的噪声信号仍会被 buildOutputs 的排除规则过滤同名。
+function inEchoScope(signal) {
+  const scope = String(signal?.scope || "");
+  return !scope || scope === "tb" || scope.startsWith("tb.");
+}
+
 function pickPreferredSignals(parsedSignals, project) {
   const expectedNames = Array.from(
     new Set((project?.outputs || [])
@@ -459,7 +468,7 @@ function pickPreferredSignals(parsedSignals, project) {
   const candidates = (parsedSignals || []).filter((signal) => !/^(tb|testbench|dut|uut)$/i.test(normalizeSignalName(signal?.name)));
 
   if (!expectedNames.length) {
-    return candidates.filter((signal) => !signal.scope || signal.scope === "tb");
+    return candidates.filter(inEchoScope);
   }
 
   const selected = [];
@@ -483,7 +492,7 @@ function pickPreferredSignals(parsedSignals, project) {
   }
 
   if (selected.length) return selected;
-  return candidates.filter((signal) => !signal.scope || signal.scope === "tb");
+  return candidates.filter(inEchoScope);
 }
 
 function formatVerilogValue(value, width) {
@@ -984,7 +993,25 @@ export function vcdToProjectOutputs(vcdText, project) {
   };
 
   const preferredSignals = pickPreferredSignals(parsed.signals, project);
-  let signals = buildOutputs(preferredSignals.length ? preferredSignals : parsed.signals);
+  let pool = preferredSignals.length ? preferredSignals : parsed.signals;
+  // 同名去重：同一信号名会在 tb 顶层与 tb.dut 层各出现一次（如输出端口 q 的
+  // TB 连接线 + DUT 内部同名 reg）。优先浅层（tb 顶层 = DUT 端口连接线），
+  // 深层同名丢弃；纯内部信号（顶层无同名）正常保留 —— 这是 DUT 内部信号回显。
+  pool = [...pool].sort((a, b) => {
+    const depthOf = (s) => {
+      const sc = String(s?.scope || "");
+      return (!sc || sc === "tb") ? 0 : sc.split(".").length;
+    };
+    return depthOf(a) - depthOf(b);
+  });
+  const seenNames = new Set();
+  pool = pool.filter((signal) => {
+    const nk = normalizeSignalName(signal.name);
+    if (nk && seenNames.has(nk)) return false;
+    if (nk) seenNames.add(nk);
+    return true;
+  });
+  let signals = buildOutputs(pool);
   if (!signals.length && preferredSignals.length && parsed.signals.length > preferredSignals.length) {
     signals = buildOutputs(parsed.signals);
   }

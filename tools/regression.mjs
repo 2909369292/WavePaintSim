@@ -822,6 +822,61 @@ test("位宽兼容：1 位端口不绑位串矢量信号（防静默取首字符
 });
 
 // ---------------------------------------------------------------------------
+// VCD 回填（批次9）：DUT 内部信号（tb.dut 层）回显 + 同名去重优先浅层
+// ---------------------------------------------------------------------------
+test("VCD 回显：tb.dut 内部信号回显，同名信号去重保留浅层（DUT 端口连接线）", () => {
+  const vcd = [
+    "$enddefinitions $end",
+    "$scope module tb $end",
+    "$var wire 1 ! clk $end",
+    "$var wire 1 \" rst_n $end",
+    "$var wire 4 # q $end",
+    "$scope module dut $end",
+    "$var reg 4 $ count $end",
+    "$var reg 2 % q $end",
+    "$upscope $end",
+    "$upscope $end",
+    "#0",
+    "0!",
+    "1\"",
+    "b0000 #",
+    "b0000 $",
+    "b00 %",
+    "#1",
+    "1!",
+    "b0001 #",
+    "b0001 $",
+    "#2",
+    "0!",
+    "b0010 #",
+    "b0010 $",
+    "#3",
+    "1!",
+    "b0011 #",
+    "b0011 $",
+    "#4",
+    "b0100 #",
+  ].join("\n");
+  const project = {
+    timeSteps: 4,
+    // clk/rst_n 是画布激励信号 → 应被排除；q/count 不是 → 应回显
+    signals: [
+      { name: "clk", width: 1 },
+      { name: "rst_n", width: 1 }
+    ],
+    outputs: []
+  };
+  const { outputs } = sim.vcdToProjectOutputs(vcd, project);
+  const names = outputs.map((s) => s.name);
+  assert.ok(names.includes("count"), "DUT 内部信号 count 应回显（旧实现永不回显）");
+  assert.equal(names.filter((n) => n === "q").length, 1, "同名 q 只保留一个");
+  const q = outputs.find((s) => s.name === "q");
+  assert.equal(q.width, 4, "保留的应是浅层 tb.q（4 位），不是 tb.dut.q（2 位）");
+  assert.ok(!names.includes("clk") && !names.includes("rst_n"), "画布激励信号不回填");
+  assert.deepEqual(q.values, ["0000", "0001", "0010", "0011"], "q 按时间采样为 4 位位串");
+});
+
+// ---------------------------------------------------------------------------
 console.log("\n" + "-".repeat(56));
 if (failures.length) {
   console.log(`失败 ${failures.length} 项，通过 ${passed} 项`);

@@ -20,6 +20,7 @@ const state = {
   files: [{ id: "file0", name: "counter.sv", content: DEFAULT_SOURCE }],
   active: 0,
   design: null,
+  selectedTop: null, // 多模块设计时用户选定的顶层模块名（null = 自动检测）
   outputs: [],
   lastTestbench: "",
   lastBindings: [],
@@ -312,6 +313,8 @@ function initRefs() {
   refs.addFile = el("sim-addfile");
   refs.removeFile = el("sim-removefile");
   refs.parseBtn = el("sim-parse");
+  refs.topRow = el("sim-top-row");
+  refs.topSelect = el("sim-top-select");
   refs.addSignals = el("sim-addsignals");
   refs.tbBtn = el("sim-tb");
   refs.runBtn = el("sim-run");
@@ -427,6 +430,36 @@ function sourceText() {
   return state.files.map((file) => `// file: ${file.name}\n${file.content || ""}`).join("\n\n");
 }
 
+// 多模块设计：按用户选定（或自动检测）的顶层产出可用于 TB 生成的 design 视图
+function effectiveDesign() {
+  const design = state.design;
+  if (!design || !state.selectedTop || design.topName === state.selectedTop) return design;
+  const top = (design.modules || []).find((m) => m.name === state.selectedTop);
+  if (!top) return design;
+  return { ...design, topModule: top, topName: top.name };
+}
+
+// 解析后填充顶层模块选择器（多模块时显示；单模块隐藏）
+function syncTopSelector() {
+  const design = state.design;
+  if (!refs.topRow || !refs.topSelect) return;
+  if (!design || !design.moduleCount || design.moduleCount < 2) {
+    refs.topRow.style.display = "none";
+    state.selectedTop = null;
+    return;
+  }
+  refs.topRow.style.display = "flex";
+  refs.topSelect.innerHTML = "";
+  for (const m of design.modules) {
+    const opt = document.createElement("option");
+    opt.value = m.name;
+    opt.textContent = `${m.name}（端口 ${m.ports.length}）`;
+    refs.topSelect.appendChild(opt);
+  }
+  refs.topSelect.value = design.topName;
+  state.selectedTop = design.topName;
+}
+
 function parseDesign() {
   onWavepaintReady();
   syncEditor();
@@ -448,14 +481,16 @@ function parseDesign() {
     ...design.modules.map((moduleInfo) => `${moduleInfo.name}：端口 ${moduleInfo.ports.length} 个，实例 ${moduleInfo.instances.length} 个`)
   ].join("\n");
   setStatus(`已解析 ${design.moduleCount} 个模块。`);
+  syncTopSelector();
   render();
 }
 
 function buildTbPreview() {
   onWavepaintReady();
   syncEditor();
-  const design = state.design || parseVerilogDesign(sourceText());
+  const design = effectiveDesign() || parseVerilogDesign(sourceText());
   state.design = design;
+  syncTopSelector();
   const project = readWaveDocument();
   const result = buildAutoTestbench(design, project);
   if (!result.ok) {
@@ -482,12 +517,18 @@ function buildTbPreview() {
 
 async function runSimulation() {
   onWavepaintReady();
+  // ⚠ 核心未就绪时旧实现静默跑出一次「全 0 激励的空仿真」，用户以为仿真坏了。
+  // 这里显式拦截并提示（2026-09-04）。
+  if (!wavepaintReady()) {
+    setStatus("画布尚未就绪，请稍候 1 秒再点「运行仿真」。");
+    return;
+  }
   syncEditor();
   // 读画布 → 生成 TB 若抛异常会导致 sim 按钮静默无响应（用户反馈"第二次仿真失效"）。
   // 这里显式捕获并展示，让问题可定位。
   let design, project, tbResult;
   try {
-    design = state.design || parseVerilogDesign(sourceText());
+    design = effectiveDesign() || parseVerilogDesign(sourceText());
     state.design = design;
     project = readWaveDocument();
     tbResult = buildAutoTestbench(design, project);
@@ -519,6 +560,11 @@ async function runSimulation() {
       headers: { "Content-Type": "text/plain; charset=utf-8" },
       body: payload
     });
+    // ⚠ 旧实现不检查 response.ok：服务端 500 + 空 body 时会「正常走完」vcdToProjectOutputs("")
+    // 显示「仿真完成：0 个输出信号」，掩盖真实故障（2026-09-04 修）。
+    if (!response.ok) {
+      throw new Error(`本地仿真服务返回 HTTP ${response.status}`);
+    }
     const text = await response.text();
     if (/^(IVERILOG-ERROR|VVP-ERROR|SIM-ERROR):/.test(text)) {
       const error = text.replace(/^(IVERILOG-ERROR|VVP-ERROR|SIM-ERROR):\s*/, "").trim();
@@ -569,7 +615,7 @@ async function runSimulation() {
 function addPortSignalsToCanvas() {
   onWavepaintReady();
   syncEditor();
-  const design = state.design || parseVerilogDesign(sourceText());
+  const design = effectiveDesign() || parseVerilogDesign(sourceText());
   state.design = design;
   const ports = design?.topModule?.ports || [];
   if (!ports.length) {
@@ -710,6 +756,15 @@ function bindEvents() {
   refs.addFile?.addEventListener("click", addFile);
   refs.removeFile?.addEventListener("click", removeFile);
   refs.parseBtn?.addEventListener("click", parseDesign);
+  refs.topSelect?.addEventListener("change", () => {
+    state.selectedTop = refs.topSelect.value || null;
+    const design = effectiveDesign();
+    const ports = design?.topModule?.ports || [];
+    refs.portPreview.textContent = ports.length
+      ? `${design.topName}: ${ports.map((port) => `${port.direction} ${port.name}[${port.width}]`).join(", ")}`
+      : `⚠ ${design.topName} 未解析到端口。`;
+    setStatus(`顶层模块已切换为 ${design.topName}，点「自动加信号」或「生成 TB」生效。`);
+  });
   refs.addSignals?.addEventListener("click", addPortSignalsToCanvas);
   refs.tbBtn?.addEventListener("click", buildTbPreview);
   refs.runBtn?.addEventListener("click", runSimulation);

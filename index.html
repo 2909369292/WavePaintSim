@@ -574,6 +574,12 @@
                     <div id="port-preview" class="helper"></div>
                     <div id="module-preview" class="helper"></div>
                 </div>
+                <!-- 多文件/多模块设计：解析后自动填入全部 module，默认选「未被实例化」的顶层；
+                     手动切换后生成 TB / 运行仿真都按选中的模块作为 DUT。 -->
+                <div id="sim-top-row" style="display:none;align-items:center;gap:8px;margin:6px 0 2px;font-size:12px;">
+                    <label for="sim-top-select" style="flex:none;">顶层模块：</label>
+                    <select id="sim-top-select" style="flex:1;min-width:0;padding:3px 6px;border:1px solid #bbb;border-radius:6px;font-size:12px;"></select>
+                </div>
             </div>
             <div>
                 <div class="tb-title-row">
