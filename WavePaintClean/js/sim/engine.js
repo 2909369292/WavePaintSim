@@ -684,7 +684,7 @@ export function buildAutoTestbench(design, project = {}) {
   if (!top) {
     return {
       ok: false,
-      error: "No module found.",
+      error: "未找到 module：请先在上方粘贴 RTL 并点「解析 RTL」。",
       source: ""
     };
   }

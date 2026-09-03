@@ -145,6 +145,8 @@
         .source-files { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
         .source-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
         .source-actions button { width: 100%; }
+        /* 主操作「运行仿真」独占整行，视觉上与次级操作区分 */
+        .source-actions #sim-run { grid-column: 1 / -1; padding: 7px 10px; font-size: 13px; }
         .source-chip {
             border: 1px solid var(--border-color, #d0dcd0);
             background: var(--input-bg, #fff);
@@ -193,6 +195,9 @@
             color: var(--text-color, #1a1f1a);
             border-radius: var(--radius-sm, 6px);
             font-size: 12px;
+            font-family: Consolas, monospace;
+            line-height: 1.5;
+            word-break: break-all;
             white-space: pre-wrap;
         }
         .signal-list { display: grid; gap: 6px; }
@@ -552,16 +557,16 @@
         </div>
         <div class="sim-panel-body">
             <div>
-                <div class="sim-sec-title">Verilog / SV</div>
+                <div class="sim-sec-title">Verilog / SV 源码</div>
                 <div class="source-toolbar">
                     <div id="source-files" class="source-files"></div>
                     <div class="source-actions">
-                        <button id="sim-addfile">Add</button>
-                        <button id="sim-removefile">Remove</button>
-                        <button id="sim-parse">Parse</button>
-                        <button id="sim-addsignals" title="自动识别 RTL 端口信号并添加到绘图区">Auto RTL</button>
-                        <button id="sim-tb">TB</button>
-                        <button id="sim-run" class="primary-btn">Sim</button>
+                        <button id="sim-addfile" title="添加一个源文件标签页">添加文件</button>
+                        <button id="sim-removefile" title="移除当前源文件">移除文件</button>
+                        <button id="sim-parse" title="解析 RTL，预览模块与端口">解析 RTL</button>
+                        <button id="sim-addsignals" title="自动识别 RTL 端口信号并添加到绘图区">自动加信号</button>
+                        <button id="sim-tb" title="根据当前波形生成 testbench">生成 TB</button>
+                        <button id="sim-run" class="primary-btn" title="生成 TB 并运行 iverilog 仿真">运行仿真</button>
                     </div>
                 </div>
                 <textarea id="verilog-source" spellcheck="false"></textarea>
@@ -575,7 +580,7 @@
                     <span class="sim-sec-title">Testbench (TB)</span>
                     <button id="sim-tb-copy" type="button" title="复制 testbench 到剪贴板">复制</button>
                 </div>
-                <textarea id="tb-source" spellcheck="false" readonly placeholder="点击「TB」按钮生成 testbench，或点「Sim」仿真后自动生成。"></textarea>
+                <textarea id="tb-source" spellcheck="false" readonly placeholder="点击「生成 TB」生成 testbench，或点「运行仿真」后自动生成。"></textarea>
             </div>
             <div id="sim-status" class="sim-status"></div>
             <!-- 收起入口只保留「点击表头」这一个（原底部「收起」按钮冗余，已删）；

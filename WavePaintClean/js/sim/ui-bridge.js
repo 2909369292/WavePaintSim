@@ -321,15 +321,15 @@ function updateTbViewer() {
 function copyTb() {
   const text = state.lastTestbench || (refs.tbSource && refs.tbSource.value) || "";
   if (!text) {
-    setStatus("No testbench to copy.");
+    setStatus("没有可复制的 testbench，请先点「生成 TB」或「运行仿真」。");
     return;
   }
   if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
     navigator.clipboard.writeText(text)
-      .then(() => setStatus("TB copied to clipboard."))
-      .catch(() => setStatus("Copy failed."));
+      .then(() => setStatus("TB 已复制到剪贴板。"))
+      .catch(() => setStatus("复制失败，请手动选择文本复制。"));
   } else {
-    setStatus("Clipboard not available.");
+    setStatus("当前环境剪贴板不可用。");
   }
 }
 
@@ -435,8 +435,8 @@ function parseDesign() {
   state.design = design;
   if (!design.modules || !design.modules.length) {
     refs.portPreview.textContent = "⚠ 未识别到任何 module。请检查 RTL 语法：module/endmodule 是否匹配、模块名是否合法。";
-    refs.modulePreview.textContent = "Parse failed: no module found.";
-    setStatus("Parse failed: no module found.");
+    refs.modulePreview.textContent = "解析失败：未找到 module。";
+    setStatus("解析失败：未找到 module。");
     render();
     return;
   }
@@ -445,10 +445,10 @@ function parseDesign() {
     ? `${design.topName}: ${topPorts.map((port) => `${port.direction} ${port.name}[${port.width}]`).join(", ")}`
     : `⚠ ${design.topName} 未解析到端口。请检查端口声明写法（ANSI 或非 ANSI 均可）。`;
   refs.modulePreview.textContent = [
-    `modules: ${design.moduleCount}`,
-    ...design.modules.map((moduleInfo) => `${moduleInfo.name}: ${moduleInfo.ports.length} ports, ${moduleInfo.instances.length} instances`)
+    `模块数：${design.moduleCount}`,
+    ...design.modules.map((moduleInfo) => `${moduleInfo.name}：端口 ${moduleInfo.ports.length} 个，实例 ${moduleInfo.instances.length} 个`)
   ].join("\n");
-  setStatus(`Parsed ${design.moduleCount} module(s).`);
+  setStatus(`已解析 ${design.moduleCount} 个模块。`);
   render();
 }
 
@@ -461,7 +461,7 @@ function buildTbPreview() {
   const result = buildAutoTestbench(design, project);
   if (!result.ok) {
     refs.modulePreview.textContent = result.error;
-    setStatus(result.error);
+    setStatus("TB 生成失败：" + result.error);
     state.lastTestbench = "";
     updateTbViewer();
     return;
@@ -471,13 +471,13 @@ function buildTbPreview() {
   updateTbViewer();
   const notes = diagnoseSimulation([], result.bindings);
   refs.modulePreview.textContent = [
-    `bindings: ${result.bindings.length}`,
-    ...result.bindings.map((binding) => `${binding.port.name} -> ${binding.signal ? binding.signal.name : "<unbound>"} (${binding.strategy})`),
+    `端口绑定 ${result.bindings.length} 条：`,
+    ...result.bindings.map((binding) => `${binding.port.name} → ${binding.signal ? binding.signal.name : "（未绑定）"} [${binding.strategy}]`),
     ...(notes.length ? ["", ...notes] : [])
   ].join("\n");
   setStatus(notes.length
-    ? `Built TB for ${design.topName}（有 ${notes.length} 条提醒，见详情）`
-    : `Built TB for ${design.topName}.`);
+    ? `已为 ${design.topName} 生成 TB，有 ${notes.length} 条提醒，请查看详情。`
+    : `已为 ${design.topName} 生成 TB。`);
   render();
 }
 
@@ -494,8 +494,8 @@ async function runSimulation() {
     tbResult = buildAutoTestbench(design, project);
   } catch (error) {
     const detail = String(error && error.stack ? error.stack : error);
-    refs.modulePreview.textContent = "Testbench generation failed: " + detail.slice(0, 500);
-    setStatus("Testbench generation failed: " + String(error).slice(0, 200));
+    refs.modulePreview.textContent = "TB 生成失败：" + detail.slice(0, 500);
+    setStatus("TB 生成失败：" + String(error).slice(0, 200));
     state.lastTestbench = "";
     updateTbViewer();
     return;
@@ -510,8 +510,8 @@ async function runSimulation() {
   state.lastTestbench = tbResult.source;
   updateTbViewer();
 
-  setStatus(`Running simulation for ${design.topName}...`);
-  refs.modulePreview.textContent = "Running real simulation...";
+  setStatus(`正在为 ${design.topName} 运行仿真...`);
+  refs.modulePreview.textContent = "正在运行真实仿真（iverilog）...";
   const payload = buildSimulationPayload(state.files, tbResult.source);
 
   try {
@@ -523,10 +523,10 @@ async function runSimulation() {
     const text = await response.text();
     if (/^(IVERILOG-ERROR|VVP-ERROR|SIM-ERROR):/.test(text)) {
       const error = text.replace(/^(IVERILOG-ERROR|VVP-ERROR|SIM-ERROR):\s*/, "").trim();
-      refs.modulePreview.textContent = error || "Simulation failed.";
+      refs.modulePreview.textContent = error || "仿真失败。";
       state.outputs = [];
       render();
-      setStatus(error || "Simulation failed.");
+      setStatus(error || "仿真失败。");
       return;
     }
 
@@ -540,14 +540,14 @@ async function runSimulation() {
     // 避免用户面对「静默的全 0」无从下手。
     const notes = diagnoseSimulation(outputs, tbResult.bindings);
     refs.modulePreview.textContent = [
-      `Simulation done: ${outputs.length} signals, tmax ${parsed.tmax}`,
-      `Final: ${summarizeOutputs(outputs)}`,
+      `仿真完成：${outputs.length} 个输出信号，时长 tmax ${parsed.tmax}`,
+      `末值：${summarizeOutputs(outputs)}`,
       ...(notes.length ? ["", ...notes] : [])
     ].join("\n");
     render();
     setStatus(notes.length
-      ? `Done: ${outputs.length} signal(s)，但有 ${notes.length} 条提醒，请查看详情。`
-      : `Done: ${outputs.length} signal(s).`);
+      ? `仿真完成：${outputs.length} 个输出信号，但有 ${notes.length} 条提醒，请查看详情。`
+      : `仿真完成：${outputs.length} 个输出信号。`);
   } catch (error) {
     const message = String(error);
     const friendly = /fetch/i.test(message)
@@ -574,12 +574,12 @@ function addPortSignalsToCanvas() {
   state.design = design;
   const ports = design?.topModule?.ports || [];
   if (!ports.length) {
-    setStatus(`No ports found in ${design.topName || "design"}.`);
+    setStatus(`在 ${design.topName || "设计"} 中未找到端口，请先「解析 RTL」。`);
     return;
   }
   const dw = window.document_wave;
   if (!dw || !Array.isArray(dw.m_signals)) {
-    setStatus("Canvas not ready.");
+    setStatus("画布尚未就绪，请稍后再试。");
     return;
   }
   const existing = dw.m_signals;
@@ -620,12 +620,12 @@ function addPortSignalsToCanvas() {
   window.updateSidePanels?.();
   render();
   setStatus(added
-    ? `Added ${added} port signal(s) to canvas${skipped ? `, skipped ${skipped} (output/existing).` : "."}`
-    : `No new signals added (${skipped} skipped).`);
+    ? `已添加 ${added} 个端口信号到画布${skipped ? `，跳过 ${skipped} 个（输出/已存在）。` : "。"}`
+    : `没有新添加的信号（跳过 ${skipped} 个）。`);
 }
 
 function summarizeOutputs(outputs) {
-  if (!Array.isArray(outputs) || !outputs.length) return "none";
+  if (!Array.isArray(outputs) || !outputs.length) return "（无）";
   return outputs.map((signal) => {
     const width = Math.max(1, Number(signal.width) || 1);
     const finalValue = signal.values?.[signal.values.length - 1];
@@ -645,7 +645,7 @@ function render() {
   window.drawWaveform?.();
   window.updateSidePanels?.();
   const outputCount = state.outputs && state.outputs.length ? state.outputs.length : 0;
-  setStatus(outputCount ? `${outputCount} output signal(s) ready.` : "No output signals.");
+  setStatus(outputCount ? `${outputCount} 个输出信号已就绪。` : "暂无输出信号，点「运行仿真」后回填。");
   if (refs.toggleBtn) refs.toggleBtn.style.display = refs.panel?.classList.contains("collapsed") ? "block" : "none";
 }
 
@@ -672,13 +672,13 @@ function renderFileTabs() {
 }
 
 function addFile() {
-  const name = prompt("Source file name", `file_${state.files.length + 1}.sv`);
+  const name = prompt("源文件名", `file_${state.files.length + 1}.sv`);
   if (!name) return;
   syncEditor();
   state.files.push({ id: `file_${state.files.length}`, name, content: "" });
   state.active = state.files.length - 1;
   renderFileTabs();
-  setStatus(`Added ${name}.`);
+  setStatus(`已添加 ${name}。`);
   render();
 }
 
@@ -688,7 +688,7 @@ function removeFile() {
   state.files.splice(state.active, 1);
   state.active = Math.max(0, state.active - 1);
   renderFileTabs();
-  setStatus("Removed file.");
+  setStatus("已移除当前文件。");
   render();
 }
 
