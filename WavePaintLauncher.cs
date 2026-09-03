@@ -14,12 +14,17 @@ namespace WaveWorkbench
     static class Launcher
     {
         const int ProcessTimeoutMs = 30000;
+        const int MaxBodyBytes = 8 * 1024 * 1024;   // /api/sim、/api/snapshot 请求体上限
+        const int MaxSnapshots = 20;                // 快照目录保留上限（超出删最旧）
         static string root;
         static string ivlRoot;
         static HttpListener server;
         static Mutex singleInstanceMutex;
         static volatile int lastActivity;
-        static volatile bool simBusy;
+        static int simActive;                       // 进行中的 /api/sim 数（Interlocked 计数；
+                                                    // 旧的单 bool 在两个并发请求时会被先完成者
+                                                    // 清零 → 监控循环恢复退出检测 → 杀掉进行中的仿真）
+        static volatile bool shuttingDown;
         static bool everSeen;
         static string portFile = Path.Combine(Path.GetTempPath(), "WavePaintClean_port_" + Process.GetCurrentProcess().Id + ".txt");
         static string logFile = Path.Combine(Path.GetTempPath(), "WavePaintClean_sim.log");
@@ -84,31 +89,106 @@ namespace WaveWorkbench
         static int FreePort()
         {
             var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
-            listener.Start();
-            int port = ((IPEndPoint)listener.LocalEndpoint).Port;
-            listener.Stop();
-            return port;
+            try
+            {
+                listener.Start();
+                return ((IPEndPoint)listener.LocalEndpoint).Port;
+            }
+            finally
+            {
+                try { listener.Stop(); } catch { }
+            }
         }
 
-        static void StartServer(int port)
+        static bool StartServer(int port)
         {
-            server = new HttpListener();
-            listenPort = port;
-            server.Prefixes.Add("http://127.0.0.1:" + port + "/");
-            server.Start();
-            try { File.WriteAllText(portFile, port.ToString()); } catch { }
-            var thread = new Thread(() =>
+            // 初始启动：FreePort→Start 之间端口可能被抢（竞态），失败换端口重试。
+            for (int attempt = 0; attempt < 10; attempt++)
             {
-                while (true)
+                try
                 {
-                    HttpListenerContext context;
-                    try { context = server.GetContext(); }
-                    catch { return; }
-                    ThreadPool.QueueUserWorkItem(_ => Handle(context));
+                    server = new HttpListener();
+                    server.Prefixes.Add("http://127.0.0.1:" + port + "/");
+                    server.Start();
+                    listenPort = port;
+                    try { File.WriteAllText(portFile, port.ToString()); } catch { }
+                    var thread = new Thread(AcceptLoop);
+                    thread.IsBackground = true;
+                    thread.Start();
+                    return true;
                 }
-            });
-            thread.IsBackground = true;
-            thread.Start();
+                catch
+                {
+                    try { if (server != null) server.Close(); } catch { }
+                    port = FreePort(); // 端口被抢 → 换一个再试
+                }
+            }
+            return false;
+        }
+
+        // 服务自愈重启（必须复用同一端口）：Edge 页面已按当前端口加载，换端口等于
+        // 对页面失联。GetContext 抛异常/监听被回收时循环重试同端口，直到成功。
+        static bool RestartServer()
+        {
+            int port = listenPort;
+            for (int attempt = 0; attempt < 60; attempt++)
+            {
+                if (shuttingDown) return false;
+                try
+                {
+                    server = new HttpListener();
+                    server.Prefixes.Add("http://127.0.0.1:" + port + "/");
+                    server.Start();
+                    listenPort = port;
+                    try { File.WriteAllText(portFile, port.ToString()); } catch { }
+                    Log(DateTime.Now.ToString("u") + " SERVER self-healed on port " + port + Environment.NewLine);
+                    var thread = new Thread(AcceptLoop);
+                    thread.IsBackground = true;
+                    thread.Start();
+                    return true;
+                }
+                catch
+                {
+                    try { if (server != null) server.Close(); } catch { }
+                    Thread.Sleep(500);
+                }
+            }
+            return false;
+        }
+
+        // 接受循环：异常绝不终结服务 —— 只要进程不死，服务必须一直在线
+        // （历史实现 catch { return; } 让监听线程静默死亡 → 进程活着但服务不在线）。
+        static void AcceptLoop()
+        {
+            while (!shuttingDown)
+            {
+                HttpListenerContext context;
+                try { context = server.GetContext(); }
+                catch (Exception)
+                {
+                    if (shuttingDown) return;
+                    if (!RestartServer()) Thread.Sleep(1000);
+                    continue;
+                }
+                ThreadPool.QueueUserWorkItem(_ => Handle(context));
+            }
+        }
+
+        // 读取请求体（带上限，防止异常超大请求拖垮内存）
+        static string ReadBody(HttpListenerRequest request)
+        {
+            using (var reader = new StreamReader(request.InputStream, Encoding.UTF8))
+            {
+                char[] chunk = new char[64 * 1024];
+                var buffer = new StringBuilder();
+                int read;
+                while ((read = reader.Read(chunk, 0, chunk.Length)) > 0)
+                {
+                    buffer.Append(chunk, 0, read);
+                    if (buffer.Length > MaxBodyBytes) throw new InvalidOperationException("Request body too large.");
+                }
+                return buffer.ToString();
+            }
         }
 
         static void Handle(HttpListenerContext context)
@@ -131,11 +211,11 @@ namespace WaveWorkbench
                 string path = context.Request.Url.AbsolutePath.TrimStart('/');
                 if (path == "api/sim")
                 {
-                    simBusy = true;
+                    Interlocked.Increment(ref simActive);
                     try
                     {
                         Log(DateTime.Now.ToString("u") + " ENTER api/sim\n");
-                        string body = new StreamReader(context.Request.InputStream, Encoding.UTF8).ReadToEnd();
+                        string body = ReadBody(context.Request);
                         Log("BODY " + body.Length + "\n");
                         string result;
                         try { result = RunSimulation(body); }
@@ -149,14 +229,15 @@ namespace WaveWorkbench
                     }
                     finally
                     {
-                        simBusy = false;
+                        Interlocked.Decrement(ref simActive);
                     }
                     return;
                 }
 
                 if (path == "api/snapshot")
                 {
-                    string body = new StreamReader(context.Request.InputStream, Encoding.UTF8).ReadToEnd();
+                    lastActivity = Environment.TickCount;
+                    string body = ReadBody(context.Request);
                     string result;
                     try { result = SaveSnapshot(body); }
                     catch (Exception ex) { result = "SNAPSHOT-ERROR:\n" + ex; }
@@ -197,6 +278,9 @@ namespace WaveWorkbench
 
                 lastActivity = Environment.TickCount;
                 context.Response.ContentType = MimeFor(Path.GetExtension(file));
+                // 静态资源一律 no-cache：解压目录每次启动重建但 URL 不变，Edge 磁盘缓存
+                // 可能把旧版 JS/CSS 跨会话供出来（用户「改了没生效」的历史困惑源之一）
+                context.Response.AddHeader("Cache-Control", "no-cache");
                 byte[] fileData = File.ReadAllBytes(file);
                 context.Response.OutputStream.Write(fileData, 0, fileData.Length);
                 context.Response.Close();
@@ -213,6 +297,17 @@ namespace WaveWorkbench
             lastActivity = Environment.TickCount;
             string work = Path.Combine(Path.GetTempPath(), "ivl_work_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(work);
+            // 异常路径也必须清理 work 目录（旧实现正常/编译失败路径清理，异常路径泄漏）
+            try { return RunSimulationCore(work, body); }
+            catch
+            {
+                try { Directory.Delete(work, true); } catch { }
+                throw;
+            }
+        }
+
+        static string RunSimulationCore(string work, string body)
+        {
             Log("RUN start " + work + Environment.NewLine);
             var names = new List<string>();
             string current = null;
@@ -332,6 +427,17 @@ namespace WaveWorkbench
             string latestPath = Path.Combine(snapshotRoot, "latest.json");
             File.WriteAllText(snapshotPath, body, new UTF8Encoding(false));
             File.WriteAllText(latestPath, body, new UTF8Encoding(false));
+            // 快照目录有上限：只保留最新 MaxSnapshots 份（旧实现只增不减，%TEMP% 膨胀）
+            try
+            {
+                var files = new DirectoryInfo(snapshotRoot).GetFiles("wave_*.json");
+                if (files.Length > MaxSnapshots)
+                {
+                    Array.Sort(files, (a, b) => a.CreationTimeUtc.CompareTo(b.CreationTimeUtc));
+                    for (int i = 0; i < files.Length - MaxSnapshots; i++) files[i].Delete();
+                }
+            }
+            catch { }
             Log(DateTime.Now.ToString("u") + " SNAPSHOT " + snapshotPath + Environment.NewLine);
             return "SNAPSHOT-OK:\n" + snapshotPath + "\n" + latestPath;
         }
@@ -418,13 +524,34 @@ namespace WaveWorkbench
             catch { }
         }
 
-        // 命令行参数加引号：文件名来自仿真面板，可能含空格（如 "my design.v"），
-        // 原来直接 string.Join(" ") 拼会把它拆成两个参数。
+        // 命令行参数加引号：文件名来自仿真面板，可能含空格（如 "my design.v"）。
+        // 按 Windows 规则处理反斜杠与引号：紧邻引号前的连续反斜杠要翻倍再补一个，
+        // 结尾反斜杠（紧邻收尾引号）要翻倍 —— 旧实现的简单 Replace 在
+        // `路径以 \ 结尾` 或 `含 \"` 时会产生歧义参数。
         static string QuoteArg(string arg)
         {
             if (string.IsNullOrEmpty(arg)) return "\"\"";
-            if (arg.IndexOf(' ') < 0 && arg.IndexOf('\t') < 0 && arg.IndexOf('"') < 0) return arg;
-            return "\"" + arg.Replace("\"", "\\\"") + "\"";
+            if (arg.IndexOf(' ') < 0 && arg.IndexOf('\t') < 0 && arg.IndexOf('"') < 0 && arg.IndexOf('\\') < 0) return arg;
+            var sb = new StringBuilder();
+            sb.Append('"');
+            int backslashes = 0;
+            foreach (char c in arg)
+            {
+                if (c == '\\') { backslashes++; continue; }
+                if (c == '"')
+                {
+                    sb.Append('\\', backslashes * 2 + 1);
+                    backslashes = 0;
+                    sb.Append('"');
+                    continue;
+                }
+                sb.Append('\\', backslashes);
+                backslashes = 0;
+                sb.Append(c);
+            }
+            sb.Append('\\', backslashes * 2); // 收尾引号前的反斜杠翻倍
+            sb.Append('"');
+            return sb.ToString();
         }
 
         // 超时后连同子进程一起收掉（taskkill /T 杀进程树，失败再退化为 Kill 单进程）
@@ -588,7 +715,11 @@ namespace WaveWorkbench
             catch (Exception ex) { System.Windows.Forms.MessageBox.Show("Extract failed: " + ex.Message, "WavePaintClean"); return 1; }
             lastActivity = Environment.TickCount;
             int port = FreePort();
-            StartServer(port);
+            if (!StartServer(port))
+            {
+                System.Windows.Forms.MessageBox.Show("Failed to start local service (port bind).", "WavePaintClean");
+                return 1;
+            }
             string edge = FindEdge();
             if (edge == null)
             {
@@ -614,27 +745,32 @@ namespace WaveWorkbench
             for (;;)
             {
                 // 仿真处理期间（iverilog/vvp 可能运行数秒到数十秒）不执行窗口/空闲退出检测，
-                // 避免 Edge 窗口标题短暂获取不到或仿真耗时较长时误杀进程导致前端 Failed to fetch
-                if (simBusy) { Thread.Sleep(500); continue; }
+                // 避免 Edge 窗口标题短暂获取不到或仿真耗时较长时误杀进程导致前端 Failed to fetch。
+                // ⚠ 用 Interlocked 计数而非单 bool：两个并发 /api/sim 时，先完成者会把
+                // 单 bool 清零 → 检测恢复 → 第二个还在跑的仿真连同进程被杀（2026-09-04 修）。
+                if (Interlocked.CompareExchange(ref simActive, 0, 0) > 0) { Thread.Sleep(500); continue; }
                 bool has = HasWindow();
                 everSeen = everSeen || has;
                 if (has) gone = 0;
                 else if (everSeen) gone++;
                 else noWindowTicks++;
                 int idle = Environment.TickCount - lastActivity;
-                // 退出策略（2026-09-03 调整）：
-                //   页面打开期间 js/core/heartbeat.js 每 2s 打一次 api/ping → lastActivity 持续
-                //   刷新 → idle 恒 < ~4s。因此「窗口消失 + idle 超限」只在页面真的被关闭后才会
-                //   满足（关窗 → 心跳停止 → idle 爬升），不会再因窗口标题偶发获取失败而误杀
-                //   正在使用的服务（这是「运行一段时间后仿真服务不在线」的历史根因之一）。
-                // 窗口消失 >12s 且空闲 >20s 才退出（原 3.5s/5s、15s 过严，系统繁忙/窗口标题
-                // 短暂获取不到时都会误杀）。
+                // 退出策略（2026-09-03 定、2026-09-04 收紧语义）：
+                //   进程存活期间服务必须一直在线 —— 唯一的主动退出条件是
+                //   「用户真的关闭了页面」（窗口消失 + 心跳停止 → idle 爬升）。
+                //   页面打开期间 js/core/heartbeat.js 每 2s 打一次 api/ping（Worker
+                //   计时，后台节流也不中断）→ idle 恒 < ~4s，任何窗口标题获取失败、
+                //   系统繁忙、最小化都不会触发退出 —— 这是「运行一段时间后仿真服务
+                //   不在线」的最终防线。
+                // 窗口消失 >12s 且空闲 >20s → 页面已关，正常退出。
                 if (gone > 24 && idle > 20000) break;
+                // Edge 从未出现（启动失败/被拦截）：无页面可服务，超时退出防僵尸
                 if (!everSeen && noWindowTicks > 240) break;
                 if (!everSeen && idle > 60000) break;
                 Thread.Sleep(500);
             }
 
+            shuttingDown = true;
             try { server.Stop(); } catch { }
             return 0;
         }
