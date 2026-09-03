@@ -605,7 +605,15 @@ export function diagnoseSimulation(outputs, bindings) {
 
 // 端口 ↔ 画布信号绑定。分两轮：先精确匹配，再克制的模糊匹配。
 //
-// 模糊匹配只用来消化命名风格差异（rst_n <-> rstn、sys_clk <-> clk、enable <-> en），
+// 精确匹配做两级，避免归一化折叠造成错绑：
+//   1. 首选「原始名」（去空白、大小写不敏感）——保证 data_i / data_o / clk 这类名字
+//      各自命中自己，绝不会因为 *_i/*_o 被折叠成同一归一化名而把 data_i 端口绑到
+//      data_o 信号（2026-09-03 实测复现的跨绑）；
+//   2. 原始名未命中时，退回归一化名（clk_i → clk 等工具风格别名），但仅当该归一化名
+//      唯一对应一个尚未被占用的信号时才命中。
+// 一对一占用检查（claimed）贯穿精确与模糊两轮：任何信号最多服务一个端口。
+//
+// 模糊匹配只用来消化命名风格差异（sys_clk <-> clk、enable <-> en），
 // 因此加了三重约束，避免误配：
 //   1. 单个字符的端口名（d / q 等）不参与模糊匹配 —— 否则 data/addr/valid 都会被 d 命中；
 //   2. 两者长度比过低时不配对 —— 避免 clk 之类的短名混进长信号名；
@@ -613,17 +621,32 @@ export function diagnoseSimulation(outputs, bindings) {
 //      而不是像旧实现那样简单地 find 第一个。
 export function matchSignalsToPorts(signals, ports) {
   const list = Array.isArray(signals) ? signals : [];
-  const signalMap = new Map();
-  for (const signal of list) {
-    signalMap.set(normalizeSignalName(signal.name), signal);
-  }
+
+  // 精确匹配：返回可绑定的信号（未占用），找不到返回 null。
+  const exact = (port) => {
+    const raw = String(port.name || "").trim().toLowerCase();
+    const byRaw = list.find(
+      (s) => !claimed.has(s) && String(s.name || "").trim().toLowerCase() === raw);
+    if (byRaw) return byRaw;
+    const nk = normalizeSignalName(port.name);
+    if (!nk) return null;
+    let cand = null;
+    for (const s of list) {
+      if (claimed.has(s)) continue;
+      if (normalizeSignalName(s.name) === nk) {
+        if (cand) return null; // 归一化名有歧义（多个不同原始名折叠而来）→ 留给模糊轮打分
+        cand = s;
+      }
+    }
+    return cand;
+  };
 
   const claimed = new Set(); // 已占用的信号，保证一对一
   const bindings = (Array.isArray(ports) ? ports : []).map((port) => {
-    const exact = signalMap.get(normalizeSignalName(port.name));
-    if (exact) {
-      claimed.add(exact);
-      return { port, signal: exact, matched: true, strategy: "name" };
+    const signal = exact(port);
+    if (signal) {
+      claimed.add(signal);
+      return { port, signal, matched: true, strategy: "name" };
     }
     return { port, signal: null, matched: false, strategy: "unbound" };
   });

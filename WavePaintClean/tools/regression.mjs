@@ -375,6 +375,32 @@ test("端口绑定：精确匹配优先于模糊匹配", () => {
   assert.equal(bindings[0].signal.name, "clk");
 });
 
+test("端口绑定：*_i/*_o 归一化折叠不跨绑（2026-09-03 修复）", () => {
+  // 工具生成 Verilog 常见 data_i/data_o 命名。归一化会把两者都折叠成 data，
+  // 旧实现按归一化名做单一映射 + 无占用检查 → data_i 端口曾错绑到 data_o 信号。
+  const ports = [
+    { name: "data_i", direction: "input", width: 1 },
+    { name: "data_o", direction: "output", width: 1 }
+  ];
+  // 两个信号都在时：必须各自命中自己（原始名优先）
+  let b = sim.matchSignalsToPorts(
+    [{ name: "data_i", values: ["1"] }, { name: "data_o", values: ["1"] }], ports);
+  assert.equal(b[0].signal.name, "data_i", "data_i 端口应绑 data_i 信号");
+  assert.equal(b[1].signal.name, "data_o", "data_o 端口应绑 data_o 信号");
+  // 只有基础名 data 一个信号时：data_i 绑 data，data_o 不再重复占用（一对一）
+  b = sim.matchSignalsToPorts([{ name: "data", values: ["1"] }], ports);
+  assert.equal(b[0].signal.name, "data");
+  assert.equal(b[1].matched, false, "data_o 不应与 data_i 共享同一信号");
+});
+
+test("端口绑定：clk_i 风格别名仍能命中唯一 clk 信号", () => {
+  const ports = [{ name: "clk_i", direction: "input", width: 1 }];
+  const bindings = sim.matchSignalsToPorts([{ name: "clk", values: ["1"] }], ports);
+  assert.equal(bindings[0].matched, true, "clk_i 应经归一化命中 clk 信号");
+  assert.equal(bindings[0].signal.name, "clk");
+  assert.equal(bindings[0].strategy, "name");
+});
+
 test("buildAutoTestbench 黄金快照一致", () => {
   const tb = sim.buildAutoTestbench(design, sampleProject());
   const src = String(tb.source || tb);
