@@ -6,6 +6,17 @@ Set-Location -LiteralPath $PSScriptRoot
 node "tools\gen-resources.mjs"
 if ($LASTEXITCODE -ne 0) { throw "gen-resources.mjs failed" }
 
+# 1.5) 版本戳记（批次10）：version.txt 内嵌进 exe 并由 /version.txt 提供，
+# 前端在仿真面板显示 —— 用户可自查「是不是旧 exe」（历史事故：误启旧副本
+# 表现为「修复没生效」）。内容 = 主版本 + 构建时间 + git 短哈希。
+$gitHash = ""
+try { $gitHash = (git rev-parse --short HEAD) 2>$null } catch {}
+if (-not $gitHash) { $gitHash = "nogit" }
+$versionText = "v0.4.0 build " + (Get-Date -Format "yyyy-MM-dd HH:mm:ss") + " " + $gitHash
+# 无 BOM 写入（PS5.1 的 -Encoding UTF8 会带 BOM，前端展示会多出 \uFEFF）
+[IO.File]::WriteAllText((Join-Path $PSScriptRoot "version.txt"), $versionText, (New-Object System.Text.UTF8Encoding($false)))
+Add-Content -Path "resources.txt" -Value "version.txt,root_version.txt"
+
 $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 if (-not (Test-Path $csc)) { $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework\v4.0.30319\csc.exe" }
 

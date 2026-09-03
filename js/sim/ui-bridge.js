@@ -785,6 +785,26 @@ function init() {
   if (!state.readyTimer) {
     state.readyTimer = window.setInterval(onWavepaintReady, 100);
   }
+  showAppVersion();
+}
+
+// 版本显示（批次10）：读取构建时内嵌的 /version.txt（构建时间 + git 短哈希），
+// 展示在仿真面板头部。用户可自查「是不是旧 exe」——历史事故：误启旧副本
+// 表现为「修复没生效」。开发服务器下 version.txt 可能不存在，静默留空。
+function showAppVersion() {
+  const elVer = document.getElementById("app-version");
+  if (!elVer) return;
+  fetch("version.txt", { cache: "no-store" })
+    .then((r) => (r.ok ? r.text() : ""))
+    .then((t) => {
+      const text = String(t || "").replace(/^\uFEFF/, "").trim();
+      if (text) {
+        elVer.textContent = text;
+        elVer.title = text;
+        console.info("[WavePaint] " + text);
+      }
+    })
+    .catch(() => { /* 无版本文件（如 dev-server）：留空 */ });
 }
 
 if (document.readyState === "loading") {
