@@ -177,6 +177,30 @@ D:/Files/Code/波形/               仓库根 = 项目本体
 
 - 本 `MEMORY.md` 与同目录 `REQUIREMENTS.md` 是项目记忆总纲，位于 `.workbuddy/memory/`，
   **任何新对话 / 不同 AI 直接读取即可承接项目**，无需重复探索。
-- 深度细节：每日日志 `2026-08-30.md`~`2026-09-04.md`；设计/重构/规范见 `docs/`。
+- 深度细节：每日日志 `2026-08-30.md`~`2026-09-04.md`；设计/重构/规范见 `docs/`（旧文档在 `docs/attic/`）。
 - **新增 / 变更需求后，必须同步更新 `REQUIREMENTS.md`**（用户要求需求清单作为可同步更新的记忆）。
 - **涉及「改代码 → 重建 exe → 提交 git」的铁律见第一节，任何 AI 改动都照此执行。**
+
+## 十三、2026-09-04 大轮定论（批次1~10，需求 #59~#72）
+
+- **私有 divisor 模型已全链路收口**：resize/generator/templates/sim 采样全部按
+  `wpf.divisorOf(sig)` / `wpf.stride()` 权威口径，resize 会跟随重映射标记/箭头等锚点。
+  ⚠ 任何新代码禁止手写 `(m_subStepCount || 1) + 1` 之类的 stride 推算（曾两度致错）。
+- **parseValue 进制语义（定论勿改）**：纯数字按信号自身 radix（hex→16 进制、bin 下
+  0/1 串→位串、dec→数值）；含 x/z → 位串；裸 hex 全串校验（dec 下含 a-f 非法）。
+  Bit 信号一律单字符 1/0/x/z/u/d。外部禁止再写第二套解析。
+- **文件菜单是 file-menu.js 按中文文本绑定的**（新建/打开/载入示例/另存为/复制分享链接）；
+  核心 initMenuHandlers 只认英文文本（死菜单根因）。改菜单文案需同步两处。
+  「新建」**就地重置** document_wave —— 核心内部词法引用无法从外部更新，禁止
+  `window.document_wave = new WaveDocument()` 换对象。
+- **核心 .wp 工程格式可用**：openFile / saveToFile / createShareLink（顶层全局函数），
+  完整保存全部文档状态。工程持久化已打通。
+- **实时预览（R6）**：弹窗 onPreview 钩子（[PATCH-A5] → wpQuickPrompt 第 5 参 →
+  __core.prompt）。预览撤销口径：首次预览压一条快照，提交 skipSnapshot，取消 wpf.undo()。
+- **launcher 自愈**：GetContext 异常→同端口重建循环；/api/sim 用 Interlocked 计数；
+  主动退出唯一条件 = 用户真关页（窗口消失+心停）。heartbeat 用 Web Worker 计时。
+- **版本显示**：`/version.txt`（build.ps1 生成，v0.4.0+构建时间+git 短哈希），
+  仿真面板头部展示；交付时让用户对照自查旧副本。
+- **VCD 回填范围**：tb 顶层 + tb.dut 层次内（DUT 内部信号会回显）；同名去重优先浅层。
+- **顶层模块选择器**：多模块设计解析后显示 `#sim-top-select`，TB 生成/仿真按选定顶层。
+- 回归规模：regression 46 项 / e2e-ui 35 项 / e2e-sim + exe-smoke，全部绿后交付。

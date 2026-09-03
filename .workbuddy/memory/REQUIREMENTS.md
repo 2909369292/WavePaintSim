@@ -88,10 +88,28 @@
 | #57 | 整理需求列表并作为记忆 | ✅ | 本文件 `REQUIREMENTS.md` |
 | #58 | 跨 AI 记忆落地并同步 git | ✅ | MEMORY.md/REQUIREMENTS.md 自包含；本轮改动提交并 push main |
 
----
+## F. 正确性收口 + 体验补强 + 永不掉线（2026-09-04 大轮，批次1~10）
 
-## 待办 / 可延续方向（用户曾提，未排期）
+| ID | 需求 | 状态 | 实现思路 / 备注 |
+|----|------|------|----------------|
+| #59 | 私有 divisor 模型全链路收口 | ✅ | resize 按每信号 divisor 重建+锚点重映射；generator/templates 用 `wpf.stride()`（修 (x\|\|1)+1 复活 bug）；sim 采样按 signalDivisor + cellStride；engine NaN 防御（Math.max(1,NaN)=NaN 曾致 #NaN TB） |
+| #60 | 值解析统一（唯一入口 wpf.parseValue） | ✅ | 位串分支不再遮蔽纯 0/1 十进制；纯数字按信号 radix 解读（hex→16进制、bin 0/1 串→位串）；裸 hex 全串校验（'1e' 不再静默截断）；删 selection.bitFromText |
+| #61 | 交互稳健性 | ✅ | value-input 文档代际守卫+会话结束切回画笔；selection 合成 Esc 走核心状态机（不再直改 #wp-modal-overlay）、setPointerCapture 防拖出窗口卡死；shortcuts Escape 清光标、方向键快照 800ms 合并、undo 走 document_wave API；measure 光标存 mainStep；__core.ready 兜底轮询 + state() 全守卫 |
+| #62 | 仿真链路解析健壮性 | ✅ | normalizeSignalName 长前缀在前（in_*/input_* 别名修复）；ANSI 多类型关键字循环剥离；参数化位宽 [WIDTH-1:0] 参数代入求值（求不出回退标量，绝不进 TB）；1 位端口不绑位串矢量 |
+| #63 | 仿真服务永不掉线 | ✅ | launcher 接受循环自愈（GetContext 异常→同端口重建，进程不死服务不死）；/api/sim Interlocked 并发计数；退出语义收口=用户真关页；heartbeat 用 Web Worker 计时（后台节流不再击穿 20s 阈值）；静态资源 no-cache；请求体上限；快照目录上限 20 |
+| #64 | 死代码清理 + 文档归档 | ✅ | 删 engine 4 个无调用方导出函数；isAlternatingCells/bitFromText/xToGlobalSample 等清零；docs/attic/ 归档 10 份旧架构文档 + docs/README.md |
+| #65 | 工程保存/加载 | ✅ | 重大发现：核心按英文文本绑定文件菜单，汉化后 5 项全死（新建/打开/载入示例/另存为/复制分享链接）。新增 editor/file-menu.js 按中文重绑，复用核心 .wp 工程存取；「新建」就地重置 document_wave（防对象身份撕裂） |
+| #66 | R6 输入实时预览 | ✅ | 核心 [PATCH-A5] 弹窗加 onPreview 钩子 → __core.prompt 透传；value-input 键入合法值即时写入预览，唯一撤销快照，取消/非法重开自动回退 |
+| #67 | 任意工具 Ctrl+C/V + Ctrl+C/V 框选复制粘贴 | ✅ | 核心只在 select 工具生效；shortcuts.js 补任意工具路径（select 下放行核心防双写）；pasteClipboard 自带空剪贴板守卫 |
+| #68 | DUT 内部信号回显 | ✅ | VCD 回填范围扩到 tb.dut 层次；同名去重优先浅层（回归：count 回显/q 去重保 4 位浅层） |
+| #69 | 多文件/多模块设计 | ✅ | 多文件本就支持（@@FILE: 协议）；新增顶层模块选择器（≥2 module 显示，默认自动检测），生成TB/运行仿真/自动加信号按选定顶层执行 |
+| #70 | 版本显示 | ✅ | build.ps1 生成 version.txt（v0.4.0+时间+git 短哈希）内嵌 exe；仿真面板头部显示——防「旧副本假象」 |
+| #71 | launcher 其余加固 | ✅ | QuoteArg Windows 反斜杠/引号规则；FreePort try/finally；RunSimulation 异常路径清 work；StartServer 启动失败显式报错 |
+| #72 | 每批次 git 记录可随意增减 | ✅ | 批次1~10 每批独立 commit（fc0b61b→本批），每批全量验证后提交 |
 
-- 按 `docs/02_重构方案.md` 继续推进：editor/sim 重组、删除全部历史 hack、sim 后端分层整理。
-- 核心内文案/行为修正走"补丁段"，保持 deobfuscate 可重跑不丢（仅开发内部关注）。
+## 待办 / 可延续方向（未排期）
+
+- 核心内文案/行为修正走"补丁段"（[PATCH-A*]），保持 deobfuscate 可重跑不丢（仅开发内部关注）。
 - 每次改动代码 → 重建 exe + 提交 git 的铁律（见 MEMORY.md 第一节），任何 AI 照此执行。
+- 边缘对齐辅助线、缩放增强（Ctrl+滚轮）、导出增强等高级功能仍未排期（见 2026-09-04 分析）。
+- 空残留目录 `D:/Files/Code/波形/WavePaintSim` 因会话 cwd 占用仍无法 rmdir，下次会话可清。
