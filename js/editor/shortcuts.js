@@ -28,20 +28,23 @@
       return tag === 'input' || tag === 'textarea' || tag === 'select' || target.isContentEditable;
     }
 
+    // 方向键连击的撤销快照合并状态（见 onKeyDown 内注释）
+    let arrowBurst = null;
+
     function onKeyDown(e) {
       if (isEditableTarget(e.target)) return;
 
-      // Ctrl 组合：撤销 / 重做
+      // Ctrl 组合：撤销 / 重做（走核心 document_wave API，不依赖 DOM 按钮 id）
       if (e.ctrlKey || e.metaKey) {
         const key = String(e.key || '').toLowerCase();
         if (key === 'z' && !e.shiftKey) {
-          const btn = document.getElementById('tool-undo');
-          if (btn) { e.preventDefault(); btn.click(); }
+          e.preventDefault();
+          wpf.undo();
           return;
         }
         if ((key === 'y') || (key === 'z' && e.shiftKey)) {
-          const btn = document.getElementById('tool-redo');
-          if (btn) { e.preventDefault(); btn.click(); }
+          e.preventDefault();
+          wpf.redo();
           return;
         }
         return;
@@ -65,9 +68,11 @@
         return;
       }
 
-      // Escape：清除框选（本模块系列）
+      // Escape：清除框选与绘制光标（头注释承诺的行为；只清光标不清会导致
+      // 误按方向键仍在旧位置写值）
       if (e.key === 'Escape') {
         if (window.__wpf.selection) window.__wpf.selection = null;
+        window.__wpf.cursor = null;
         if (typeof window.clearSelection === 'function') window.clearSelection();
         wpf.scheduleRedraw();
         return;
@@ -126,8 +131,15 @@
         // 移动即绘制：写入当前位状态值（等效画笔跟随）
         const target = dw.m_signals[nextSignal];
         if (target && Array.isArray(target.values)) {
-          // 写入前压快照，使方向键绘制可 Ctrl+Z 回退（每次按键一条）
-          wpf.pushUndoSnapshot();
+          // 撤销快照按连击合并：800ms 内在同一信号上连续按方向键只压一条快照，
+          // 避免 20 连按冲掉核心 100 条撤销栈（鼠标拖拽整次只压一条，口径对齐）。
+          const now = Date.now();
+          if (!arrowBurst || arrowBurst.signalIndex !== nextSignal || now - arrowBurst.at > 800) {
+            wpf.pushUndoSnapshot();
+            arrowBurst = { signalIndex: nextSignal, at: now };
+          } else {
+            arrowBurst.at = now;
+          }
           // 与鼠标绘制共用粒度逻辑，保证"整步"时方向键也写满整个主步
           wpf.writeValue(target, nextSample, wpf.bitStateToValue(wpf.currentBitState()));
           wpf.scheduleRedraw();

@@ -23,7 +23,7 @@
     const canvas = wpf.canvas();
     if (!canvas) return;
 
-    const state = { hoverX: -1, cursors: [] }; // cursors: 最多 2 个 {x, mainStep}
+    const state = { hoverX: -1, cursors: [] }; // cursors: 最多 2 个 {mainStep}（x 绘制时反推）
     let overlay = null;
 
     function ensureOverlay() {
@@ -69,6 +69,19 @@
       return m.mainStep;
     }
 
+    // 主步号 → x（canvas 坐标，该主步左边界）。二分 mapCanvasPosition（单调），
+    // 只用核心公开 API，不私推 nameWidth/cellWidth 等内部口径。
+    function xForMainStep(step) {
+      let lo = 0, hi = canvas.width || 4096;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        const m = window.mapCanvasPosition(mid, 1);
+        if (m && Number.isFinite(m.mainStep) && m.mainStep < step) lo = mid + 1;
+        else hi = mid;
+      }
+      return lo;
+    }
+
     function draw() {
       ensureOverlay();
       syncSize();
@@ -104,16 +117,20 @@
 
       if (state.hoverX >= 0) {
         const step = stepAtX(state.hoverX);
-        drawLine(state.hoverX, 'rgba(120,120,120,0.7)', step === null ? '' : '步 ' + step, true);
+        // 名称区/越界（step===null）不画线：无语义的竖线只会干扰
+        if (step !== null) drawLine(state.hoverX, 'rgba(120,120,120,0.7)', '步 ' + step, true);
       }
+      // 光标只持久化 mainStep（数据锚点），x 每次绘制时反推 —— 窗口缩放/子步
+      // 变化后红线/蓝线仍对准真实步位置（旧实现存像素 x，缩放后错位）
       state.cursors.forEach(function (c, i) {
-        drawLine(c.x, i === 0 ? '#e53935' : '#1e88e5', String.fromCharCode(65 + i) + '=' + c.mainStep, false);
+        const x = xForMainStep(c.mainStep);
+        drawLine(x, i === 0 ? '#e53935' : '#1e88e5', String.fromCharCode(65 + i) + '=' + c.mainStep, false);
       });
 
       // 差值读数
       if (state.cursors.length === 2) {
         const d = state.cursors[1].mainStep - state.cursors[0].mainStep;
-        const text = 'Δ = ' + d + ' 步' + (d !== 0 ? '（1/' + Math.abs(d) + ' 每步）' : '');
+        const text = 'Δ = ' + d + ' 步' + (d > 0 ? '（若为周期，频率 1/' + d + ' /步）' : '');
         ctx.save();
         ctx.font = '12px Consolas, monospace';
         const w = ctx.measureText(text).width + 12;
@@ -150,7 +167,7 @@
       if (step === null) return;
       // 循环放置：第 1 个 → A；第 2 个 → B；第 3 个 → 重置为 A
       if (state.cursors.length >= 2) state.cursors = [];
-      state.cursors.push({ x: x, mainStep: step });
+      state.cursors.push({ mainStep: step });
       scheduleDraw();
     }
 

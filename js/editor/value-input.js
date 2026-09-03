@@ -139,6 +139,7 @@
     const sel = {
       active: false, signalIndex: -1, start: -1, end: -1, moved: false,
       x0: 0, y0: 0, ex: 0, ey: 0,
+      docRef: null, // 按下时的 document_wave 引用（mouseup 校验文档代际，见 onMouseUp）
       mode: null // 'native' = Ctrl/Vector 会话（切 select，交给 selection.js）
     };
 
@@ -157,6 +158,16 @@
       return (t === null || t === undefined) ? 'paint' : t;
     }
 
+    // Ctrl/Vector「native 会话」标记：由本模块从画笔切入 select，会话结束
+    // （框选工具条关闭）后经 wpf.onSelectionSessionEnd 切回画笔 —— 否则用户点一次
+    // 矢量信号就滞留在 select 工具，画笔静默失效。纯 select 工具用户不受影响。
+    let nativeFromPaint = false;
+    wpf.onSelectionSessionEnd = function () {
+      if (!nativeFromPaint) return;
+      nativeFromPaint = false;
+      if (currentTool() === 'select') switchTool('paint');
+    };
+
     function onMouseDown(e) {
       if (promptActive()) return;
       if (e.button !== 0) return;
@@ -173,6 +184,9 @@
       if (!(idx >= 0) || idx >= sig.values.length) return;
       const isVector = !!(window.SignalType && sig.type === window.SignalType.Vector);
 
+      // 记录按下时的文档引用：mouseup 前核心若重建 document_wave（新建/导入/
+      // 载入示例），旧 signalIndex 下标在新文档里指向别的行，绝不能继续用。
+      sel.docRef = dw;
       sel.active = true;
       sel.moved = false;
       sel.signalIndex = sigIndex;
@@ -185,10 +199,12 @@
         // 接管本次拖动（紫色对齐框选）；editor/selection.js 记录起止并弹批量工具条
         // （用户要求：编辑模式下 Ctrl 框选完全复用框选模式的代码/工具条）。
         sel.mode = 'native';
+        nativeFromPaint = true;
         switchTool('select');
       } else {
         // Bit 普通按下：不切工具、不拦截 → editor/draw.js 准备 TimeGen 绘制
         sel.mode = null;
+        nativeFromPaint = false;
       }
     }
 
@@ -206,34 +222,39 @@
 
     function onMouseUp(e) {
       if (!sel.active) return;
-      const sig = window.document_wave.m_signals[sel.signalIndex];
-      const mode = sel.mode;
       sel.active = false;
+      const mode = sel.mode;
+      sel.mode = null;
 
       if (mode === 'native') {
         // Ctrl/Vector：已切 select 工具，不拦截、不弹窗——
-        // editor/selection.js 负责框选并弹批量工具条。
-        sel.mode = null;
+        // editor/selection.js 负责框选并弹批量工具条；工具条关闭时经
+        // wpf.onSelectionSessionEnd 切回画笔（nativeFromPaint）。
         return;
       }
+
+      // ⚠ 文档代际守卫：mousedown 与 mouseup 之间核心可能重建 document_wave
+      // （新建/导入/载入示例），此时旧 signalIndex 在新文档里指向别的行。
+      if (sel.docRef !== window.document_wave) {
+        sel.docRef = null;
+        return;
+      }
+      const dw = window.document_wave;
+      const sig = dw && dw.m_signals ? dw.m_signals[sel.signalIndex] : null;
+      sel.docRef = null;
+      if (!sig || !Array.isArray(sig.values)) return;
 
       if (sel.moved || currentTool() !== 'paint') {
         // Bit 拖动：editor/draw.js 已绘制，不弹窗；
         // 当前已不是画笔工具（如 select 工具下的点击）也不属于本模块的单击弹窗
         // 场景（交给 editor/selection.js 框选）。防御：残留的 sel 状态在此彻底清理，
         // 避免误弹 #wp-modal（曾导致核心弹窗抑制器放行 → 遮罩挡住后续操作）。
-        sel.mode = null;
         return;
       }
 
-      // Bit 纯点击：弹 Bit Value 弹窗（不切工具）
-      const lo = Math.min(sel.start, sel.end);
-      const hi = Math.max(sel.start, sel.end);
-      const indices = [];
-      for (let i = lo; i <= hi && i < sig.values.length; i += 1) indices.push(i);
-      sel.mode = null;
-      if (!indices.length) return;
-      openValuePrompt(sig, indices);
+      // Bit 纯点击：弹 Bit Value 弹窗（不切工具）。单击只会命中一个下标。
+      if (!(sel.start >= 0) || sel.start >= sig.values.length) return;
+      openValuePrompt(sig, [sel.start]);
     }
 
     document.addEventListener('mousedown', onMouseDown, true);
@@ -242,6 +263,7 @@
     window.addEventListener('blur', function () {
       sel.active = false;
       sel.mode = null;
+      nativeFromPaint = false;
     });
   }, 'editor/value-input');
 })();

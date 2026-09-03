@@ -29,12 +29,15 @@ window.__core = window.__core || {};
   // 注册“等文档就绪”逻辑，此处仅做简单调度（每 300ms 探测一次 m_signals 非空）。
   const readyCallbacks = [];
   let docReady = false;
+  function runCallbacks() {
+    readyCallbacks.splice(0).forEach(function (fn) { try { fn(); } catch (e) { console.error('[__core.ready]', e); } });
+  }
   function checkDoc() {
     if (docReady) return;
     const dw = window.document_wave;
     if (dw && Array.isArray(dw.m_signals) && dw.m_signals.length) {
       docReady = true;
-      readyCallbacks.splice(0).forEach(function (fn) { try { fn(); } catch (e) { console.error('[__core.ready]', e); } });
+      runCallbacks();
     }
   }
   let tries = 0;
@@ -45,6 +48,12 @@ window.__core = window.__core || {};
   C.ready = function (fn) {
     if (docReady) { try { fn(); } catch (e) { console.error('[__core.ready]', e); } return; }
     readyCallbacks.push(fn);
+    // 轮询放弃（核心 12s 仍无文档）后注册的回调不能静默丢失：降频兜底轮询，
+    // 一旦文档就绪仍会执行，并给出可诊断的警告。
+    if (tries > 40) {
+      console.warn('[__core.ready] 核心文档迟迟未就绪（已注册第 ' + readyCallbacks.length + ' 个等待回调）');
+      setInterval(checkDoc, 2000);
+    }
   };
 
   // ---------------------------------------------------------------- 常量
@@ -54,20 +63,26 @@ window.__core = window.__core || {};
   C.NONE = -1; // 核心的哨兵下标/信号
 
   // ---------------------------------------------------------------- 状态只读快照
-  // 供 editor/sim 读取核心当前交互/选框状态（避免散布魔法名）
+  // 供 editor/sim 读取核心当前交互/选框状态（避免散布魔法名）。
+  // ⚠ 核心状态是脚本顶层 let 声明（在全局词法环境，不在 globalThis 对象上），
+  // 只能用「直接引用 + try/catch」守卫：某个符号缺失时该位退化 false/NONE，
+  // 而不是整个 state() 抛 ReferenceError 不可用。
+  function safe(ref, dflt) {
+    try { const v = ref(); return v === undefined ? dflt : v; } catch (e) { return dflt; }
+  }
   C.state = function () {
     return {
-      tool: (typeof currentTool !== 'undefined') ? currentTool : null,
-      mouseDown: !!isMouseDown,
-      draggingObject: !!isDraggingObject,
-      vectorSelecting: !!vectorSelecting,
+      tool: safe(function () { return currentTool; }, null),
+      mouseDown: safe(function () { return !!isMouseDown; }, false),
+      draggingObject: safe(function () { return !!isDraggingObject; }, false),
+      vectorSelecting: safe(function () { return !!vectorSelecting; }, false),
       range: {
-        active: !!rangeSelActive,
-        selecting: !!rangeSelecting,
-        startSignal: rangeSelStartSignal,
-        startSample: rangeSelStartSample,
-        endSignal: rangeSelEndSignal,
-        endSample: rangeSelEndSample
+        active: safe(function () { return !!rangeSelActive; }, false),
+        selecting: safe(function () { return !!rangeSelecting; }, false),
+        startSignal: safe(function () { return rangeSelStartSignal; }, C.NONE),
+        startSample: safe(function () { return rangeSelStartSample; }, C.NONE),
+        endSignal: safe(function () { return rangeSelEndSignal; }, C.NONE),
+        endSample: safe(function () { return rangeSelEndSample; }, C.NONE)
       }
     };
   };

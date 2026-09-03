@@ -210,6 +210,19 @@
   };
 
   // ---------------------------------------------------------------- 元数据同步
+  // 撤销/重做统一入口：委托核心 document_wave.undo()/redo()（返回是否成功）。
+  // 历史实现经 DOM 按钮 getElementById('tool-undo').click() 触发 —— 按钮 id 变更/
+  // 禁用即失效，且 click 带焦点副作用；快捷键等外部一律走这里。
+  wpf.undo = function () {
+    const dw = window.document_wave;
+    if (!dw || typeof dw.undo !== 'function') return false;
+    try { return !!dw.undo(); } catch (e) { return false; }
+  };
+  wpf.redo = function () {
+    const dw = window.document_wave;
+    if (!dw || typeof dw.redo !== 'function') return false;
+    try { return !!dw.redo(); } catch (e) { return false; }
+  };
   // 将信号的相关数组同步到 newLen 长度（核心 resize 同步这些数组）
   wpf.syncSignalMeta = function (sig, newLen) {
     const fit = function (arr, fill) {
@@ -509,16 +522,20 @@
   //
   // 语义与核心 valueToLabel（wavepaint.clean.js [PATCH-A3]）严格对称 —— 后者能显示
   // 「位串字符串」和「数字」两种形态，所以这里也产出这两种形态，**不需要位宽概念**：
-  //   · 纯 0/1/x/z 且长度>1  → 位串原样存（手绘/导入/多位输入的天然形态）
+  //   · 含 x/z 的 0/1/x/z 组合（长度>1）→ 位串原样存（无法表示成数字）
   //   · 单字符 x / z        → Bit 存 -1 / 2（核心 Bit 数字编码）；Vector 存 'x' / 'z'
   //   · 0x../0b../0o..、Verilog 8'hA5 → 按显式基数解析成数字
-  //   · 纯十进制            → 数字
-  //   · 裸 hex（A、FF、1e） → 按**该信号自身 radix** 解析（Hex 时 A→10）
+  //   · 纯数字              → 按**该信号自身 radix** 解读：dec 按十进制、hex 按
+  //     16 进制、bin 下长度>1 的 0/1 组合按位串（位宽由串长决定）
+  //   · 裸 hex 形态（A、FF）→ 按**该信号自身 radix** 解析（Hex 时 A→10；Dec/Bin
+  //     下视为非法），整体合法才接受，不静默截断
   // 返回 null 表示无法解析（调用方应跳过，不要写 0）。
   //
   // ⚠ 历史 bug（2026-09-03 修）：旧实现 parseBusInput(raw, width) 依赖不存在的
   // sig.width，width 恒为 1，于是 'A' 走到最后 return '0'.repeat(1) → **框选多位
   // 信号输入 A 会被写成 0**。位宽概念本身就是错的，已整体删除。
+  // ⚠ 历史 bug（2026-09-04 修）：旧实现位串分支排在数值分支之前且不看进制，
+  // dec 进制下输入 10/1000/1010 等纯 0/1 十进制数被错误存成位串。
   wpf.parseValue = function (raw, sig) {
     const isVector = !!(sig && window.SignalType && sig.type === window.SignalType.Vector);
     const text = String(raw == null ? '' : raw).trim().replace(/_/g, '').replace(/\s+/g, '');
@@ -537,9 +554,6 @@
       return null;
     }
 
-    // 位串（长度>1 的 0/1/x/z 组合）原样存 —— 位宽由字符串自身决定
-    if (/^[01xz]+$/.test(low) && low.length > 1) return low;
-
     // 显式基数：Verilog 8'hA5 / 'b1010，或 0x/0b/0o 前缀
     const sized = /^(\d+)?'([bhdo])([0-9a-fxz]+)$/.exec(low);
     const prefixed = /^0([xbo])([0-9a-fxz]+)$/.exec(low);
@@ -556,18 +570,39 @@
       return Number.isFinite(n) ? n : null;
     }
 
-    // 纯十进制
+    // 含 x/z 的 0/1/x/z 组合：无法表示成数字，原样存为位串（位宽由字符串自身决定）
+    if (/^[01xz]+$/.test(low) && /[xz]/.test(low) && low.length > 1) return low;
+
+    // 该信号的有效进制名（信号自带 radix 优先，回退全局）
+    const radixName = (sig && sig.radix != null)
+      ? wpf.radixNameOf(sig.radix) : wpf.radixNameOf(wpf.busRadixValue());
+
+    // 纯数字（含 0/1 组成的数，如 10/1000/1010）：按该信号 radix 解读。
+    // ⚠ 二进制进制下 0/1 组合按位串解读（位宽由串长决定），单字符仍按数值；
+    // ⚠ 十六进制进制下数字串按 16 进制解读（1010 → 0x1010）；
+    // 旧实现位串分支排在数值分支之前且不看进制 → dec 下输 10 被存成 2 位位串。
     if (/^[-+]?\d+$/.test(low)) {
+      if (radixName === 'bin') {
+        if (low.length === 1) return Number(low);
+        return /^[01]+$/.test(low) ? low : null;
+      }
+      if (radixName === 'hex') {
+        const n = parseInt(low, 16);
+        return Number.isFinite(n) ? n : null;
+      }
       const n = Number(low);
       return Number.isFinite(n) ? n : null;
     }
 
-    // 裸 hex：按信号自身 radix 解读（Hex → 16 进制，Dec/Bin 已在上面的分支处理过）
+    // 裸 hex 形态（含 a-f，如 A、FF、1e）：按信号自身 radix 严格全串校验。
+    // 纯数字串已在上面按进制消费，这里只剩「含 a-f」的输入：
+    // 旧实现 parseInt 尾随垃圾静默截断（dec 下 '1e' 静默写入 1），必须整体合法。
     if (/^[0-9a-f]+$/.test(low)) {
-      const radix = (sig && sig.radix != null) ? sig.radix : wpf.busRadixValue();
-      const name = wpf.radixNameOf(radix);
-      const n = parseInt(low, name === 'hex' ? 16 : name === 'bin' ? 2 : 10);
-      return Number.isFinite(n) ? n : null;
+      if (radixName === 'hex') {
+        const n = parseInt(low, 16);
+        return Number.isFinite(n) ? n : null;
+      }
+      return null; // dec：含 a-f 即非法；bin：非 0/1 即非法（0/1 串已在上分支处理）
     }
     return null;
   };

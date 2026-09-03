@@ -59,13 +59,6 @@
     let bar = null;              // 浮动工具条 DOM
 
     // ------------------------------------------------ 坐标工具
-    // 画布相对 x → 全局子步空间下标（<0 表示点在名称区/画布外，不是波形格）
-    function xToGlobalSample(x) {
-      // globalSampleIndex 只由 x 决定，y 给任意值即可（mapCanvasPosition 需要 y）
-      const m = window.mapCanvasPosition(x, 1);
-      const g = m ? Number(m.globalSampleIndex) : -1;
-      return Number.isFinite(g) ? g : -1;
-    }
     // 全局子步空间下界 / 上界
     function globalBounds() {
       const dw = window.document_wave;
@@ -101,22 +94,34 @@
       detachBar();
     }
 
-    // 关工具条且清除选框（菜单消失时选框同步消失，视觉与菜单同步出现/消失）
+    // 关工具条且清除选框（菜单消失时选框同步消失，视觉与菜单同步出现/消失）。
+    // 结束回调：value-input 的 Ctrl/Vector 会话借此切回画笔（wpf.onSelectionSessionEnd）。
     function hideBar() {
       detachBar();
       core.selection.clear();
       window.__wpf.selection = null;
+      if (typeof wpf.onSelectionSessionEnd === 'function') {
+        try { wpf.onSelectionSessionEnd(); } catch (e) { /* 不阻断 UI */ }
+      }
     }
 
     // 框选完成 → 弹工具条。等一帧让核心完成状态落地；兜底收起核心可能残留的
-    // #wp-modal 遮罩（防挡住后续点击）。
+    // #wp-modal 弹窗（Vector 交互后核心自弹的值输入框会挡住后续点击）。
+    // ⚠ 必须走核心自己的关闭流程（合成 Esc → 核心 keydown 处理器 → wpModalState
+    // 状态机 + resolve），不能直改 overlay 的 class：那样 wpModalState.isOpen 仍为
+    // true，__core.promptActive() 恒真 → 画笔的 mousedown 守卫持续让位（历史 hack）。
     function showBarAfter(clientX, clientY) {
       const region = window.__wpf.selection;
       if (!region) return;
       setTimeout(function () {
         if (!window.__wpf.selection) return;
         const ov = document.getElementById('wp-modal-overlay');
-        if (ov && ov.className.indexOf('hidden') < 0) ov.classList.add('hidden');
+        if (ov && !ov.classList.contains('hidden') && typeof window.__core.promptActive === 'function'
+            && window.__core.promptActive()) {
+          try {
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+          } catch (e) { /* 构造失败不致命（老内核） */ }
+        }
         showBar(clientX, clientY);
       }, 0);
     }
@@ -240,6 +245,11 @@
       marquee.startClientX = e.clientX;
       marquee.startClientY = e.clientY;
       marquee.startSample = m ? Number(m.globalSampleIndex) : -1;
+      // 指针捕获：拖到浏览器窗口外松开鼠标也能收到 mouseup，避免会话卡死
+      // （marquee.active 挂着 → mousemove 持续吞掉核心全部 hover 逻辑，直到下次点击）
+      try {
+        if (canvas.setPointerCapture && e.pointerId != null) canvas.setPointerCapture(e.pointerId);
+      } catch (err) { /* 不支持则退化为 window blur 兜底 */ }
       // 拦截：框选完全由本模块（粒度对齐后）驱动核心原生 range selection 绘制
       e.stopImmediatePropagation();
       e.preventDefault();
@@ -265,6 +275,9 @@
     function onMouseUp(e) {
       if (!marquee.active) return;
       marquee.active = false;
+      try {
+        if (canvas.releasePointerCapture && e.pointerId != null) canvas.releasePointerCapture(e.pointerId);
+      } catch (err) { /* 未捕获/已释放，忽略 */ }
       e.stopImmediatePropagation();
       e.preventDefault();
 
@@ -293,9 +306,16 @@
 
       // ---------------- 拖动框选 ----------------
       const region = alignRegion(regionFromPoints());
+      if (!region) {
+        // 起止点都无效（如从名称区起拖、完全越界）：清掉核心残留的选框视觉，
+        // 元数据与视觉必须同步清（否则画面有框、__wpf.selection 为 null，状态撕裂）
+        core.selection.clear();
+        setSelection(null);
+        return;
+      }
       paintSelection(region); // 最终区域
       setSelection(region, marquee.startClientX, marquee.startClientY);
-      if (region) showBarAfter(e.clientX, e.clientY);
+      showBarAfter(e.clientX, e.clientY);
     }
 
     document.addEventListener('mousedown', onMouseDown, true);
@@ -377,19 +397,8 @@
       refreshTouched(touched);
     }
 
-    // 输入值（工具条输入框）：vector 用 wpf.parseValue 全格式解析；
-    // Bit 支持 0/1/x/z 单字符（u/d 一并识别），非法输入整体跳过（不写 0！）
-    function bitFromText(text) {
-      const t = String(text).toLowerCase();
-      if (t === '1') return 1;
-      if (t === '0') return 0;
-      if (t === 'x') return -1;
-      if (t === 'z') return 2;
-      if (t === 'u') return 3;
-      if (t === 'd') return 4;
-      return null;
-    }
-
+    // 输入值（工具条输入框）：Bit 与 Vector 一律走 wpf.parseValue 唯一解析入口
+    // （Bit 只认 1/0/x/z/u/d 单字符；Vector 全格式）。非法输入整体跳过（不写 0！）
     function applyCustom(raw) {
       const region = window.__wpf.selection;
       if (!region) return;
@@ -400,15 +409,9 @@
       for (const { sig } of regionSignals(region)) {
         const cells = cellsFor(sig, region);
         if (!cells.length) continue;
-        if (isVector(sig)) {
-          const v = wpf.parseValue(text, sig);
-          if (v === null) continue; // 该行无法解析 → 跳过，绝不误写 0
-          for (const i of cells) setCell(sig, i, v);
-        } else {
-          const v = bitFromText(text);
-          if (v === null) continue;
-          for (const i of cells) setCell(sig, i, v);
-        }
+        const v = wpf.parseValue(text, sig);
+        if (v === null) continue; // 该行无法解析 → 跳过，绝不误写 0
+        for (const i of cells) setCell(sig, i, v);
         touched.add(sig);
       }
       refreshTouched(touched);
@@ -419,11 +422,17 @@
       detachBar();
       const region = window.__wpf.selection;
       if (!region) return;
+      // 主题自适应：深色主题下不再硬编码白底（与界面配色冲突）
+      const dark = !!(document.body && document.body.classList.contains('dark'));
+      const bg = dark ? '#2a2d31' : '#fff';
+      const fg = dark ? '#e8eaed' : '#222';
+      const bd = dark ? '#555' : '#bbb';
       bar = document.createElement('div');
       bar.id = 'wpf-batch-bar';
       bar.__closing = false;
       bar.style.cssText = 'position:fixed;z-index:300;display:flex;gap:4px;padding:6px 8px;align-items:center;'
-        + 'background:#fff;border:1px solid #bbb;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.2);font-size:12px;';
+        + 'background:' + bg + ';color:' + fg + ';border:1px solid ' + bd + ';border-radius:8px;'
+        + 'box-shadow:0 2px 10px rgba(0,0,0,.2);font-size:12px;';
       let suppressCommit = false; // 点按钮时 input 会失焦，不应误触发「失焦即提交」
       const buttons = [
         ['设 1', function () { applyValues('one'); }],
@@ -445,7 +454,8 @@
       input.type = 'text';
       input.placeholder = '输入值';
       input.title = '输入数值后回车或点击别处即写入（支持 10 / 0xA / 0b1010 / 8\'hA5 / x / z）；不输入点击别处 = 取消；Esc = 取消';
-      input.style.cssText = 'width:92px;font-size:12px;padding:3px 6px;border:1px solid #bbb;border-radius:6px;';
+      input.style.cssText = 'width:92px;font-size:12px;padding:3px 6px;border:1px solid ' + bd + ';'
+        + 'border-radius:6px;background:' + bg + ';color:' + fg + ';';
       function commitInput() {
         const text = String(input.value || '').trim();
         if (!text) { hideBar(); return; }
@@ -511,9 +521,10 @@
       }
     }, true);
 
-    // 切走工具 / 窗口尺寸变化：遗留工具条应消失
+    // 窗口尺寸变化：fixed 定位的工具条会悬空在旧位置，直接收起（选框仍在，
+    // 点画布可重新框选；select 工具下也同样收起，避免悬空残留）
     window.addEventListener('resize', function () {
-      if (bar && wpf.currentTool() !== 'select') dismissBar();
+      if (bar) dismissBar();
     });
   }, 'editor-selection');
 })();

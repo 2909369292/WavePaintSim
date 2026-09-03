@@ -723,6 +723,35 @@ test("indicesByGranularity：整步收敛到每主步首格、子步原样（v0.
 });
 
 // ---------------------------------------------------------------------------
+// wpf.parseValue 值解析语义（2026-09-04 收口）：
+// 位串分支不得遮蔽纯 0/1 十进制数；裸 hex 必须全串合法；bin 下 0/1 串按位串
+// ---------------------------------------------------------------------------
+test("wpf.parseValue：dec 进制下纯 0/1 数字按数值解析（不再被位串分支遮蔽）", () => {
+  const wpf = globalThis.window.__wpf;
+  const SignalType = globalThis.window.SignalType;
+  const mkVec = (radix) => ({ type: SignalType.Vector, radix });
+  const R = globalThis.window.Radix;
+  // 默认全局 dec：10 → 数值 10（旧实现存成位串字符串 "10"）
+  assert.strictEqual(wpf.parseValue("10", mkVec(R.Decimal)), 10, "dec：10 → 数值 10");
+  assert.strictEqual(wpf.parseValue("1000", mkVec(R.Decimal)), 1000, "dec：1000 → 数值");
+  assert.strictEqual(wpf.parseValue("1010", mkVec(R.Decimal)), 1010, "dec：1010 → 数值 1010");
+  // hex：0/1 组合按 16 进制数值
+  assert.strictEqual(wpf.parseValue("1010", mkVec(R.Hexadecimal)), 4112, "hex：1010 → 0x1010");
+  // bin：0/1 串按位串（位宽由串长决定）
+  assert.strictEqual(wpf.parseValue("1010", mkVec(R.Binary)), "1010", "bin：1010 → 位串");
+  // 含 x/z 恒为位串（任何进制都无法表示成数字）
+  assert.strictEqual(wpf.parseValue("1x0z", mkVec(R.Decimal)), "1x0z", "含 x/z → 位串");
+  // 显式基数与 0x 前缀不变
+  assert.strictEqual(wpf.parseValue("8'hA5", mkVec(R.Decimal)), 165, "8'hA5 → 165");
+  assert.strictEqual(wpf.parseValue("0xA", mkVec(R.Decimal)), 10, "0xA → 10");
+  // 裸 hex 全串合法才接受：dec 下 '1e' 非法（旧实现 parseInt 静默截断成 1）
+  assert.strictEqual(wpf.parseValue("1e", mkVec(R.Decimal)), null, "dec：1e → 非法");
+  assert.strictEqual(wpf.parseValue("1e", mkVec(R.Hexadecimal)), 30, "hex：1e → 30");
+  assert.strictEqual(wpf.parseValue("A", mkVec(R.Hexadecimal)), 10, "hex：单字符 A → 10");
+  assert.strictEqual(wpf.parseValue("FF", mkVec(R.Decimal)), null, "dec：FF → 非法");
+});
+
+// ---------------------------------------------------------------------------
 console.log("\n" + "-".repeat(56));
 if (failures.length) {
   console.log(`失败 ${failures.length} 项，通过 ${passed} 项`);
