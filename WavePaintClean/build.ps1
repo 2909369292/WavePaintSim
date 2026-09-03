@@ -18,7 +18,23 @@ Get-Content "resources.txt" | ForEach-Object {
 $iconArg = ""
 if (Test-Path "img\app.ico") { $iconArg = "/win32icon:img\app.ico" }
 
-& $csc /nologo /target:winexe $iconArg /r:System.Windows.Forms.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll /out:WavePaintClean.exe $resArgs WavePaintLauncher.cs
+# 产物路径用脚本所在目录的绝对路径：即使 Set-Location 被外层策略/权限干扰，
+# 也不会把 exe 写到别的目录（历史事故：产物落到 WavePaintSim/ 生成同名旧副本，
+# 用户误启动旧副本，表现为「修复没生效」）。
+$exeOut = Join-Path $PSScriptRoot "WavePaintClean.exe"
+$stampBefore = (Get-Item $exeOut -ErrorAction SilentlyContinue).LastWriteTimeUtc
+
+& $csc /nologo /target:winexe $iconArg /r:System.Windows.Forms.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll /out:$exeOut $resArgs WavePaintLauncher.cs
 Write-Host "csc exit: $LASTEXITCODE"
 Write-Host ("res count: " + $resArgs.Count)
-if (Test-Path "WavePaintClean.exe") { Write-Host ("WavePaintClean.exe size: " + (Get-Item "WavePaintClean.exe").Length) }
+Write-Host ("exe out: " + $exeOut)
+
+# 编译失败必须让外层看到非零退出码（历史坑：只 Write-Host 会导致「假成功」，
+# 开发者以为构建好了，实际跑的还是旧 exe）。
+if ($LASTEXITCODE -ne 0) { throw "csc failed with exit $LASTEXITCODE" }
+if (-not (Test-Path $exeOut)) { throw "exe not produced: $exeOut" }
+$stampAfter = (Get-Item $exeOut).LastWriteTimeUtc
+if ($stampBefore -and $stampAfter -le $stampBefore) {
+  Write-Host "WARNING: exe 时间戳未变化，可能未重新链接（请确认源码确有改动或清理后重试）"
+}
+Write-Host ("WavePaintClean.exe size: " + (Get-Item $exeOut).Length)
