@@ -158,6 +158,53 @@ function parseRange(text) {
   };
 }
 
+// 简单算术表达式求值（参数化位宽用）：只允许整数、+ - * / % ( ) 与已知参数名。
+// 返回整数或 null（无法求值 / 非法字符 / 除零 / 循环引用）。
+function tryEvalExpr(expr, params, depth = 0) {
+  if (depth > 8) return null;
+  const expanded = String(expr || "").replace(/\s+/g, "").replace(
+    /[A-Za-z_][A-Za-z0-9_$]*/g,
+    (name) => {
+      if (params && params.has(name)) {
+        return "(" + String(params.get(name)) + ")";
+      }
+      return "NaN";
+    }
+  );
+  if (/[^0-9+\-*/%()aN]/.test(expanded)) return null;
+  try {
+    const v = Function('"use strict";return (' + expanded + ")")();
+    return Number.isFinite(v) ? Math.round(v) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// 端口位宽解析（参数化位宽如 [WIDTH-1:0]）：
+//  1. msb/lsb 均为数字 → 原样（常规路径）；
+//  2. 含参数名 → 用模块 parameter/localparam 值代入求值，求出即落成具体数字；
+//  3. 求不出 → 回退标量（width=1、清空 msb/lsb），TB 声明 scalar。
+// ⚠ 绝不能把 "[WIDTH-1:0]" 字符串原样拼进 TB（旧实现如此 → iverilog 编译失败，
+// 且报错信息用户完全无法理解）（2026-09-04 修）。
+function resolvePortWidths(ports, params) {
+  for (const p of ports || []) {
+    if (!p || p.msb === "" || p.msb == null) continue; // 标量端口
+    if (Number.isFinite(Number(p.msb)) && Number.isFinite(Number(p.lsb))) continue;
+    const m1 = tryEvalExpr(p.msb, params);
+    const m2 = tryEvalExpr(p.lsb, params);
+    if (m1 !== null && m2 !== null) {
+      p.msb = String(m1);
+      p.lsb = String(m2);
+      p.width = Math.abs(m1 - m2) + 1;
+    } else {
+      p.msb = "";
+      p.lsb = "";
+      p.width = 1;
+      p.parametric = true; // 标记：真实位宽未知（参数化且无法求值）
+    }
+  }
+}
+
 function parseListIdentifiers(text) {
   return String(text || "")
     .split(",")
@@ -166,6 +213,18 @@ function parseListIdentifiers(text) {
     .map((part) => part.replace(/\[[^\]]*\]/g, ""))
     .map((part) => part.replace(/=.*$/, "").trim())
     .filter(Boolean);
+}
+
+// 剥离端口声明里的类型/符号关键字（独立成词才剥，循环直到稳定）
+function stripTypeKeywords(text) {
+  const kw = /(\s|^)(?:logic|reg|wire|bit|signed|unsigned|tri|tri0|tri1|triand|trior|trireg|uwire|wand|wor|supply0|supply1)\b/g;
+  let out = String(text || "");
+  let prev;
+  do {
+    prev = out;
+    out = out.replace(kw, "$1");
+  } while (out !== prev);
+  return out;
 }
 
 function splitTopLevelCommas(text) {
@@ -205,7 +264,11 @@ function parseAnsiPortList(block) {
     if (!currentDirection) continue;
     const rangeMatch = /\[[^\]]*\]/.exec(item);
     const widthInfo = rangeMatch ? parseRange(rangeMatch[0]) : currentRange;
-    const namesSection = item.replace(/\[[^\]]*\]/g, " ").replace(/^(?:logic|reg|wire|bit|signed|unsigned)\b/g, " ");
+    // 剥离类型/符号关键字（可叠写：`input wire signed [7:0] a`）。
+    // ⚠ 旧实现 /^(?:logic|reg|...)\b/g 有 ^ 锚点只剥第一个 → "signed a" 被
+    // 当成端口名，生成的 TB 直接非法（2026-09-04 修）。循环剥离直到稳定，
+    // 关键字必须独立成词（\b 保证不误伤 wire_id 这类标识符）。
+    const namesSection = stripTypeKeywords(item.replace(/\[[^\]]*\]/g, " "));
     const names = parseListIdentifiers(namesSection);
     if (rangeMatch) currentRange = widthInfo;
     for (const name of names) {
@@ -329,6 +392,17 @@ function parseInstances(body) {
   return instances;
 }
 
+// 头部 `#(parameter WIDTH = 8, ...)` 参数块解析（无分号分隔，逗号分隔）。
+// 兼容 `parameter [3:0] W = 4` 形式的类型/位宽前缀。
+function parseHeaderParameters(block) {
+  const params = new Map();
+  for (const item of splitTopLevelCommas(block)) {
+    const m = /^(?:parameter|localparam)?\s*(?:\[[^\]]*\]\s*)?(?:signed|unsigned\s*)?\s*(?:[A-Za-z_][A-Za-z0-9_$]*\s+)?([A-Za-z_][A-Za-z0-9_$]*)\s*=\s*(.+)$/.exec(item.trim());
+    if (m) params.set(m[1], m[2].trim());
+  }
+  return params;
+}
+
 export function parseVerilogDesign(source) {
   const text = stripComments(source);
   const modules = [];
@@ -342,10 +416,15 @@ export function parseVerilogDesign(source) {
   const body = block.slice(headerEnd + 1, block.length - "endmodule".length);
   const parsedHeader = parseModuleHeader(header);
     const ansiPorts = parseAnsiPortList(parsedHeader.portBlock);
-    const ports = ansiPorts.length ? ansiPorts : parseDirectionDeclarations(body);
+    let ports = ansiPorts.length ? ansiPorts : parseDirectionDeclarations(body);
   const parameters = parseParameters(body);
   const declarations = parseDeclarations(body);
   const instances = parseInstances(body);
+    // 参数化位宽解析：合并头部 #(parameter ...) 与模块体 parameter/localparam，
+    // 代入求值端口 [EXPR:EXPR]；求不出回退标量（绝不把参数表达式带进 TB）
+    const params = parseHeaderParameters(parsedHeader.parameters);
+    for (const p of parameters) params.set(p.name, p.value);
+    resolvePortWidths(ports, params);
     modules.push({
       name: parsedHeader.name,
       header,
@@ -393,17 +472,22 @@ export function parseVerilogPorts(source) {
   };
 }
 
+// 信号名归一化（端口匹配别名用）。⚠ 前缀剥离必须「长前缀在前」：
+// 旧实现 /^i_?/ 排在 /^in_?/ 之前，in_data 被剥成 n_data、input_a 变 nput_a，
+// in_*/input_* 别名归一化完全失效（2026-09-04 修）。
+// 末尾 _n 是低有效标记，必须保留（不参与剥离）。
 function normalizeSignalName(name) {
   return String(name || "")
     .trim()
     .toLowerCase()
-    .replace(/^i_?/, "")
-    .replace(/^o_?/, "")
+    .replace(/^input_?/, "")
+    .replace(/^output_?/, "")
     .replace(/^in_?/, "")
     .replace(/^out_?/, "")
+    .replace(/^i_?/, "")
+    .replace(/^o_?/, "")
     .replace(/_i$/, "")
-    .replace(/_o$/, "")
-    .replace(/_n$/, "_n");
+    .replace(/_o$/, "");
 }
 
 function parseVcdReference(referenceText) {
@@ -619,6 +703,15 @@ export function diagnoseSimulation(outputs, bindings) {
 //   2. 两者长度比过低时不配对 —— 避免 clk 之类的短名混进长信号名；
 //   3. 每个信号只能被一个端口占用（一对一），且在所有候选中取最相似者，
 //      而不是像旧实现那样简单地 find 第一个。
+// 位宽兼容检查：1 位端口绝不绑定「位串形态的矢量信号」——formatVerilogValue
+// 对 1 位端口只取首个 0/1/x 字符，静默错值（2026-09-04 修）。多位端口可绑
+// （formatVerilogValue 会按位宽补齐/截断）。
+function widthCompatible(signal, port) {
+  const pw = Math.max(1, Number(port?.width) || 1);
+  if (pw > 1) return true;
+  return Math.max(1, Number(signal?.width) || 1) <= 1;
+}
+
 export function matchSignalsToPorts(signals, ports) {
   const list = Array.isArray(signals) ? signals : [];
 
@@ -627,7 +720,7 @@ export function matchSignalsToPorts(signals, ports) {
     const raw = String(port.name || "").trim().toLowerCase();
     const byRaw = list.find(
       (s) => !claimed.has(s) && String(s.name || "").trim().toLowerCase() === raw);
-    if (byRaw) return byRaw;
+    if (byRaw) return widthCompatible(byRaw, port) ? byRaw : null;
     const nk = normalizeSignalName(port.name);
     if (!nk) return null;
     let cand = null;
@@ -638,7 +731,7 @@ export function matchSignalsToPorts(signals, ports) {
         cand = s;
       }
     }
-    return cand;
+    return cand && widthCompatible(cand, port) ? cand : null;
   };
 
   const claimed = new Set(); // 已占用的信号，保证一对一
@@ -666,6 +759,7 @@ export function matchSignalsToPorts(signals, ports) {
       if (shorter < 2) continue;          // 约束 1：单字符不模糊匹配
       if (shorter / longer < 0.3) continue; // 约束 2：长度差距过大
       if (!(candidate.includes(target) || target.includes(candidate))) continue;
+      if (!widthCompatible(signal, binding.port)) continue; // 1 位端口 × 位串矢量
       const score = shorter / longer;
       if (score > bestScore) { bestScore = score; best = signal; } // 约束 3：取最相似
     }

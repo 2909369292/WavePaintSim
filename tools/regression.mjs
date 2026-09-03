@@ -752,6 +752,76 @@ test("wpf.parseValue：dec 进制下纯 0/1 数字按数值解析（不再被位
 });
 
 // ---------------------------------------------------------------------------
+// 仿真链路解析健壮性（2026-09-04 批次4）：
+// ANSI 端口多类型关键字 / 参数化位宽 / 归一化前缀剥离顺序 / 位宽兼容
+// ---------------------------------------------------------------------------
+test("ANSI 端口多类型关键字：input wire signed [7:0] a 的端口名应为 a", () => {
+  const src = `module m(input wire signed [7:0] a, input logic b, output [7:0] y);
+  assign y = a; endmodule`;
+  const d = sim.parseVerilogDesign(src);
+  const names = d.topModule.ports.map((p) => p.name);
+  assert.deepEqual(names.sort(), ["a", "b", "y"], "关键字剥离后端口名干净（旧实现解析出 'signed a'）");
+  const a = d.topModule.ports.find((p) => p.name === "a");
+  assert.equal(a.width, 8, "a 的位宽应为 8");
+});
+
+test("参数化位宽 [WIDTH-1:0]：parameter 代入求值成具体位宽，TB 不出现参数名", () => {
+  const src = `module m #(parameter WIDTH = 8)(input clk, input [WIDTH-1:0] din, output [WIDTH-1:0] dout);
+  assign dout = din; endmodule`;
+  const d = sim.parseVerilogDesign(src);
+  const din = d.topModule.ports.find((p) => p.name === "din");
+  assert.equal(din.width, 8, "[WIDTH-1:0] 应解析为 8 位");
+  assert.equal(din.msb, "7", "msb 应代入为 7");
+  const project = { timeSteps: 8, subSteps: 0, signals: [
+    { name: "clk", kind: "clock", width: 1, values: "01010101".split("") }
+  ], outputs: [] };
+  const tb = String(sim.buildAutoTestbench(d, project).source || "");
+  assert.ok(!/WIDTH/.test(tb), "TB 中不得出现未定义的参数名 WIDTH");
+  assert.ok(/\[7:0\]\s*din/.test(tb), "din 应声明为 [7:0]");
+});
+
+test("参数化位宽无法求值时回退标量（绝不把参数表达式带进 TB）", () => {
+  const src = `module m(input clk, input [UNSPEC-1:0] din, output reg [7:0] q);
+  always @(posedge clk) q <= din; endmodule`;
+  const d = sim.parseVerilogDesign(src);
+  const din = d.topModule.ports.find((p) => p.name === "din");
+  assert.equal(din.width, 1, "无法求值 → 回退标量");
+  const project = { timeSteps: 8, subSteps: 0, signals: [
+    { name: "clk", kind: "clock", width: 1, values: "01010101".split("") }
+  ], outputs: [] };
+  const tb = String(sim.buildAutoTestbench(d, project).source || "");
+  assert.ok(!/UNSPEC/.test(tb), "TB 中不得出现未定义的参数名 UNSPEC");
+});
+
+test("normalizeSignalName 前缀剥离顺序：in_*/input_* 别名归一化生效", () => {
+  // 通过 matchSignalsToPorts 行为验证：in_data 信号应精确命中 data 端口（归一化轮）
+  const ports = [
+    { name: "data", direction: "input", width: 1, msb: "", lsb: "" },
+    { name: "clk", direction: "input", width: 1, msb: "", lsb: "" }
+  ];
+  const signals = [
+    { name: "in_data", kind: "logic", width: 1, values: "11111111".split("") },
+    { name: "i_clk", kind: "clock", width: 1, values: "01010101".split("") }
+  ];
+  const bindings = sim.matchSignalsToPorts(signals, ports);
+  const dataB = bindings.find((b) => b.port.name === "data");
+  const clkB = bindings.find((b) => b.port.name === "clk");
+  assert.ok(dataB.matched && dataB.signal.name === "in_data", "in_data → data（旧实现剥成 n_data 失配）");
+  assert.ok(clkB.matched && clkB.signal.name === "i_clk", "i_clk → clk");
+});
+
+test("位宽兼容：1 位端口不绑位串矢量信号（防静默取首字符错值）", () => {
+  const ports = [{ name: "en", direction: "input", width: 1, msb: "", lsb: "" }];
+  const signals = [{ name: "en", kind: "vector", width: 4, values: ["1010", "1010", "1010", "1010"] }];
+  const bindings = sim.matchSignalsToPorts(signals, ports);
+  assert.equal(bindings[0].matched, false, "1 位端口 × 4 位矢量 → 不绑定");
+  // 多位端口绑定多位矢量仍正常
+  const ports2 = [{ name: "en", direction: "input", width: 4, msb: "3", lsb: "0" }];
+  const bindings2 = sim.matchSignalsToPorts(signals, ports2);
+  assert.equal(bindings2[0].matched, true, "4 位端口 × 4 位矢量 → 正常绑定");
+});
+
+// ---------------------------------------------------------------------------
 console.log("\n" + "-".repeat(56));
 if (failures.length) {
   console.log(`失败 ${failures.length} 项，通过 ${passed} 项`);
