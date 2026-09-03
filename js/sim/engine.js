@@ -87,60 +87,6 @@ export function createSignalFromPort(port, existingSignal, role, timeSteps) {
   };
 }
 
-export function syncProjectSignalsToDesign(project, design) {
-  const ports = design?.topModule?.ports || [];
-  const timeSteps = Math.max(1, Number(project?.timeSteps) || 24);
-  const existingSignals = [...(project?.signals || []), ...(project?.outputs || [])];
-  const selectedSignal = existingSignals.find((signal) => signal?.id === project?.selectedSignalId) || null;
-  const selectedName = selectedSignal ? normalizeSignalName(selectedSignal.name) : "";
-  const consumed = new Set();
-  const signals = [];
-  const outputs = [];
-
-  for (const port of ports) {
-    const exact = existingSignals.find((signal) => {
-      if (!signal || consumed.has(signal.id)) return false;
-      return normalizeSignalName(signal.name) === normalizeSignalName(port.name);
-    }) || null;
-    if (exact?.id) consumed.add(exact.id);
-    const role = port.direction === "output" || port.direction === "inout" ? "result" : "stimulus";
-    const signal = createSignalFromPort(port, exact, role, timeSteps);
-    if (role === "result") outputs.push(signal);
-    else signals.push(signal);
-  }
-
-  const selectedMatch = selectedName
-    ? [...signals, ...outputs].find((signal) => normalizeSignalName(signal.name) === selectedName)
-    : null;
-
-  return {
-    signals,
-    outputs,
-    selectedSignalId: selectedMatch?.id || signals[0]?.id || outputs[0]?.id || null
-  };
-}
-
-export function buildPlaceholderOutputsFromPorts(ports, timeSteps) {
-  const count = Math.max(1, Number(timeSteps) || 24);
-  return (ports || [])
-    .filter((port) => port.direction === "output" || port.direction === "inout")
-    .map((port, index) => {
-      const width = Math.max(1, Number(port?.width) || 1);
-      return {
-        id: `out_${index}_${String(port.name || "signal").replace(/[^a-z0-9_]/gi, "_")}`,
-        name: port.name || "signal",
-        role: "result",
-        kind: width > 1 ? "vector" : "logic",
-        width,
-        msb: port.msb || (width > 1 ? String(width - 1) : ""),
-        lsb: port.lsb || (width > 1 ? "0" : ""),
-        radix: "hexadecimal",
-        values: Array.from({ length: count }, () => (width > 1 ? "0".repeat(width) : "0")),
-        labels: Array.from({ length: count }, (_, index) => width > 1 ? formatVectorValue("0".repeat(width), width, "hexadecimal") : "")
-      };
-    });
-}
-
 function parseRange(text) {
   const match = /\[(.*?)\]/.exec(text || "");
   if (!match) return { msb: "", lsb: "", width: 1 };
@@ -456,19 +402,6 @@ export function parseVerilogDesign(source) {
     topModule,
     moduleCount: modules.length,
     topName: topModule ? topModule.name : "top"
-  };
-}
-
-export function parseVerilogPorts(source) {
-  const design = parseVerilogDesign(source);
-  const top = design.topModule;
-  return {
-    moduleName: design.topName,
-    ports: top ? top.ports : [],
-    modules: design.modules,
-    topModule: top,
-    instances: top ? top.instances : [],
-    moduleCount: design.moduleCount
   };
 }
 
@@ -906,32 +839,6 @@ export function buildAutoTestbench(design, project = {}) {
     source: lines.join("\n"),
     bindings
   };
-}
-
-export function buildDemoOutputs(project) {
-  const first = project.signals[0]?.values || [];
-  const second = project.signals[1]?.values || [];
-  const outputs = [];
-  const width = project.timeSteps;
-
-  const andValues = [];
-  const orValues = [];
-  const xorValues = [];
-  const notValues = [];
-  for (let index = 0; index < width; index += 1) {
-    const a = first[index] === "1" ? 1 : 0;
-    const b = second[index] === "1" ? 1 : 0;
-    andValues.push(a & b ? "1" : "0");
-    orValues.push(a | b ? "1" : "0");
-    xorValues.push(a ^ b ? "1" : "0");
-    notValues.push(a ? "0" : "1");
-  }
-
-  outputs.push({ id: "out_and", name: "and_y", role: "result", kind: "logic", values: andValues });
-  outputs.push({ id: "out_or", name: "or_y", role: "result", kind: "logic", values: orValues });
-  outputs.push({ id: "out_xor", name: "xor_y", role: "result", kind: "logic", values: xorValues });
-  outputs.push({ id: "out_not", name: "not_a", role: "result", kind: "logic", values: notValues });
-  return outputs;
 }
 
 export function buildSimulationPayload(sourceFiles, testbench) {
