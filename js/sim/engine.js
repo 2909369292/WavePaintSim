@@ -751,7 +751,13 @@ export function buildAutoTestbench(design, project = {}) {
     const clockCells = (Array.isArray(signal.clockCells) && signal.clockCells.length >= 2)
       ? signal.clockCells : null;
     if (clockCells) {
-      const stride = Math.max(1, Number(project.subSteps) + 1);
+      // 时间基准：优先用该信号自己的 cellStride（私有 subSteps 行每主步占格数与
+      // 全局不同），缺省回退全局 stride。⚠ 旧写法 Math.max(1, Number(x) + 1) 在
+      // subSteps 缺省时得 NaN（Math.max(1,NaN)===NaN），事件时间全 NaN → TB 出现
+      // #NaN 非法语句，iverilog 直接编译失败，必须先做 Number.isFinite 防御。
+      const globalSubs = Number(project.subSteps);
+      const fallbackStride = (Number.isFinite(globalSubs) && globalSubs >= 0) ? globalSubs + 1 : 1;
+      const stride = Math.max(1, Number(signal.cellStride) || fallbackStride);
       // 复位端口：用户从未画出复位沿时，TB 补上电复位脉冲（对每格序列生效，
       // 与主步整值驱动分支的 ensureResetPulse 语义一致）。只影响 TB，不改画布。
       const cells = resetPolarity(binding.port.name)

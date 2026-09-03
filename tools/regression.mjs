@@ -208,6 +208,48 @@ test("buildAutoTestbench 对未绑定输入给出独立全零激励（X-3）", (
 });
 
 // ---------------------------------------------------------------------------
+// 私有 divisor 模型（2026-09-04 收口）：逐格驱动时间基准用信号自己的 cellStride；
+// subSteps 缺省不得产生 NaN（旧写法 Math.max(1,NaN)===NaN → TB 出现 #NaN 非法语句）
+// ---------------------------------------------------------------------------
+test("clockCells 逐格驱动按信号自身 cellStride 计时（私有 subSteps 行）", () => {
+  const project = {
+    timeSteps: 8,
+    subSteps: 1,
+    signals: [
+      {
+        name: "clk", kind: "clock", width: 1,
+        // 私有 subSteps=3 的行：每主步 4 格 → cellStride=4
+        values: "0101010101010101".split(""),
+        clockCells: "10101010101010101010101010101010".split(""),
+        cellStride: 4
+      },
+      { name: "rst_n", kind: "logic", width: 1, values: "11111111".split("") },
+      { name: "en", kind: "logic", width: 1, values: "11111111".split("") }
+    ],
+    outputs: []
+  };
+  const src = String(sim.buildAutoTestbench(design, project).source || "");
+  assert.ok(!/#NaN/.test(src), "TB 不得出现 #NaN");
+  // cellStride=4：格子边界时间 = k/4，应出现 1/4 主步的时间增量
+  assert.ok(/#1\/4\b/.test(src) || /#0\.25\b/.test(src), "应出现 1/4 主步的时间增量");
+});
+
+test("project.subSteps 缺省时 buildAutoTestbench 不产生 NaN（防御性）", () => {
+  const project = {
+    timeSteps: 8,
+    // 故意不给 subSteps（旧代码 Number(undefined)+1=NaN → Math.max(1,NaN)=NaN）
+    signals: [
+      { name: "clk", kind: "clock", width: 1, values: "01010101".split(""), clockCells: "01010101".split("") },
+      { name: "rst_n", kind: "logic", width: 1, values: "11111111".split("") },
+      { name: "en", kind: "logic", width: 1, values: "11111111".split("") }
+    ],
+    outputs: []
+  };
+  const src = String(sim.buildAutoTestbench(design, project).source || "");
+  assert.ok(!/NaN/.test(src), "TB 任何位置不得出现 NaN");
+});
+
+// ---------------------------------------------------------------------------
 // 复位语义（2026-08-30 修复「仿真结果恒为 0」时补的回归防护）
 // 低有效复位端口若被当成普通数据端口给默认值 0，复位会一直拉住 DUT，输出恒 0。
 // ---------------------------------------------------------------------------

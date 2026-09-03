@@ -134,14 +134,22 @@ function signalNameKey(signal) {
 // 画布步数（用户设定的长度）：优先读步数输入框 #sample-spin（用户设定的画布长度），
 // 回退到 document_wave.m_sampleCount，再回退到已有信号最大长度。
 // 确保添加的端口信号长度始终与画布一致，而不是沿用已有信号的旧长度（如 15）。
+// 单信号 divisor：与 core/wpf.js 的 wpf.divisorOf 同口径 —— 信号带私有 subSteps
+// （>0）时用自己的（子步+1），否则跟随全局。私有行 values 长度 = 主步数 × 私有
+// divisor，若按全局 stride 采样会取错列（波形错位、TB 时序错）。
+function signalDivisor(sig) {
+  const own = Number(sig?.subSteps);
+  return (Number.isFinite(own) && own > 0) ? own + 1 : canvasSubSteps() + 1;
+}
+
 function canvasTimeSteps() {
   const spinEl = document.querySelector("#sample-spin");
   const spinValue = spinEl ? Number(spinEl.value) : NaN;
   const dw = window.document_wave;
-  // 回退值按数据模型换算回主步数（values 长度 = 主步数 × (子步+1)）
-  const stride = canvasSubSteps() + 1;
+  // 回退值按数据模型换算回主步数（values 长度 = 主步数 × (子步+1)）。
+  // 私有 subSteps 信号按自己的 divisor 换算，勿用全局 stride（会算错主步数）。
   const existingMax = (Array.isArray(dw?.m_signals) ? dw.m_signals : [])
-    .reduce((max, sig) => Math.max(max, Array.isArray(sig?.values) ? Math.floor(sig.values.length / stride) : 0), 0);
+    .reduce((max, sig) => Math.max(max, Array.isArray(sig?.values) ? Math.floor(sig.values.length / signalDivisor(sig)) : 0), 0);
   const steps = (Number.isFinite(spinValue) && spinValue > 0 ? spinValue : 0)
     || Number(dw?.m_sampleCount || 0)
     || existingMax
@@ -353,7 +361,7 @@ function readWaveDocument() {
   const timeSteps = canvasTimeSteps();
   // 数据模型采样：每个主步占 (子步+1) 个 values 下标，主值 = 该步第 1 个值。
   // 旧数据（长度恰好 = 主步数）按下标直取，保证向后兼容。
-  const stride = canvasSubSteps() + 1;
+  // ⚠ 带私有 subSteps 的信号按自己的 divisor 采样（signalDivisor）。
 
   return {
     name: "WavePaintClean",
@@ -363,9 +371,11 @@ function readWaveDocument() {
     selectedSignalId: null,
     signals: signals.map((sig, index) => {
       const rawValues = Array.isArray(sig?.values) ? sig.values : [];
+      // 私有 subSteps 行按自己的 divisor 采样与驱动（勿用全局 stride，会错位）
+      const ownDivisor = signalDivisor(sig);
       const width = inferWidth(sig, rawValues);
       // 位宽 1 的信号一律按「每格序列」传给 buildAutoTestbench，由 TB 用分数时间
-      // 逐格驱动（每格 1/stride 时间单位，一个主步内完成翻转 → 每主步一个上升沿）。
+      // 逐格驱动（每格 1/divisor 时间单位，一个主步内完成翻转 → 每主步一个上升沿）。
       // ⚠ 不再要求 isClockPattern/kind=clock：导入的 JSON（WaveDrom）信号可能
       //    没有该标记（如 clk 在 JSON 里用 'p' 半周期脉冲表示，展开后无 isClockPattern），
       //    否则 TB 退回「主步整值驱动」→ 主步内 clk 不翻转 → 无上升沿 → 输出恒 0
@@ -376,7 +386,7 @@ function readWaveDocument() {
       const values = Array.from({ length: timeSteps }, (_, cell) => {
         // 兜底采样：主值（每步第 1 个）优先；若主值为 x/空，取该主步内第一个确定值。
         // 解决“用户画在子步下标（奇数）时仿真采不到”导致的恒 0 问题。
-        const raw = sampleMainValue(rawValues, stride, cell, timeSteps);
+        const raw = sampleMainValue(rawValues, ownDivisor, cell, timeSteps);
         return width <= 1 ? fromNativeBitValue(raw) : normalizeVectorValue(raw, width);
       });
       return {
@@ -390,24 +400,13 @@ function readWaveDocument() {
         radix: "hexadecimal",
         values,
         clockCells,
+        // 逐格驱动的时间基准：该信号每主步占几个格子（私有 subSteps 行与全局不同）
+        cellStride: ownDivisor,
         labels: Array.from({ length: timeSteps }, (_, cell) => width > 1 ? busLabel(values[cell], width, "hexadecimal") : "")
       };
     }),
     outputs: []
   };
-}
-
-// 检测「每一格都与前一格相反」的交替位串（子步级时钟，1,0,1,0…）。
-// 只由 readWaveDocument 在对 isClockPattern 信号检查时使用，避免误伤普通数据信号。
-function isAlternatingCells(values) {
-  if (!Array.isArray(values) || values.length < 2) return false;
-  let prev = fromNativeBitValue(values[0]);
-  for (let i = 1; i < values.length; i += 1) {
-    const cur = fromNativeBitValue(values[i]);
-    if (cur === prev) return false;
-    prev = cur;
-  }
-  return true;
 }
 
 function inferWidth(sig, values) {

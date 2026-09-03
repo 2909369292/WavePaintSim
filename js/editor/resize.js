@@ -82,7 +82,51 @@
       return -1;
     }
 
-    // 核心：按新步数/子步重建每个信号的 values
+    // 附属对象（标记/时间跳转/箭头/时间跨度/文本标注）的锚点都在全局子步空间下标，
+    // 与核心原生 resize 同语义：旧下标 → 主步浮点 → 新下标（四舍五入），
+    // 越界者按原生行为过滤剔除（文本标注 sample=null 表示锚定箭头，保持不动）。
+    function remapAnchorValue(value, oldStride, newStride, maxIdx) {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return value;
+      const main = n / oldStride;
+      return Math.min(Math.max(0, Math.round(main * newStride)), maxIdx);
+    }
+
+    function remapAnchors(dw, oldStride, newStride, newSteps) {
+      const maxIdx = newSteps * newStride;
+      const pos = (v) => remapAnchorValue(v, oldStride, newStride, maxIdx);
+      const inRange = (v) => typeof v === "number" && v >= 0 && v <= maxIdx;
+      if (Array.isArray(dw.m_markers)) {
+        dw.m_markers = dw.m_markers
+          .map((m) => ({ ...m, position: pos(m.position) }))
+          .filter((m) => inRange(m.position));
+      }
+      if (Array.isArray(dw.m_timeJumps)) {
+        dw.m_timeJumps = dw.m_timeJumps
+          .map((m) => ({ ...m, position: pos(m.position) }))
+          .filter((m) => inRange(m.position));
+      }
+      if (Array.isArray(dw.m_arrows)) {
+        dw.m_arrows = dw.m_arrows
+          .map((m) => ({ ...m, startPosition: pos(m.startPosition), endPosition: pos(m.endPosition) }))
+          .filter((m) => inRange(m.startPosition) && inRange(m.endPosition));
+      }
+      if (Array.isArray(dw.m_timeSpanMarkers)) {
+        dw.m_timeSpanMarkers = dw.m_timeSpanMarkers
+          .map((m) => ({ ...m, startPosition: pos(m.startPosition), endPosition: pos(m.endPosition) }))
+          .filter((m) => inRange(m.startPosition) && inRange(m.endPosition));
+      }
+      if (Array.isArray(dw.m_textAnnotations)) {
+        dw.m_textAnnotations = dw.m_textAnnotations
+          .map((m) => ({ ...m, sample: typeof m.sample === "number" ? pos(m.sample) : m.sample }))
+          .filter((m) => m.sample === null || m.sample === undefined || m.sample >= 0);
+      }
+    }
+
+    // 核心：按新步数/子步重建每个信号的 values。
+    // ⚠ 必须按「每信号 divisor」换算（wpf.divisorOf 口径）：信号可带私有 subSteps
+    // （divisor = subSteps+1，不随全局子步变化），用全局 stride 提取/重建会把
+    // 私有行的主值取错列、重建后长度与 divisorOf 解读不一致 → 该行整体错位。
     function resizeSignals(newSteps, newSubs) {
       const dw = doc();
       if (!dw) return;
@@ -91,13 +135,16 @@
 
       const oldStride = old.subs + 1;
       const newStride = newSubs + 1;
-      const newLen = newSteps * newStride;
 
       for (const sig of (Array.isArray(dw.m_signals) ? dw.m_signals : [])) {
         if (!sig || sig.type === window.SignalType.BlankRow) continue;
+        const ownSubs = Number(sig.subSteps);
+        const hasOwn = Number.isFinite(ownSubs) && ownSubs > 0;
+        const dOld = hasOwn ? ownSubs + 1 : oldStride;   // 该行旧 divisor
+        const dNew = hasOwn ? ownSubs + 1 : newStride;   // 该行新 divisor（私有行不变）
         const oldValues = Array.isArray(sig.values) ? sig.values : [];
-        const oldSteps = oldValues.length ? Math.max(1, Math.floor(oldValues.length / oldStride)) : 0;
-        const mains = extractMainValues(oldValues, oldStride, oldSteps);
+        const oldSteps = oldValues.length ? Math.max(1, Math.floor(oldValues.length / dOld)) : 0;
+        const mains = extractMainValues(oldValues, dOld, oldSteps);
 
         // 先按新步数补齐/截断主值序列
         const extended = mains.slice(0, newSteps);
@@ -105,17 +152,19 @@
           extended.push(extendValue(sig, mains, extended.length));
         }
 
-        // 按新 stride 重建：每步的 (子步+1) 个格子都填主值
+        // 按该行新 divisor 重建：每步的 divisor 个格子都填主值
+        const newLen = newSteps * dNew;
         const next = new Array(newLen);
         for (let step = 0; step < newSteps; step += 1) {
-          for (let k = 0; k < newStride; k += 1) {
-            next[step * newStride + k] = extended[step];
+          for (let k = 0; k < dNew; k += 1) {
+            next[step * dNew + k] = extended[step];
           }
         }
         sig.values = next;
         wpf.syncSignalMeta(sig, newLen);
       }
 
+      remapAnchors(dw, oldStride, newStride, newSteps);
       dw.m_sampleCount = newSteps;
       dw.m_subStepCount = newSubs;
       wpf.scheduleRedraw();

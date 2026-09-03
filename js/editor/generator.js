@@ -21,62 +21,17 @@
     const wpf = window.__wpf;
 
     // ------------------------------------------------------------ 参数对话框
+    // 统一走 wpf.openFormDialog（Enter/Esc/遮罩关闭，共享实现，勿再自建 modal）
     function openDialog(title, fields, onOk) {
-      const mask = document.createElement('div');
-      mask.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:1000;'
-        + 'display:flex;align-items:center;justify-content:center;';
-      const box = document.createElement('div');
-      box.style.cssText = 'background:#fff;border-radius:10px;min-width:300px;padding:16px 18px;'
-        + 'box-shadow:0 8px 30px rgba(0,0,0,.3);font-size:13px;color:#222;';
-      const h = document.createElement('div');
-      h.textContent = title;
-      h.style.cssText = 'font-weight:600;margin-bottom:10px;';
-      box.appendChild(h);
-
-      const inputs = {};
-      fields.forEach(function (f) {
-        const row = document.createElement('label');
-        row.style.cssText = 'display:flex;align-items:center;gap:10px;margin:6px 0;';
-        const span = document.createElement('span');
-        span.textContent = f.label;
-        span.style.cssText = 'width:110px;text-align:right;';
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.value = f.value;
-        input.style.cssText = 'flex:1;padding:4px 6px;border:1px solid #ccc;border-radius:4px;';
-        inputs[f.key] = input;
-        row.appendChild(span);
-        row.appendChild(input);
-        box.appendChild(row);
-      });
-
-      const footer = document.createElement('div');
-      footer.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin-top:12px;';
-      const cancel = document.createElement('button');
-      cancel.textContent = '取消';
-      cancel.style.cssText = 'padding:4px 14px;cursor:pointer;';
-      const ok = document.createElement('button');
-      ok.textContent = '生成';
-      ok.style.cssText = 'padding:4px 14px;cursor:pointer;background:#4CAF50;color:#fff;border:none;border-radius:4px;';
-      cancel.addEventListener('click', function () { document.body.removeChild(mask); });
-      ok.addEventListener('click', function () {
-        const values = {};
-        Object.keys(inputs).forEach(function (k) { values[k] = inputs[k].value; });
-        document.body.removeChild(mask);
-        onOk(values);
-      });
-      footer.appendChild(cancel);
-      footer.appendChild(ok);
-      box.appendChild(footer);
-      mask.appendChild(box);
-      document.body.appendChild(mask);
-      if (fields.length) inputs[fields[0].key].focus();
+      wpf.openFormDialog({ title: title, fields: fields, okText: '生成', onOk: onOk });
     }
 
     // ------------------------------------------------------------ 信号构建
     function appendSignal(name, mainValues) {
       const dw = window.document_wave;
-      const stride = Math.max(1, (Number(dw.m_subStepCount) || 1) + 1);
+      // 权威口径 wpf.stride()：子步 0 合法（stride=1）。
+      // 旧写法 (Number(x) || 1) + 1 把子步 0 当 1 → 生成长度翻倍错位（BUG-009 同款，勿回退）。
+      const stride = wpf.stride();
       const steps = Math.max(4, Number(dw.m_sampleCount) || 30);
       const len = steps * stride;
       const sig = new window.Signal(name, window.SignalType.Bit, len);
@@ -182,7 +137,7 @@
           const interval = num(v.interval, 10);
           const gw = Math.max(1, num(v.width, 1));
           const dw = window.document_wave;
-          const stride = Math.max(1, (Number(dw.m_subStepCount) || 1) + 1);
+          const stride = wpf.stride(); // 权威口径，子步 0 合法（见 appendSignal 注释）
           const steps = Math.max(4, Number(dw.m_sampleCount) || 30);
           const len = steps * stride;
           const sig = new window.Signal(v.name || 'gclk', window.SignalType.Bit, len);

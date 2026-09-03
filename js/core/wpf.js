@@ -616,6 +616,97 @@
     return Array.isArray(indices) ? indices.slice() : [];
   };
 
+  // ------------------------------------------------- 共享表单对话框
+  // editor 内需要多字段参数输入的场景（波形生成器 / 协议模板）统一用这里，
+  // 不再各自拼 DOM（历史遗留两份几乎相同的 modal 已收编）。
+  // 约定：Enter=提交、Esc=取消、点遮罩=取消；onOk(values) 返回字符串（错误文案）
+  // 则对话框不关闭且输入框红框提示，返回 undefined/false 视为成功并关闭。
+  wpf.openFormDialog = function (opts) {
+    const mask = document.createElement('div');
+    mask.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:1000;'
+      + 'display:flex;align-items:center;justify-content:center;';
+    const box = document.createElement('div');
+    box.style.cssText = 'background:#fff;border-radius:10px;min-width:300px;padding:16px 18px;'
+      + 'box-shadow:0 8px 30px rgba(0,0,0,.3);font-size:13px;color:#222;';
+    const h = document.createElement('div');
+    h.textContent = opts.title || '';
+    h.style.cssText = 'font-weight:600;margin-bottom:6px;';
+    box.appendChild(h);
+    if (opts.hint) {
+      const p = document.createElement('div');
+      p.textContent = opts.hint;
+      p.style.cssText = 'color:#666;margin-bottom:10px;';
+      box.appendChild(p);
+    }
+
+    const inputs = {};
+    const errTip = document.createElement('div');
+    errTip.style.cssText = 'color:#c62828;min-height:16px;margin-top:8px;font-size:12px;';
+    (Array.isArray(opts.fields) ? opts.fields : []).forEach(function (f) {
+      const row = document.createElement('label');
+      row.style.cssText = 'display:flex;align-items:center;gap:10px;margin:6px 0;';
+      const span = document.createElement('span');
+      span.textContent = f.label;
+      span.style.cssText = 'width:110px;text-align:right;flex:none;';
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = f.value != null ? String(f.value) : '';
+      input.style.cssText = 'flex:1;padding:4px 6px;border:1px solid #ccc;border-radius:4px;';
+      input.addEventListener('input', function () {
+        input.style.borderColor = '#ccc';
+        errTip.textContent = '';
+      });
+      inputs[f.key] = input;
+      row.appendChild(span);
+      row.appendChild(input);
+      box.appendChild(row);
+    });
+
+    function close() {
+      if (mask.parentNode) mask.parentNode.removeChild(mask);
+      document.removeEventListener('keydown', onKey, true);
+    }
+    function submit() {
+      const values = {};
+      Object.keys(inputs).forEach(function (k) { values[k] = inputs[k].value; });
+      const err = opts.onOk ? opts.onOk(values) : undefined;
+      if (typeof err === 'string' && err) {
+        errTip.textContent = err;
+        Object.keys(inputs).forEach(function (k) { inputs[k].style.borderColor = '#c62828'; });
+        return;
+      }
+      close();
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+      else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); submit(); }
+    }
+
+    const footer = document.createElement('div');
+    footer.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin-top:12px;';
+    const cancel = document.createElement('button');
+    cancel.textContent = '取消';
+    cancel.style.cssText = 'padding:4px 14px;cursor:pointer;';
+    cancel.addEventListener('click', close);
+    const ok = document.createElement('button');
+    ok.textContent = opts.okText || '确定';
+    ok.style.cssText = 'padding:4px 14px;cursor:pointer;background:#4CAF50;color:#fff;border:none;border-radius:4px;';
+    ok.addEventListener('click', submit);
+    footer.appendChild(cancel);
+    footer.appendChild(ok);
+    box.appendChild(errTip);
+    box.appendChild(footer);
+    mask.appendChild(box);
+    document.body.appendChild(mask);
+
+    const first = Array.isArray(opts.fields) && opts.fields.length ? inputs[opts.fields[0].key] : null;
+    if (first) { first.focus(); first.select(); }
+    else ok.focus();
+    // 捕获阶段注册：优先于核心快捷键（1/0/x/z 等）消化按键
+    document.addEventListener('keydown', onKey, true);
+    return close;
+  };
+
   // ------------------------------------------------- 默认浅色主题
   // 核心默认深色主题（body.dark）。这里在启动阶段切回浅色，但只做一次：
   // 之后用户通过「主题」菜单的选择一律尊重（核心的 applyTheme 会自行持久化）。

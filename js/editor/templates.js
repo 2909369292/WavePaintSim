@@ -23,16 +23,26 @@
   window.__wpf.ready(function () {
     const wpf = window.__wpf;
 
+    // 字节输入解析（对话框参数，非画布格子值，不走 wpf.parseValue）：
+    // 0x 前缀 / 含 a-f → 十六进制；纯数字 0-255 → 十进制；非法回退默认值。
+    // 旧实现把「10」当 hex 解析成 16，与直觉不符。
     function parseByte(text, def) {
-      const m = /^(0x)?([0-9a-f]{1,2})$/i.exec(String(text || '').trim());
-      if (!m) return def;
-      return parseInt(m[2], 16) & 0xff;
+      const s = String(text || '').trim().toLowerCase();
+      if (!s) return def;
+      let base = 16, body = s;
+      const prefixed = /^0x([0-9a-f]{1,2})$/.exec(s);
+      if (prefixed) { body = prefixed[1]; }
+      else if (/^[0-9]+$/.test(s)) { base = 10; }
+      else if (!/^[0-9a-f]{1,2}$/.test(s)) return def;
+      const n = parseInt(body, base);
+      return Number.isFinite(n) && n >= 0 && n <= 255 ? n : def;
     }
 
     // 以主步为粒度构建电平序列（每步一个 0/1），子格自动铺开
     function buildSignal(name, mains) {
       const dw = window.document_wave;
-      const stride = Math.max(1, (Number(dw.m_subStepCount) || 1) + 1);
+      // 权威口径 wpf.stride()：子步 0 合法（stride=1），旧 (x||1)+1 会把 0 当 1（BUG-009 同款）
+      const stride = wpf.stride();
       const steps = Math.max(4, Number(dw.m_sampleCount) || 30);
       const len = steps * stride;
       const sig = new window.Signal(name, window.SignalType.Bit, len);
@@ -129,50 +139,20 @@
       'tpl-uart-rx': { title: 'UART 接收（8N1，字节 hex）', def: '55', names: 'rxd', build: function (b) { return uartSignals(b).slice(1, 2); } }
     };
 
-    function byteDialog(tpl, action) {
-      const mask = document.createElement('div');
-      mask.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:1000;'
-        + 'display:flex;align-items:center;justify-content:center;';
-      const box = document.createElement('div');
-      box.style.cssText = 'background:#fff;border-radius:10px;min-width:300px;padding:16px 18px;'
-        + 'box-shadow:0 8px 30px rgba(0,0,0,.3);font-size:13px;color:#222;';
-      const h = document.createElement('div');
-      h.textContent = tpl.title;
-      h.style.cssText = 'font-weight:600;margin-bottom:6px;';
-      const p = document.createElement('div');
-      p.textContent = '将生成信号：' + tpl.names + '（长度取当前画布步数）';
-      p.style.cssText = 'color:#666;margin-bottom:10px;';
-      const row = document.createElement('label');
-      row.style.cssText = 'display:flex;align-items:center;gap:10px;';
-      const span = document.createElement('span');
-      span.textContent = '字节 (hex)';
-      const input = document.createElement('input');
-      input.type = 'text';
-      input.value = tpl.def;
-      input.style.cssText = 'flex:1;padding:4px 6px;border:1px solid #ccc;border-radius:4px;';
-      row.appendChild(span); row.appendChild(input);
-      const footer = document.createElement('div');
-      footer.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin-top:12px;';
-      const cancel = document.createElement('button');
-      cancel.textContent = '取消';
-      const ok = document.createElement('button');
-      ok.textContent = '生成';
-      ok.style.cssText = 'padding:4px 14px;cursor:pointer;background:#4CAF50;color:#fff;border:none;border-radius:4px;';
-      cancel.style.cssText = 'padding:4px 14px;cursor:pointer;';
-      cancel.addEventListener('click', function () { document.body.removeChild(mask); });
-      ok.addEventListener('click', function () {
-        document.body.removeChild(mask);
-        const byte = parseByte(input.value, parseByte(tpl.def, 0xa5));
-        const dw = window.document_wave;
-        wpf.pushUndoSnapshot();
-        tpl.build(byte).forEach(function (spec) { dw.m_signals.push(buildSignal(spec.name, spec.values)); });
-        wpf.scheduleRedraw();
+    function byteDialog(tpl) {
+      wpf.openFormDialog({
+        title: tpl.title,
+        hint: '将生成信号：' + tpl.names + '（长度取当前画布步数）',
+        okText: '生成',
+        fields: [{ key: 'byte', label: '字节 (hex/十进制)', value: tpl.def }],
+        onOk: function (v) {
+          const byte = parseByte(v.byte, parseByte(tpl.def, 0xa5));
+          const dw = window.document_wave;
+          wpf.pushUndoSnapshot();
+          tpl.build(byte).forEach(function (spec) { dw.m_signals.push(buildSignal(spec.name, spec.values)); });
+          wpf.scheduleRedraw();
+        }
       });
-      footer.appendChild(cancel); footer.appendChild(ok);
-      box.appendChild(h); box.appendChild(p); box.appendChild(row); box.appendChild(footer);
-      mask.appendChild(box);
-      document.body.appendChild(mask);
-      input.focus();
     }
 
     document.addEventListener('click', function (e) {
@@ -182,7 +162,7 @@
       if (!tpl) return;
       e.preventDefault();
       e.stopPropagation();
-      byteDialog(tpl, a.getAttribute('data-wpf-action'));
+      byteDialog(tpl);
     });
   }, 'editor/templates');
 })();
