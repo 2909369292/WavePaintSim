@@ -8,7 +8,7 @@
 //   - Bit 普通拖动 → 交给 editor/draw.js（TimeGen 绘制）
 // 弹窗交互：自动聚焦、回车/点击别处即写入、无输入点别处即取消、Esc 取消
 // （隐藏 #wp-modal 自带确定/取消按钮，保留右上角 X）。
-// 依赖：core/wpf.js（window.__wpf）、sim/project-model.js（window.__wpfVec）
+// 依赖：core/wpf.js（window.__wpf）、core/__core.js（window.__core.prompt）
 // ============================================================================
 (function () {
   'use strict';
@@ -36,50 +36,11 @@
     function promptActive() { return window.__core.promptActive(); }
 
     // ---------------------------------------------------------- 输入解析
-    function vectorWidth(sig) {
-      const w = Number(sig && sig.width);
-      if (Number.isFinite(w) && w > 1) return Math.floor(w);
-      const values = (sig && Array.isArray(sig.values)) ? sig.values : [];
-      for (const v of values) {
-        const text = String(v ?? '').trim();
-        if (/^[01xz]+$/i.test(text) && text.length > 1) return text.length;
-      }
-      return 1;
-    }
-    function parseVectorValue(raw, width) {
-      const w = Math.max(1, width || 1);
-      const mod = window.__wpfVec;
-      if (mod && typeof mod.normalizeVectorValue === 'function') {
-        try { return mod.normalizeVectorValue(raw, w); } catch (e) { /* 回退 */ }
-      }
-      // 本地回退（与 editor/selection.js 的 parseBusInput 一致）
-      const text = String(raw == null ? '' : raw).trim().toLowerCase().replace(/_/g, '').replace(/\s+/g, '');
-      if (!text) return null;
-      if (/^[01xz]+$/.test(text)) {
-        if (text.length === w) return text;
-        if (text.length > w) return text.slice(-w);
-        const fill = (text[0] === 'x' || text[0] === 'z') ? text[0] : '0';
-        return text.padStart(w, fill);
-      }
-      const sized = /^(\d+)?'([bhdox])([0-9a-fxz]+)$/.exec(text);
-      const prefixed = /^(0[bhdox])([0-9a-fxz]+)$/.exec(text);
-      const base = sized ? sized[2].toLowerCase() : prefixed ? prefixed[1].slice(1).toLowerCase() : '';
-      const payload = sized ? sized[3] : prefixed ? prefixed[2] : text;
-      let bits = '';
-      if (base === 'b') bits = payload;
-      else if (base === 'h' || base === 'x') {
-        for (const d of payload) bits += /^[0-9a-f]$/.test(d) ? Number.parseInt(d, 16).toString(2).padStart(4, '0') : d.repeat(4);
-      } else if (base === 'o') {
-        for (const d of payload) bits += /^[0-7]$/.test(d) ? Number.parseInt(d, 8).toString(2).padStart(3, '0') : d.repeat(3);
-      } else {
-        const num = /^[-+]?\d+$/.test(text) ? BigInt(text) : null;
-        if (num !== null) bits = (num < 0n ? (num + (1n << BigInt(w))) : num).toString(2);
-      }
-      if (!bits) return null;
-      if (bits.length >= w) return bits.slice(-w);
-      const fill = (bits[0] === 'x' || bits[0] === 'z') ? bits[0] : '0';
-      return bits.padStart(w, fill);
-    }
+    // 值解析统一走 wpf.parseValue(raw, sig)（见 core/wpf.js「值解析」——无位宽
+    // 概念，位串/0x/0b/Verilog/十进制皆可，Vector 与 Bit 各自编码）。
+    // 历史实现 parseVectorValue/vectorWidth 依赖不存在的 sig.width（width 恒 1 →
+    // 'A' 会被截成 '0'，正是「框选多 bit 信号写值变 0 / 添加信号异常」的根源），
+    // 已删除；本模块只保留 Bit 的「单字符 / 位串循环」输入语义（历史 R1 规则）。
     const BIT_MAP = { '1': 1, '0': 0, 'x': -1, 'z': 2, 'u': 3, 'd': 4 };
     // 解析 Bit 输入：返回 { value:number }（单值）或 { multi:[chars] }（位串），非法返回 null
     function parseBitInput(raw) {
@@ -91,17 +52,21 @@
     }
 
     // ---------------------------------------------------------- 统一写入
-    // 对目标下标列表按粒度写入一个值（Vector 位串 / Bit 单值或位串循环）。
+    // 对目标下标列表按粒度写入一个值（Vector 值 / Bit 单值或位串循环）。
     // 返回 true=成功写入，false=输入非法。
+    // indices 是「该信号自己的 values 下标」（mousedown 的 signalSampleIndex 口径），
+    // 因此按步收敛用 divisorOf(sig) 而不是全局 stride()：信号设了私有子步时，
+    // 用全局口径求主步首格会框错格子。
     function applyToRange(sig, indices, raw) {
       const isVector = !!(window.SignalType && sig.type === window.SignalType.Vector);
-      const targets = wpf.indicesByGranularity(indices, wpf.stride());
+      const targets = wpf.indicesByGranularity(indices, wpf.divisorOf(sig));
       if (isVector) {
-        const bits = parseVectorValue(raw, vectorWidth(sig));
-        if (bits == null) return false;
+        // Vector：交给 wpf.parseValue 全格式解析（'A' 按信号 radix→10，不会变 '0'）
+        const v = wpf.parseValue(raw, sig);
+        if (v === null) return false;
         wpf.pushUndoSnapshot(); // R4
         for (const i of targets) {
-          if (i < sig.values.length) wpf.writeValue(sig, i, bits);
+          if (i < sig.values.length) wpf.writeValue(sig, i, v);
         }
         if (typeof wpf.refreshBusLabels === 'function') wpf.refreshBusLabels(sig);
         wpf.scheduleRedraw();
@@ -234,17 +199,9 @@
       if (!sel.moved && (Math.abs(e.clientX - sel.x0) > 4 || Math.abs(e.clientY - sel.y0) > 4)) {
         sel.moved = true;
       }
-      if (sel.mode === 'native' && sel.moved) {
-        // 原生会话：放行核心更新框选；只记录 end 供弹窗换算范围
-        const m = wpf.mapAt(e.clientX, e.clientY);
-        if (!m) return;
-        if (m.signalIndex === sel.signalIndex) {
-          sel.end = m.signalSampleIndex;
-        } else if (m.mainStep >= 0) {
-          sel.end = Math.max(0, Number(m.mainStep)) * wpf.stride();
-        }
-      }
-      // Bit 非 Ctrl 拖动：放行 editor/draw.js 绘制（不拦截）
+      // Ctrl/Vector 会话（sel.mode==='native'）已切到 select 工具并放行给
+      // editor/selection.js：选框/工具条全部由它驱动，这里不再记录任何选区状态。
+      // Bit 非 Ctrl 拖动：放行 editor/draw.js 绘制（不拦截）。
     }
 
     function onMouseUp(e) {

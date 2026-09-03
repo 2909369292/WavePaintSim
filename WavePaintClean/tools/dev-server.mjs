@@ -99,6 +99,11 @@ http.createServer(async (req, res) => {
       res.end(out);
       return;
     }
+    if (urlPath === '/api/ping') { // 与 exe 内置服务同款心跳（js/core/heartbeat.js）
+      res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('OK');
+      return;
+    }
     if (urlPath === '/') urlPath = '/index.html';
     const file = path.join(root, urlPath);
     if (!file.startsWith(path.resolve(root))) { res.writeHead(403); res.end(); return; }

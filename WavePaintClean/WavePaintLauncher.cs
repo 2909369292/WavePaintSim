@@ -170,6 +170,10 @@ namespace WaveWorkbench
 
                 if (path == "api/ping")
                 {
+                    // 页面心跳（js/core/heartbeat.js 每 2s 一次）：纯画布编辑不产生请求，
+                    // 没有心跳的话 lastActivity 会过期 → 静置一段时间后被下面的空闲退出逻辑
+                    // 误杀服务（前端再点仿真就 Failed to fetch「服务不在线」）。
+                    lastActivity = Environment.TickCount;
                     byte[] data = Encoding.UTF8.GetBytes("OK");
                     context.Response.ContentType = "text/plain; charset=utf-8";
                     context.Response.ContentLength64 = data.Length;
@@ -618,8 +622,14 @@ namespace WaveWorkbench
                 else if (everSeen) gone++;
                 else noWindowTicks++;
                 int idle = Environment.TickCount - lastActivity;
-                // 窗口消失 >12s 且空闲 >15s 才退出（原 3.5s/5s 过严，系统繁忙时窗口标题可能短暂获取不到）
-                if (gone > 24 && idle > 15000) break;
+                // 退出策略（2026-09-03 调整）：
+                //   页面打开期间 js/core/heartbeat.js 每 2s 打一次 api/ping → lastActivity 持续
+                //   刷新 → idle 恒 < ~4s。因此「窗口消失 + idle 超限」只在页面真的被关闭后才会
+                //   满足（关窗 → 心跳停止 → idle 爬升），不会再因窗口标题偶发获取失败而误杀
+                //   正在使用的服务（这是「运行一段时间后仿真服务不在线」的历史根因之一）。
+                // 窗口消失 >12s 且空闲 >20s 才退出（原 3.5s/5s、15s 过严，系统繁忙/窗口标题
+                // 短暂获取不到时都会误杀）。
+                if (gone > 24 && idle > 20000) break;
                 if (!everSeen && noWindowTicks > 240) break;
                 if (!everSeen && idle > 60000) break;
                 Thread.Sleep(500);

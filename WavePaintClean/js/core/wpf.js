@@ -332,12 +332,17 @@
 
   // 按「信号自身 radix」重算单个矢量信号的全部标签；返回 1 表示处理过。
   // 信号没记 radix 时才退回全局进制 —— 全局开关与单信号右键切换互不干扰。
+  //
+  // ⚠ 历史 bug（2026-09-03 修）：这里曾按 `Number(sig.width) || 1` 判断，
+  // 只有 width > 1 才算标签、否则把 labels 全部写成 ''。但核心的 Signal 构造函数
+  // 与 addVectorSignal 都**不设 width 字段**（矢量值按 radix 显示，没有固定位宽概念），
+  // 于是 width 恒为 1 → 任何一次写值后 refreshBusLabels 会把整行标签清空，
+  // 表现为「新加的矢量信号写完值波形上不显示数值」。矢量信号一律显示标签。
   wpf.refreshBusLabels = function (sig) {
     if (!sig || !Array.isArray(sig.values) || !Array.isArray(sig.labels)) return 0;
-    const width = Math.max(1, Number(sig.width) || 1);
     const radix = (sig.radix == null) ? wpf.busRadixValue() : sig.radix;
     for (let k = 0; k < sig.values.length && k < sig.labels.length; k += 1) {
-      sig.labels[k] = width > 1 ? wpf.valueLabel(sig.values[k], radix) : '';
+      sig.labels[k] = wpf.valueLabel(sig.values[k], radix);
     }
     return 1;
   };
@@ -400,23 +405,82 @@
     wpf.syncBusRadixUI();
   };
 
-  // ---------------------------------------------------------------- 子步数
-  // 返回画布子步数（>=0），与数据模型 m_subStepCount 一致
+  // ================================================================ 坐标模型
+  // ⚠ 这一节是全项目关于「样本下标」的唯一权威口径，改动前务必读完。
+  //
+  // 数据模型里存在两套「每主步的格子数」（divisor）：
+  //   · 全局 divisor  = m_subStepCount + 1          —— 画布的最小格宽度、核心选框绘制口径
+  //   · 单信号 divisor = (sig.subSteps || m_subStepCount) + 1 —— 该信号 values 数组的实际铺开口径
+  // 信号可以通过 setSignalSubSteps() 拥有自己的子步数，此时它的 values.length
+  // 与其他信号不同（实测：全局 sub=1 时 values.length=60，某行设 subSteps=3 后该行=120）。
+  // 因此「同一个样本下标在不同信号行上含义不同」，跨行直接套用同一个下标必然错。
+  //
+  // 唯一正确的换算路径（与核心 copySelection/pasteClipboard/deleteSelection 一致）：
+  //   下标 --÷该行 divisor--> 主步浮点坐标 --×目标行 divisor--> 目标行下标
+  // 所有跨行批量操作（框选写值/复制/粘贴）都必须经由主步坐标中转。
+
+  // 返回画布全局子步数（>=0），与数据模型 m_subStepCount 一致
   wpf.subSteps = function () {
     const dw = window.document_wave;
     return Math.max(0, Number(dw && dw.m_subStepCount) || 0);
   };
 
-  // stride = 每主步占的下标数（子步数 + 1）
+  // 全局 divisor = 每主步占的下标数（子步数 + 1）。
+  // 仅用于「画布最小格」与「核心选框绘制」口径；跨行写值请用 divisorOf(sig)。
   wpf.stride = function () {
     return Math.max(1, wpf.subSteps() + 1);
   };
 
+  // 单个信号的 divisor：该信号自己每主步占几个 values 下标。
+  // 等价于核心的 clipboardDivisorOf()：sig.subSteps > 0 时用它，否则跟随全局。
+  wpf.divisorOf = function (sig) {
+    const own = Number(sig && sig.subSteps);
+    if (Number.isFinite(own) && own > 0) return own + 1;
+    return wpf.stride();
+  };
+
+  // 该信号的主步总数（values 铺满的主步数）
+  wpf.mainCountOf = function (sig) {
+    if (!sig || !Array.isArray(sig.values)) return 0;
+    return Math.floor(sig.values.length / wpf.divisorOf(sig));
+  };
+
+  // 全局子步空间的下标 → 主步浮点坐标。整步边界上得到整数。
+  wpf.globalToMain = function (sampleIndex) {
+    return Number(sampleIndex) / wpf.stride();
+  };
+
+  // 主步浮点坐标 → 指定信号的 values 下标（四舍五入，与核心 Math.round 口径一致）
+  wpf.mainToIndex = function (sig, mainPos) {
+    return Math.round(Number(mainPos) * wpf.divisorOf(sig));
+  };
+
+  // 把「全局子步空间的闭区间 [sampleStart, sampleEnd]」映射为某信号要写入的下标数组。
+  // 换算经主步坐标中转，因此该信号即使有自己的子步数也不会错位；
+  // 结果自动夹到 values 长度内，返回的下标一定可写。
+  wpf.cellsInRange = function (sig, sampleStart, sampleEnd) {
+    if (!sig || !Array.isArray(sig.values)) return [];
+    const mainFrom = wpf.globalToMain(sampleStart);
+    const mainTo = wpf.globalToMain(Number(sampleEnd) + 1); // 右开
+    let from = wpf.mainToIndex(sig, mainFrom);
+    let to = wpf.mainToIndex(sig, mainTo);                  // 右开
+    if (to <= from) to = from + 1;                          // 至少一格，避免空写
+    from = Math.max(0, from);
+    to = Math.min(sig.values.length, to);
+    const out = [];
+    for (let i = from; i < to; i += 1) out.push(i);
+    return out;
+  };
+
   // 按当前编辑粒度写入一个值，并清掉对应格子的时钟标记。
-  //   step（默认）：写入该主步的全部 stride 个下标 —— 与仿真采样口径一致，
+  //   step（默认）：写入该主步的全部下标 —— 与仿真采样口径一致，
   //                 避免"画在子步下标导致 readWaveDocument 采不到 → 结果恒 0"。
   //   substep      ：只写入命中的那一个下标（用于画时钟沿等精细场景）。
   // editor/draw.js（鼠标）与 editor/shortcuts.js（方向键）共用，保证两处行为一致。
+  //
+  // sampleIndex 是**该信号自己的 values 下标**（mapCanvasPosition 的 signalSampleIndex
+  // 就是这个口径），因此这里用 divisorOf(sig) 而不是全局 stride()：
+  // 信号有自己的子步数时，用全局 stride 求主步首格会算错格子。
   wpf.writeValue = function (sig, sampleIndex, value) {
     if (!sig || !Array.isArray(sig.values)) return false;
     if (!(sampleIndex >= 0) || sampleIndex >= sig.values.length) return false;
@@ -429,16 +493,97 @@
       return true;
     }
 
-    const stride = wpf.stride();
-    const start = Math.floor(sampleIndex / stride) * stride;
-    const end = Math.min(start + stride - 1, sig.values.length - 1);
+    const divisor = wpf.divisorOf(sig);
+    const start = Math.floor(sampleIndex / divisor) * divisor;
+    const end = Math.min(start + divisor - 1, sig.values.length - 1);
     for (let i = start; i <= end; i += 1) sig.values[i] = value;
     if (Array.isArray(sig.clockMarkers)) {
-      const cEnd = Math.min(start + stride - 1, sig.clockMarkers.length - 1);
+      const cEnd = Math.min(start + divisor - 1, sig.clockMarkers.length - 1);
       for (let i = start; i <= cEnd; i += 1) sig.clockMarkers[i] = false;
     }
     return true;
   };
+
+  // ---------------------------------------------------------------- 值解析
+  // 用户输入的文本 → 可直接存进 sig.values 的值。全项目唯一实现。
+  //
+  // 语义与核心 valueToLabel（wavepaint.clean.js [PATCH-A3]）严格对称 —— 后者能显示
+  // 「位串字符串」和「数字」两种形态，所以这里也产出这两种形态，**不需要位宽概念**：
+  //   · 纯 0/1/x/z 且长度>1  → 位串原样存（手绘/导入/多位输入的天然形态）
+  //   · 单字符 x / z        → Bit 存 -1 / 2（核心 Bit 数字编码）；Vector 存 'x' / 'z'
+  //   · 0x../0b../0o..、Verilog 8'hA5 → 按显式基数解析成数字
+  //   · 纯十进制            → 数字
+  //   · 裸 hex（A、FF、1e） → 按**该信号自身 radix** 解析（Hex 时 A→10）
+  // 返回 null 表示无法解析（调用方应跳过，不要写 0）。
+  //
+  // ⚠ 历史 bug（2026-09-03 修）：旧实现 parseBusInput(raw, width) 依赖不存在的
+  // sig.width，width 恒为 1，于是 'A' 走到最后 return '0'.repeat(1) → **框选多位
+  // 信号输入 A 会被写成 0**。位宽概念本身就是错的，已整体删除。
+  wpf.parseValue = function (raw, sig) {
+    const isVector = !!(sig && window.SignalType && sig.type === window.SignalType.Vector);
+    const text = String(raw == null ? '' : raw).trim().replace(/_/g, '').replace(/\s+/g, '');
+    if (!text) return null;
+    const low = text.toLowerCase();
+
+    // 单字符 x / z：两种信号形态的编码不同
+    if (low === 'x') return isVector ? 'x' : -1;
+    if (low === 'z') return isVector ? 'z' : 2;
+    if (!isVector) {
+      if (low === '1') return 1;
+      if (low === '0') return 0;
+      if (low === 'u') return 3;
+      if (low === 'd') return 4;
+      // Bit 信号只接受上面这些；数字 5 之类没有意义
+      return null;
+    }
+
+    // 位串（长度>1 的 0/1/x/z 组合）原样存 —— 位宽由字符串自身决定
+    if (/^[01xz]+$/.test(low) && low.length > 1) return low;
+
+    // 显式基数：Verilog 8'hA5 / 'b1010，或 0x/0b/0o 前缀
+    const sized = /^(\d+)?'([bhdo])([0-9a-fxz]+)$/.exec(low);
+    const prefixed = /^0([xbo])([0-9a-fxz]+)$/.exec(low);
+    let base = '';
+    let payload = '';
+    if (sized) { base = sized[2] === 'h' ? 'x' : sized[2]; payload = sized[3]; }
+    else if (prefixed) { base = prefixed[1]; payload = prefixed[2]; }
+
+    if (base) {
+      const radixNum = base === 'x' ? 16 : base === 'b' ? 2 : base === 'o' ? 8 : 10;
+      // 含 x/z 的位串无法表示成数字 → 展开成位串
+      if (/[xz]/.test(payload)) return expandToBits(payload, radixNum);
+      const n = parseInt(payload, radixNum);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    // 纯十进制
+    if (/^[-+]?\d+$/.test(low)) {
+      const n = Number(low);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    // 裸 hex：按信号自身 radix 解读（Hex → 16 进制，Dec/Bin 已在上面的分支处理过）
+    if (/^[0-9a-f]+$/.test(low)) {
+      const radix = (sig && sig.radix != null) ? sig.radix : wpf.busRadixValue();
+      const name = wpf.radixNameOf(radix);
+      const n = parseInt(low, name === 'hex' ? 16 : name === 'bin' ? 2 : 10);
+      return Number.isFinite(n) ? n : null;
+    }
+    return null;
+  };
+
+  // 'a5' + 16 → '10100101'；含 x/z 的位按该基数的位宽整段重复（Verilog 语义）
+  function expandToBits(payload, radixNum) {
+    const bitsPerDigit = radixNum === 16 ? 4 : radixNum === 8 ? 3 : 1;
+    let out = '';
+    for (const ch of payload) {
+      if (ch === 'x' || ch === 'z') { out += ch.repeat(bitsPerDigit); continue; }
+      const v = parseInt(ch, radixNum);
+      if (!Number.isFinite(v)) return null;
+      out += v.toString(2).padStart(bitsPerDigit, '0');
+    }
+    return out || null;
+  }
 
   // 弹窗关闭时清掉 editor/selection.js 历史残留的自绘 marquee overlay（wpf-select-overlay）。
   // 原生框选由核心绘制，这里只负责清我们以前可能残留的图层。

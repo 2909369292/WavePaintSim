@@ -89,10 +89,12 @@
     }
 
     // 写入 [from, to] 区间的每一格（含两端）。整步粒度下按主步首格步进，
-    // 由 writeValue 负责铺满该主步的 stride 个下标，避免重复写。
+    // 由 writeValue 负责铺满该主步的全部下标，避免重复写。
+    // unit 必须用**该信号自己的 divisor**：信号可以有独立 subSteps，
+    // 用全局 stride 步进会算出错行的主步首格（漏格/串格）。
     function paintSpan(sig, from, to, value) {
       const substep = wpf.editGranularity() === 'substep';
-      const unit = substep ? 1 : wpf.stride();
+      const unit = substep ? 1 : wpf.divisorOf(sig);
       const start = substep ? from : Math.floor(from / unit) * unit;
       const end = substep ? to : Math.floor(to / unit) * unit;
       const dir = start <= end ? 1 : -1;
@@ -117,7 +119,8 @@
         // 指针移出锁定行：用全局主步号换算成锁定行的主值下标。
         // 不能跨行借用 signalSampleIndex —— 不同信号的 subSteps 可能不同，
         // 下标坐标系不一样，直接借用会写到错误的格子。
-        idx = (Math.max(0, Number(m.mainStep) || 0)) * wpf.stride();
+        // 换算必须乘**锁定行自己的 divisor**（wpf.divisorOf），不是全局 stride。
+        idx = (Math.max(0, Number(m.mainStep) || 0)) * wpf.divisorOf(sig);
       }
       if (!(idx >= 0) || idx >= sig.values.length) return;
 

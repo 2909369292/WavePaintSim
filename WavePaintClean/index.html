@@ -648,6 +648,8 @@
     <script src="js/core/__core.js"></script>
     <!-- 扩展模块：core 共享层 + editor 编辑域 -->
     <script src="js/core/wpf.js"></script>
+    <!-- launcher 存活心跳：每 2s 向 api/ping 报活，防「长时间纯编辑后被误判空闲退出 → 仿真服务不在线」 -->
+    <script src="js/core/heartbeat.js"></script>
     <!-- v0.3.0：值输入编辑（Bit/Vector 弹窗 + 整步子步粒度 + Ctrl 框选）。
          必须加载在 editor/draw.js 之前，其 document 捕获监听才能先于绘制模块判定接管。 -->
     <script src="js/editor/value-input.js"></script>

@@ -85,14 +85,17 @@
         const idx = cursor.sampleIndex;
         const len = signal.values.length;
         // 移动粒度与写入粒度保持一致（P1-2 配套）：
-        // 「整步」下一次跨一个主步（stride 个下标），否则按 1 个下标挪。
+        // 「整步」下一次跨一个主步（该信号 divisor 个下标），否则按 1 个下标挪。
         // 否则整步模式下连按两次 → 都落在同一主步内，光标看着没动。
-        const stride = wpf.stride();
+        // ⚠ 步长必须用「当前信号自己的 divisor」（divisorOf），不是全局 stride()：
+        //   信号设了私有子步（sig.subSteps）时 values 按自己 divisor 铺开，
+        //   用全局口径求主步会框错格子。纵向跳转同样经主步坐标映射（见下）。
+        const sigDivisor = wpf.divisorOf(signal);
         const stepMode = wpf.editGranularity() !== 'substep';
         const moveBy = function (delta) {
           if (!stepMode) return wpf.clamp(idx + delta, 0, len - 1);
-          const step = Math.floor(idx / stride) + (delta > 0 ? 1 : -1);
-          return wpf.clamp(step * stride, 0, len - 1);
+          const step = Math.floor(idx / sigDivisor) + (delta > 0 ? 1 : -1);
+          return wpf.clamp(step * sigDivisor, 0, len - 1);
         };
         let nextSignal = cursor.signalIndex;
         let nextSample = idx;
@@ -108,10 +111,14 @@
           }
           if (i < 0 || i >= dw.m_signals.length) return;
           nextSignal = i;
-          const targetLen = dw.m_signals[i].values.length;
-          nextSample = stepMode
-            ? wpf.clamp(Math.floor(idx / stride) * stride, 0, targetLen - 1)
-            : wpf.clamp(idx, 0, targetLen - 1);
+          const target = dw.m_signals[i];
+          const targetLen = target.values.length;
+          // 纵向跳转 = 保持「主步浮点坐标」，再映射进目标行空间：
+          //   idx / 源信号 divisor = 主步坐标（私有子步不同的行也能落到同一个
+          //   主步 / 相对位置，等价跨行写值的主步中转口径）。整步模式下源 idx
+          //   恒在主步边界 → 结果天然是目标行主步首格；子步模式保相对位置。
+          const mainFloat = idx / sigDivisor;
+          nextSample = wpf.clamp(Math.round(mainFloat * wpf.divisorOf(target)), 0, targetLen - 1);
         } else return;
 
         e.preventDefault();

@@ -6,6 +6,10 @@
 //   B. 单信号进制切换（核心 setSignalRadix 与 wpf.refreshBusLabels 两条路径）
 //   C. 位值弹窗（__core.prompt → 核心 wpQuickPrompt）：回车写入 / Esc /
 //      空值失焦取消 / 有值失焦写入 / 非法输入红框重开 / 点遮罩取消 / 弹窗内不触发全局快捷键
+//   D. 步数/子步 spin：input 中间态不提交、change 一次性生效
+//   E. 框选（editor/selection.js，2026-09-03 重写）：单击粒度 / 反向拖动 /
+//      私有子步行与普通行跨行写值不错位 / Vector 输入 'A' → 10 / 工具条带焦点时
+//      连续第二次/第三次拖动不再抛 NotFoundError、不再误提交半输入的值
 // 用法：node tools/e2e-ui.mjs   （自带 dev-server；需本机 Edge；退出码非 0 表示有失败）
 // ⚠ Edge profile / 组件更新 / 系统 TEMP 全部指到 D:/Files/Code/波形/.e2e-tmp（已 git 本地排除）。
 //   即使 --user-data-dir 在 D 盘，headless Edge 的组件更新器仍会往 C 盘 %TEMP% 写
@@ -322,6 +326,286 @@ else {
   else {
     const D = JSON.parse(d1);
     check('子步同样 input 不生效 / change 提交', D.before === D.mid && D.after === 2, d1);
+  }
+}
+
+// ---------------------------------------------------------------- E. 框选（editor/selection.js 重写回归）
+// 覆盖 2026-09-03 修复的 5 类 bug 中的 UI 侧 4 类：
+//   ① 单击粒度（整步=1 主步 / 子步=1 格）② 反向拖动归一化
+//   ③ 私有子步行跨行写值不错位（divisor 口径）④ 多 bit 输入 'A' → 10 而非 0
+//   ⑤ 工具条带焦点时连续 2/3 次拖动不再 removeChild/blur 重入（稳定性）
+{
+  // 扩视口，保证所有行/列都可点
+  await send('Emulation.setDeviceMetricsOverride', { width: 1600, height: 1200, deviceScaleFactor: 1, mobile: false });
+  await sleep(500);
+  await ev(`(() => { if (typeof drawWaveform === 'function') drawWaveform(); return 1; })()`);
+
+  // 页面侧：错误收集 + 坐标定位（某行某全局子步格的中心 client 坐标）
+  const setupE = await ev(`(() => {
+    if (!window.__E) { window.__E = []; window.addEventListener('error', function (e) { window.__E.push(String(e.message || e.type)); }); }
+    const dw = document_wave;
+    dw.addBitSignal('ebit');
+    const ebit = dw.signalList().length - 1;
+    dw.addVectorSignal('evec');
+    const evec = dw.signalList().length - 1;
+    // 私有子步：ebit 行按自己的 divisor(3+1=4) 铺开，其余行跟随全局 stride
+    if (typeof dw.setSignalSubSteps === 'function') dw.setSignalSubSteps(ebit, 3);
+    if (typeof drawWaveform === 'function') drawWaveform();
+    window.__pt = function (row, g) {
+      const cv = document.getElementById('wave-canvas');
+      if (!cv) return null;
+      const r = cv.getBoundingClientRect();
+      function at(x, y) { try { return mapCanvasPosition(x, y); } catch (e) { return null; } }
+      // 先找一个「波形行内」的 y（信号行从 ~y=40 才开始，y=10 在表头区）
+      let y0 = -1;
+      for (let y = 2; y < r.height && y0 < 0; y += 1) { const m = at(Math.max(60, Math.floor(r.width / 2)), y); if (m && m.signalIndex >= 0) y0 = y; }
+      if (y0 < 0) return null;
+      let xs = -1;
+      for (let x = 2; x < r.width && xs < 0; x += 1) { const m = at(x, y0); if (m && !m.clickedOnName && m.signalIndex >= 0) xs = x; }
+      if (xs < 0) return null;
+      let yr = -1;
+      for (let y = 2; y < r.height && yr < 0; y += 1) { const m = at(xs, y); if (m && m.signalIndex === row) { yr = y; break; } }
+      if (yr < 0) return null;
+      let xL = -1, xR = -1;
+      for (let x = xs; x < r.width; x += 1) {
+        const m = at(x, yr);
+        if (!m) continue;
+        if (m.globalSampleIndex === g && xL < 0) xL = x;
+        if (xL >= 0 && (m.globalSampleIndex === g + 1 || m.globalSampleIndex > g + 1)) { xR = x; break; }
+      }
+      if (xL < 0) return null;
+      if (xR < 0) xR = Math.min(r.width, xL + 20);
+      const xc = Math.floor((xL + xR - 1) / 2);
+      return { cx: Math.round(r.left + xc), cy: Math.round(r.top + yr) };
+    };
+    window.__reg = function () {
+      const r = window.__wpf.selection;
+      const st = window.__core.state().range;
+      return JSON.stringify(r ? { ss: r.signalStart, se: r.signalEnd, ps: r.sampleStart, pe: r.sampleEnd,
+        st: { a: st.active, s0: st.startSample, s1: st.endSample } } : null);
+    };
+    window.__errCount = function () { return window.__E.length; };
+    window.__geo = function () {
+      const cv = document.getElementById('wave-canvas');
+      if (!cv) return null;
+      const r = cv.getBoundingClientRect();
+      const rows = [];
+      const total = document_wave.signalList().length;
+      for (let row = 0; row < total; row += 1) {
+        let top = -1, bot = -1;
+        for (let y = 2; y < r.height; y += 1) {
+          try { const m = mapCanvasPosition(Math.max(60, r.width / 2), y); if (m && m.signalIndex === row) { if (top < 0) top = y; bot = y; } } catch (e) {}
+        }
+        rows.push(top >= 0 ? top + '..' + bot : 'none');
+      }
+      return JSON.stringify({ w: r.width, h: r.height, rows: rows });
+    };
+    return JSON.stringify({ ebit: ebit, evec: evec, stride: window.__wpf.stride(), count: dw.m_sampleCount });
+  })()`);
+  const E0 = setupE && JSON.parse(setupE);
+  check('E: 建立 ebit/evec 信号（私有子步 + 普通）', !!E0 && E0.ebit >= 0 && E0.evec >= 0 && E0.ebit !== E0.evec, setupE);
+  const geoDump = await ev(`window.__geo()`);
+  console.log('  E 几何: ' + geoDump);
+  if (!E0 || E0.ebit < 0 || E0.evec < 0) {
+    console.log('  ⚠ E 组前置失败，跳过框选断言');
+  } else {
+    const S = E0.stride;            // 全局 stride（本用例 3）
+    const R = { ebit: E0.ebit, evec: E0.evec };
+    check('E: 全局 stride 已知', S >= 2 && S <= 4, setupE);
+
+    // 切到 select 工具 + 整步粒度 + 清残留
+    await ev(`(() => { const t = window.__wpf.currentTool(); if (t !== 'select') { const b = document.querySelector('.tool-btn[data-tool="select"]'); if (b) b.click(); } return 1; })()`);
+    await sleep(200);
+    const toolNow = await ev(`window.__wpf.currentTool()`);
+    check('E: 已切到 select 工具', toolNow === 'select', toolNow);
+    await ev(`window.__wpf.setEditGranularity('step'); 1`);
+    await ev(`(() => { try { window.__core.selection.clear(); } catch (e) {} window.__wpf.selection = null; if (window.__wpf._selAnchor) window.__wpf._selAnchor = null; return 1; })()`);
+    await sleep(150);
+
+    const pt = async (row, g) => {
+      const r = await ev(`window.__pt(${row}, ${g})`);
+      if (!r) return null;
+      return typeof r === 'string' ? JSON.parse(r) : r; // __pt 返回对象，ev 已按值返回
+    };
+    const reg = async () => { const r = await ev(`window.__reg()`); return r ? JSON.parse(r) : null; };
+    const clickAt = async (p) => {
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: p.cx, y: p.cy, button: 'left', buttons: 1, clickCount: 1 });
+      await sleep(40);
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: p.cx, y: p.cy, button: 'left', buttons: 0, clickCount: 1 });
+      await sleep(250);
+    };
+    const drag = async (from, to) => {
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: from.cx, y: from.cy, button: 'left', buttons: 1, clickCount: 1 });
+      await sleep(30);
+      for (let i = 1; i <= 5; i += 1) {
+        await send('Input.dispatchMouseEvent', { type: 'mouseMoved',
+          x: Math.round(from.cx + (to.cx - from.cx) * i / 5),
+          y: Math.round(from.cy + (to.cy - from.cy) * i / 5), button: 'left', buttons: 1 });
+        await sleep(12);
+      }
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: to.cx, y: to.cy, button: 'left', buttons: 0, clickCount: 1 });
+      await sleep(280);
+    };
+    const parkBar = async () => { // 把工具条挪到左下角（保持打开+聚焦，避免挡住后续画布点）
+      await ev(`(() => { const bar = document.getElementById('wpf-batch-bar'); if (bar) { bar.style.left = '8px'; bar.style.top = Math.max(8, window.innerHeight - 96) + 'px'; } return 1; })()`);
+      await sleep(40);
+    };
+    const barState = async () => ev(`(() => { const bar = document.getElementById('wpf-batch-bar'); return JSON.stringify(bar ? { input: !!bar.querySelector('input'), focus: document.activeElement === bar.querySelector('input') } : null); })()`);
+
+    // ---- E1. 单击（整步粒度）= 框住 1 个主步；核心原生选框状态同步 ----
+    const pE1 = await pt(R.evec, S);
+    if (!pE1) check('E1: 定位 evec 主步1首格', false, '无法定位');
+    else {
+      await clickAt(pE1);
+      const g1 = await reg();
+      const ok1 = g1 && g1.ps === S && g1.pe === 2 * S - 1 && g1.ss === g1.se && g1.ss === R.evec
+        && g1.st.a === true && g1.st.s0 === S && g1.st.s1 === 2 * S - 1;
+      check('E1: 单击=1 个主步（整步粒度）+ 核心选框同步', ok1 === true, JSON.stringify(g1));
+      await key('Escape', 'Escape', 27); await sleep(200);
+    }
+
+    // ---- E2. 单击（子步粒度）= 只框 1 格 ----
+    await ev(`window.__wpf.setEditGranularity('substep'); 1`);
+    await sleep(120);
+    const pE2 = await pt(R.evec, S + 1);
+    if (!pE2) check('E2: 定位 evec 子步格', false, '无法定位');
+    else {
+      await clickAt(pE2);
+      const g2 = await reg();
+      const ok2 = g2 && g2.ps === S + 1 && g2.pe === S + 1 && g2.ss === g2.se && g2.ss === R.evec;
+      check('E2: 单击=1 格（子步粒度）', ok2 === true, JSON.stringify(g2));
+      await key('Escape', 'Escape', 27); await sleep(200);
+    }
+    await ev(`window.__wpf.setEditGranularity('step'); 1`); await sleep(120);
+
+    // ---- E3. 反向拖动（右→左）归一化 + 整步对齐 ----
+    const pR1 = await pt(R.ebit, 2 * S);     // 主步2 首格
+    const pR2 = await pt(R.ebit, S);         // 主步1 首格
+    if (!pR1 || !pR2) check('E3: 定位 ebit 拖动点', false, '无法定位');
+    else {
+      await drag(pR1, pR2); // 反向：起于右、止于左
+      const g3 = await reg();
+      const ok3 = g3 && g3.ps === S && g3.pe === 3 * S - 1 && g3.ss === g3.se && g3.ss === R.ebit;
+      check('E3: 反向拖动归一化且整步对齐到主步边界', ok3 === true, JSON.stringify(g3));
+      await key('Escape', 'Escape', 27); await sleep(200);
+    }
+
+    // ---- E4. 跨行写值：私有子步行(ebit,div=4) + 普通行(evec,div=3)，'1' 精确落在各行自己的格子上 ----
+    const p4a = await pt(R.ebit, S);
+    const p4b = await pt(R.evec, 3 * S - 1); // 覆盖主步1..2
+    if (!p4a || !p4b) check('E4: 定位跨行拖动点', false, '无法定位');
+    else {
+      await drag(p4a, p4b);
+      const g4 = await reg();
+      const ps4 = g4 ? g4.ps : -1, pe4 = g4 ? g4.pe : -1;
+      // 记录两行写前值
+      const before4 = await ev(`(() => { const dw = document_wave; return JSON.stringify({
+        a: dw.signalList()[${R.ebit}].values.slice(), b: dw.signalList()[${R.evec}].values.slice() }); })()`);
+      const B4 = JSON.parse(before4);
+      await parkBar();
+      await ev(`(() => { const bar = document.getElementById('wpf-batch-bar'); if (!bar) return 'NOBAR'; const i = bar.querySelector('input'); if (!i) return 'NOINPUT';
+        i.value = '1'; i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true })); return 'ok'; })()`);
+      await sleep(300);
+      const d4 = await ev(`(() => {
+        const dw = document_wave; const s0 = dw.signalList()[${R.ebit}]; const s1 = dw.signalList()[${R.evec}];
+        const B0 = ${JSON.stringify(B4.a)}, B1 = ${JSON.stringify(B4.b)};
+        const c0 = window.__wpf.cellsInRange(s0, ${ps4}, ${pe4});
+        const c1 = window.__wpf.cellsInRange(s1, ${ps4}, ${pe4});
+        const ch0 = c0.filter(function (i) { return s0.values[i] !== B0[i]; });
+        const ch1 = c1.filter(function (i) { return s1.values[i] !== B1[i]; });
+        const extra0 = []; for (let i = 0; i < s0.values.length; i += 1) { if (c0.indexOf(i) < 0 && s0.values[i] !== B0[i]) extra0.push(i); }
+        const extra1 = []; for (let i = 0; i < s1.values.length; i += 1) { if (c1.indexOf(i) < 0 && s1.values[i] !== B1[i]) extra1.push(i); }
+        return JSON.stringify({ c0: c0.join(','), h0: ch0.join(','), c1: c1.join(','), h1: ch1.join(','),
+          e0: extra0.join(','), e1: extra1.join(','), len0: s0.values.length, len1: s1.values.length });
+      })()`);
+      const D4 = JSON.parse(d4);
+      // 私有行 divisor=4 → 主步1..2 恰好 8 格；普通行 divisor=3 → 6 格（硬断言，能抓 divisor 错乱）
+      const ok4 = g4 && ps4 === S && pe4 === 3 * S - 1
+        && D4.c0 === D4.h0 && D4.c1 === D4.h1
+        && D4.e0 === '' && D4.e1 === ''
+        && D4.c0.split(',').length === 2 * 4 && D4.c1.split(',').length === 2 * S
+        && D4.len0 === 8 * 4 && D4.len1 === 8 * S;
+      check('E4: 跨行写 1 —— 私有行 8 格/普通行 6 格、不多不少、无越界', ok4 === true, JSON.stringify(D4));
+    }
+
+    // ---- E5. Vector 输入 'A' → 10（而非 0）；标签按 radix 刷新 ----
+    await ev(`(() => { const dw = document_wave; const s = dw.signalList()[${R.evec}]; s.radix = window.Radix.Hexadecimal; return 1; })()`);
+    await sleep(80);
+    const p5a = await pt(R.evec, S);
+    const p5b = await pt(R.evec, 3 * S - 1);
+    if (!p5a || !p5b) check('E5: 定位 evec 拖动点', false, '无法定位');
+    else {
+      await drag(p5a, p5b);
+      const g5 = await reg();
+      await parkBar();
+      await ev(`(() => { const bar = document.getElementById('wpf-batch-bar'); if (!bar) return 'NOBAR'; const i = bar.querySelector('input'); if (!i) return 'NOINPUT';
+        i.value = 'A'; i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true })); return 'ok'; })()`);
+      await sleep(300);
+      const d5 = await ev(`(() => {
+        const s = document_wave.signalList()[${R.evec}];
+        const c = window.__wpf.cellsInRange(s, ${S}, ${3 * S - 1});
+        const vals = c.map(function (i) { return s.values[i]; });
+        const labs = c.map(function (i) { return s.labels[i]; });
+        return JSON.stringify({ vals: vals.join(','), labs: labs.join(','), count: c.length });
+      })()`);
+      const D5 = JSON.parse(d5);
+      const ok5 = D5.count === 2 * S && D5.vals.split(',').every((v) => v === '10') && D5.labs.split(',').every((v) => v === 'A');
+      check('E5: Vector 输入 A → 全部格=10（非 0）、标签=A', ok5 === true, d5);
+    }
+
+    // ---- E6. 稳定性：工具条带焦点输入时连续第 2、3 次画布拖动 ----
+    // 历史 bug：第 2 次拖动 → hideBar removeChild 触发 blur → blur 重入 hideBar
+    // → 二次 removeChild 抛 NotFoundError → 拖动中断；且半输入内容被意外提交。
+    {
+      // 第 1 次拖动 → 工具条出现且输入框聚焦
+      const q1a = await pt(R.ebit, S);
+      const q1b = await pt(R.ebit, 2 * S - 1);
+      if (!q1a || !q1b) check('E6: 定位第1次拖动', false, '无法定位');
+      else {
+        await drag(q1a, q1b);
+        const bs1 = await barState();
+        const BS1 = JSON.parse(bs1 || 'null');
+        check('E6: 第1次拖动后工具条可见且输入框聚焦', !!BS1 && BS1.input === true && BS1.focus === true, bs1);
+        const L0 = Number(await ev('window.__errCount()'));
+        // 输入框里留有半输入 '0'（若 blur 被误触提交，第 1 次选区会被写 0）
+        await ev(`(() => { const i = document.getElementById('wpf-batch-bar').querySelector('input'); i.value = '0'; return 1; })()`);
+        // 第 2 次拖动（画布按下 → detachBar → blur 必须静默返回）
+        const q2a = await pt(R.evec, 3 * S);
+        const q2b = await pt(R.evec, 4 * S - 1);
+        await drag(q2a, q2b);
+        const g6b = await reg();
+        // ebit 私有 divisor=4：下标 3=主步0末格（E4 未写、恒 0），4..7=主步1（E4 写 1）。
+        // slice(3,6) = "0,1,1"；若 blur 误把输入框里的 '0' 提交给第 1 次选区（主步1）
+        // 则 4..7 变 0 → "0,0,0"。所以 "0,1,1" 精确证明既无 NotFoundError 也无误提交。
+        const d6b = await ev(`(() => { const s = document_wave.signalList()[${R.ebit}];
+          return JSON.stringify(s.values.slice(${S}, ${2 * S}).join(',')); })()`);
+        const L2 = Number(await ev('window.__errCount()'));
+        const bs2 = await barState();
+        const BS2 = JSON.parse(bs2 || 'null');
+        const expected6b = JSON.stringify([0, 1, 1].join(',')); // ev 里又包了一层 JSON.stringify → 期望含引号
+        const ok6b = g6b && g6b.ps === 3 * S && g6b.pe === 4 * S - 1 && g6b.ss === g6b.se && g6b.ss === R.evec
+          && d6b === expected6b
+          && L2 === L0;
+        check('E6: 第2次拖动 —— 无 NotFoundError、无异常、选框正常、未误提交', ok6b === true, JSON.stringify({ g: g6b, d: d6b, L: L2 - L0 }));
+        // 第 3 次拖动
+        const q3a = await pt(R.evec, 4 * S);
+        const q3b = await pt(R.evec, 5 * S - 1);
+        await drag(q3a, q3b);
+        const g6c = await reg();
+        const L3 = Number(await ev('window.__errCount()'));
+        const ok6c = g6c && g6c.ps === 4 * S && g6c.pe === 5 * S - 1 && L3 === L0;
+        check('E6: 第3次拖动同样稳定', ok6c === true, JSON.stringify({ g: g6c, L: L3 - L0 }));
+        // 收尾：Esc 关菜单并清选框
+        await key('Escape', 'Escape', 27); await sleep(200);
+        const afterEsc = await ev(`JSON.stringify({ sel: window.__wpf.selection, bar: !!document.getElementById('wpf-batch-bar') })`);
+        const AE = JSON.parse(afterEsc);
+        check('E6: Esc 关菜单并清选框', AE.sel === null && AE.bar === false, afterEsc);
+      }
+    }
+    // E 期间页面错误汇总
+    const errs = await ev(`JSON.stringify(window.__E.slice())`);
+    console.log('  E 期间页面错误: ' + errs);
+    check('E: 页面无运行时错误', JSON.parse(errs).length === 0, errs);
   }
 }
 
