@@ -105,7 +105,19 @@
 | #69 | 多文件/多模块设计 | ✅ | 多文件本就支持（@@FILE: 协议）；新增顶层模块选择器（≥2 module 显示，默认自动检测），生成TB/运行仿真/自动加信号按选定顶层执行 |
 | #70 | 版本显示 | ✅ | build.ps1 生成 version.txt（v0.4.0+时间+git 短哈希）内嵌 exe；仿真面板头部显示——防「旧副本假象」 |
 | #71 | launcher 其余加固 | ✅ | QuoteArg Windows 反斜杠/引号规则；FreePort try/finally；RunSimulation 异常路径清 work；StartServer 启动失败显式报错 |
-| #72 | 每批次 git 记录可随意增减 | ✅ | 批次1~10 每批独立 commit（fc0b61b→本批），每批全量验证后提交 |
+| #72 | 每批次 git 记录可随意增减 | ✅ | 批次1~10 每批独立 commit（fc0b61b→4530721），每批全量验证后提交 |
+
+## G. Verdi 借鉴路线 + 参数化支持（2026-09-08 起，总纲见 PROJECT-MASTER.md 第六/七章）
+
+| ID | 需求 | 状态 | 实现思路 / 备注 |
+|----|------|------|----------------|
+| #73 | 参数化位宽完整支持（嵌套参数/$clog2/移位/sized字面量） | 🔧 **代码完成+真iverilog端到端验证过（tools/probe-param.mjs 全过），剩 2 条 regression 断言未对齐** → 交接步骤见 PROJECT-MASTER.md §6.1 | 定位结论：iverilog 无问题，是 TB 生成侧求值器局限；修法=求值器升级 + TB 内嵌参数定义让 iverilog 裁决位宽 |
+| #74 | 跨 AI 总纲文档（PROJECT-MASTER.md：介绍/思路/约束+做法/需求台账/路线图/交接） | ✅ | 每次改代码必须同步更新（铁律 C17） |
+| #75 | Verdi 借鉴 P0：CodeMirror6 代码视图 + RTL Tree 面板 + VCD 全路径索引 | ⬜ | 方案与开源借鉴清单见 PROJECT-MASTER.md §6.2/§7 |
+| #76 | Verdi 借鉴 P1：点变量→加波形 + 树↔代码跳转 + 信号组入 .wp | ⬜ | 复用 toNativeSignal 注入链路；多实例歧义选择器 |
+| #77 | Verdi 借鉴 P2：Active Annotation 值标注 + driver/load 高亮（启发式） | ⬜ | 数据全齐（VCD 层次路径+游标） |
+| #78 | Verdi 借鉴 P3（备选）：X 追溯/波形 diff/VSCode 外接扩展 | ⬜ | VSCode 扩展复用 launcher HTTP /api |
+| #79 | 仿真器选型定论 | ✅ | VCS/Questa/Xcelium 商业+Linux 不可用；iverilog 保持主后端；Verilator 远期可选（详见总纲 §7） |
 
 ## 待办 / 可延续方向（未排期）
 

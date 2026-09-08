@@ -877,6 +877,76 @@ test("VCD 回显：tb.dut 内部信号回显，同名信号去重保留浅层（
 });
 
 // ---------------------------------------------------------------------------
+// 参数化位宽完整支持（2026-09-04 第二轮）：求值器升级（递归参数/$clog2/移位/
+// sized字面量）+ TB 内嵌参数定义（位宽算术最终由 iverilog 裁决）
+// ---------------------------------------------------------------------------
+test("求值器升级：嵌套参数 / $clog2 / 移位 / sized字面量 全部落成具体位宽", () => {
+  const d1 = sim.parseVerilogDesign(
+    "module m #(parameter DW = 8, parameter AW = DW + 2)(input [AW-1:0] addr, input [DW-1:0] din); endmodule");
+  const addr = d1.topModule.ports.find((p) => p.name === "addr");
+  assert.equal(addr.width, 10, "嵌套参数 AW=DW+2 → 10（旧实现回退 1）");
+  const d2 = sim.parseVerilogDesign(
+    "module m #(parameter DEPTH = 16)(input [$clog2(DEPTH)-1:0] sel); endmodule");
+  assert.equal(d2.topModule.ports.find((p) => p.name === "sel").width, 4, "$clog2(16)-1:0 → 4 位");
+  const d3 = sim.parseVerilogDesign(
+    "module m #(parameter W = 4)(input [(1<<W)-1:0] sel, input [W*2-1:0] din); endmodule");
+  assert.equal(d3.topModule.ports.find((p) => p.name === "sel").width, 16, "(1<<W)-1:0 → 16 位");
+  const d4 = sim.parseVerilogDesign(
+    "module m #(parameter W = 8'd12)(input [W-1:0] din); endmodule");
+  assert.equal(d4.topModule.ports.find((p) => p.name === "din").width, 12, "sized 字面量参数 8'd12 → 12 位");
+  const d5 = sim.parseVerilogDesign(
+    "module m #(parameter DW = 8)(input [AW-1:0] addr); localparam AW = DW + 4; endmodule");
+  assert.equal(d5.topModule.ports.find((p) => p.name === "addr").width, 12, "模块体 localparam 链 → 12 位");
+});
+
+test("TB 内嵌参数定义 + 原始位宽表达式（iverilog 是位宽算术的最终裁决者）", () => {
+  const src = "module m #(parameter DW = 8, parameter AW = DW + 2)(input clk, input [AW-1:0] addr, output [AW-1:0] dout);\n  assign dout = addr; endmodule";
+  const d = sim.parseVerilogDesign(src);
+  assert.ok(Array.isArray(d.topModule.paramDefs) && d.topModule.paramDefs.length === 2, "paramDefs 应含头部两个参数");
+  const project = { timeSteps: 8, subSteps: 0, signals: [
+    { name: "clk", kind: "clock", width: 1, values: "01010101".split("") },
+    { name: "addr", kind: "vector", width: 10, values: Array(8).fill("0000001010") }
+  ], outputs: [] };
+  const tb = String(sim.buildAutoTestbench(d, project).source || "");
+  assert.ok(/parameter\s+DW\s*=\s*8;/.test(tb), "TB 应内嵌 parameter DW = 8");
+  assert.ok(/parameter\s+AW\s*=\s*DW \+ 2;/.test(tb), "TB 应内嵌 parameter AW = DW + 2");
+  // 求值器算得出 → 具体数字 [9:0]；算不出 → 原始表达式 [AW-1:0]，两者皆合法
+  assert.ok(/\[9:0\]\s*(reg|wire)\s+addr|\[AW-1:0\]\s*(reg|wire)\s+addr/.test(tb), "addr 声明应为具体位宽或原始表达式");
+  assert.ok(!/NaN/.test(tb), "TB 不得含 NaN");
+
+  // 求值器无法处理的表达式（含 & 位运算）：保留原始表达式交 iverilog 求值
+  const src2 = "module m #(parameter DEPTH = 8, parameter OFFSET = 3)(input clk, input [DEPTH/2+OFFSET&1:0] sel); endmodule";
+  const d2 = sim.parseVerilogDesign(src2);
+  const sel = d2.topModule.ports.find((p) => p.name === "sel");
+  assert.equal(sel.parametric, true, "含位运算的表达式应保持 parametric");
+  const tb2 = String(sim.buildAutoTestbench(d2, { timeSteps: 8, subSteps: 0, signals: [
+    { name: "clk", kind: "clock", width: 1, values: "01010101".split("") }
+  ], outputs: [] }).source || "");
+  assert.ok(/DEPTH\/2\+OFFSET&1:0\]/.test(tb2), "参数化端口应保留原始表达式声明（iverilog 求值）");
+  assert.ok(/parameter\s+DEPTH\s*=\s*8;/.test(tb2) && /parameter\s+OFFSET\s*=\s*3;/.test(tb2), "参数定义随表达式内嵌");
+});
+
+test("参数化端口可绑定矢量信号（widthCompatible 不设限），未定义参数仍回退标量", () => {
+  const d = sim.parseVerilogDesign(
+    "module m #(parameter W = 8)(input clk, input [W-1:0] din, output [3:0] o); assign o = 4'd0; endmodule");
+  const project = { timeSteps: 8, subSteps: 0, signals: [
+    { name: "clk", kind: "clock", width: 1, values: "01010101".split("") },
+    { name: "din", kind: "vector", width: 8, values: Array(8).fill("10101010") }
+  ], outputs: [] };
+  const tb = String(sim.buildAutoTestbench(d, project).source || "");
+  assert.ok(/din\s*<=|\bdin\b/.test(tb), "din 应被绑定驱动");
+  assert.ok(/8'b10101010/.test(tb), "矢量激励按信号自身位宽格式化（fmtWidth 兜底），不得截成 1 位");
+  // 未定义参数（无 paramDefs 覆盖）仍回退标量，绝不产非法 TB
+  const d2 = sim.parseVerilogDesign(
+    "module m(input clk, input [UNSPEC-1:0] din, output reg [7:0] q); always @(posedge clk) q <= din; endmodule");
+  const p2 = { timeSteps: 8, subSteps: 0, signals: [
+    { name: "clk", kind: "clock", width: 1, values: "01010101".split("") }
+  ], outputs: [] };
+  const tb2 = String(sim.buildAutoTestbench(d2, p2).source || "");
+  assert.ok(!/UNSPEC/.test(tb2), "TB 中不得出现未定义的参数名 UNSPEC");
+});
+
+// ---------------------------------------------------------------------------
 console.log("\n" + "-".repeat(56));
 if (failures.length) {
   console.log(`失败 ${failures.length} 项，通过 ${passed} 项`);

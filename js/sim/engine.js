@@ -104,24 +104,55 @@ function parseRange(text) {
   };
 }
 
-// 简单算术表达式求值（参数化位宽用）：只允许整数、+ - * / % ( ) 与已知参数名。
-// 返回整数或 null（无法求值 / 非法字符 / 除零 / 循环引用）。
+// 参数化位宽表达式求值（供画布显示/采样用）：
+//   · 已知参数代入，**递归展开**（AW=DW+2 → DW 再展开），最多 8 层防循环引用
+//   · $clog2(X)、sized 字面量（8'd12 / 4'hF）、移位 << >>、+ - * / % ( )
+//   · 返回整数或 null（含未知符号 / 非法 / 循环引用）
+// ⚠ TB 生成**不依赖**这里：TB 会把参数定义原样内嵌、位宽表达式原样拼接，
+//   由 iverilog 求值（见 buildAutoTestbench）—— 本函数只影响画布侧的显示位宽。
 function tryEvalExpr(expr, params, depth = 0) {
   if (depth > 8) return null;
-  const expanded = String(expr || "").replace(/\s+/g, "").replace(
-    /[A-Za-z_][A-Za-z0-9_$]*/g,
-    (name) => {
-      if (params && params.has(name)) {
-        return "(" + String(params.get(name)) + ")";
-      }
+  let e = String(expr || "").replace(/\s+/g, "");
+
+  // $clog2(X)：先递归求内部（iverilog 语义：ceil(log2(X))，X<=1 → 0）
+  const clog = /\$clog2\(([^()]*)\)/;
+  while (clog.test(e)) {
+    e = e.replace(clog, (_, inner) => {
+      const v = tryEvalExpr(inner, params, depth + 1);
+      if (v === null || v <= 0) return "NaN";
+      return String(Math.ceil(Math.log2(v)));
+    });
+  }
+
+  // sized 字面量（8'd12 / 4'hF / 'b1010）→ 十进制数值；含 x/z 不可求值。
+  // ⚠ 字面量常出现在参数值里（parameter W = 8'd12），代入后才现身 ——
+  //   所以必须放进展开循环里反复归约，不能只在最外层做一次。
+  const literalToNum = (m, size, base, digits) => {
+    if (/[xz]/i.test(digits)) return "NaN";
+    const b = base.toLowerCase() === "b" ? 2 : base.toLowerCase() === "h" ? 16 : 10;
+    const v = parseInt(digits, b);
+    return Number.isFinite(v) ? String(v) : "NaN";
+  };
+
+  // 参数代入：循环展开直到不再含标识符（嵌套参数链）或达上限
+  for (let pass = 0; pass < 8; pass += 1) {
+    e = e.replace(/(\d+)?'([bhd])([0-9a-fxz]+)/gi, literalToNum);
+    if (!/[A-Za-z_]/.test(e)) break;
+    e = e.replace(/\s+/g, "").replace(/[A-Za-z_][A-Za-z0-9_$]*/g, (name) => {
+      if (params && params.has(name)) return "(" + String(params.get(name)) + ")";
       return "NaN";
-    }
-  );
-  if (/[^0-9+\-*/%()aN]/.test(expanded)) return null;
+    });
+  }
+  e = e.replace(/(\d+)?'([bhd])([0-9a-fxz]+)/gi, literalToNum);
+
+  if (/NaN/i.test(e)) return null;
+  if (/[A-Za-z_$]/.test(e)) return null;
+  // 只放行算术字符（+ - * / % ( ) < < 移位）；其余一律拒绝求值
+  if (/[^0-9+\-*/%()<>]/.test(e)) return null;
   try {
-    const v = Function('"use strict";return (' + expanded + ")")();
+    const v = Function('"use strict";return (' + e + ")")();
     return Number.isFinite(v) ? Math.round(v) : null;
-  } catch (e) {
+  } catch (err) {
     return null;
   }
 }
@@ -129,9 +160,9 @@ function tryEvalExpr(expr, params, depth = 0) {
 // 端口位宽解析（参数化位宽如 [WIDTH-1:0]）：
 //  1. msb/lsb 均为数字 → 原样（常规路径）；
 //  2. 含参数名 → 用模块 parameter/localparam 值代入求值，求出即落成具体数字；
-//  3. 求不出 → 回退标量（width=1、清空 msb/lsb），TB 声明 scalar。
-// ⚠ 绝不能把 "[WIDTH-1:0]" 字符串原样拼进 TB（旧实现如此 → iverilog 编译失败，
-// 且报错信息用户完全无法理解）（2026-09-04 修）。
+//  3. 求不出 → 保留原始表达式并标记 parametric —— TB 生成时会内嵌参数定义、
+//     拼接原始表达式，由 iverilog 求值；画布侧位宽保守取 1（仅影响显示，
+//     采样/格式化会用绑定信号自身的位宽兜底，见 buildAutoTestbench）。
 function resolvePortWidths(ports, params) {
   for (const p of ports || []) {
     if (!p || p.msb === "" || p.msb == null) continue; // 标量端口
@@ -143,10 +174,8 @@ function resolvePortWidths(ports, params) {
       p.lsb = String(m2);
       p.width = Math.abs(m1 - m2) + 1;
     } else {
-      p.msb = "";
-      p.lsb = "";
       p.width = 1;
-      p.parametric = true; // 标记：真实位宽未知（参数化且无法求值）
+      p.parametric = true; // 保留原始 msb/lsb 表达式，交由 iverilog 求值
     }
   }
 }
@@ -367,16 +396,24 @@ export function parseVerilogDesign(source) {
   const declarations = parseDeclarations(body);
   const instances = parseInstances(body);
     // 参数化位宽解析：合并头部 #(parameter ...) 与模块体 parameter/localparam，
-    // 代入求值端口 [EXPR:EXPR]；求不出回退标量（绝不把参数表达式带进 TB）
+    // 代入求值端口 [EXPR:EXPR]；求不出保留原始表达式（parametric 标记），
+    // TB 生成时内嵌参数定义交给 iverilog 求值
     const params = parseHeaderParameters(parsedHeader.parameters);
     for (const p of parameters) params.set(p.name, p.value);
     resolvePortWidths(ports, params);
+    // paramDefs：有序参数定义（头部在前、模块体在后，同名首见优先），
+    // 供 buildAutoTestbench 内嵌进 TB —— 位宽算术的最终裁决者是 iverilog
+    const paramDefs = [];
+    for (const [k, v] of params) {
+      if (!paramDefs.some((pd) => pd.name === k)) paramDefs.push({ name: k, value: v });
+    }
     modules.push({
       name: parsedHeader.name,
       header,
       body,
       ports,
       parameters,
+      paramDefs,
       declarations,
       instances
     });
@@ -648,7 +685,10 @@ export function diagnoseSimulation(outputs, bindings) {
 // 位宽兼容检查：1 位端口绝不绑定「位串形态的矢量信号」——formatVerilogValue
 // 对 1 位端口只取首个 0/1/x 字符，静默错值（2026-09-04 修）。多位端口可绑
 // （formatVerilogValue 会按位宽补齐/截断）。
+// ⚠ 参数化端口（位宽表达式待 iverilog 求值，width 是保守值 1）不设限：
+//   否则 [WIDTH-1:0] 端口永远绑不上画布上的矢量信号。
 function widthCompatible(signal, port) {
+  if (port.parametric) return true;
   const pw = Math.max(1, Number(port?.width) || 1);
   if (pw > 1) return true;
   return Math.max(1, Number(signal?.width) || 1) <= 1;
@@ -732,12 +772,36 @@ export function buildAutoTestbench(design, project = {}) {
   lines.push(`\`timescale ${timeUnit}`);
   lines.push("module tb;");
 
+  // ── 参数定义内嵌（位宽算术的最终裁决者是 iverilog）────────────────
+  // 顶层模块的 parameter/localparam 原样复制进 TB，参数化位宽端口
+  // （[WIDTH-1:0]、[$clog2(DEPTH)-1:0]、嵌套参数链…）的原始表达式即可直接
+  // 用于声明，由 iverilog 求值 —— 我们自己的表达式求值器只负责画布显示位宽，
+  // 不再是正确性的单点（2026-09-04 parameter 运算问题根治）。
+  const paramNames = new Set((top.paramDefs || []).map((pd) => pd.name));
+  if (top.paramDefs && top.paramDefs.length) {
+    lines.push(`  // ===== 参数定义（复制自 ${top.name}，位宽表达式由iverilog求值）=====`);
+    for (const pd of top.paramDefs) lines.push(`  parameter ${pd.name} = ${pd.value};`);
+    lines.push("");
+  }
+  // 参数化端口能否安全拼接原始表达式：表达式里的标识符必须都有参数定义
+  const rangeResolvable = (port) => {
+    if (!port.parametric) return false;
+    const idents = String(port.msb + ":" + port.lsb).match(/[A-Za-z_][A-Za-z0-9_$]*/g) || [];
+    return idents.every((id) => paramNames.has(id));
+  };
+
   for (const binding of bindings) {
-    const width = binding.port.width > 1 ? `[${binding.port.msb || binding.port.width - 1}:${binding.port.lsb || 0}] ` : "";
-    if (binding.port.direction === "output" || binding.port.direction === "inout") {
-      lines.push(`  wire ${width}${binding.port.name};`);
+    const port = binding.port;
+    let width = "";
+    if (rangeResolvable(port)) {
+      width = `[${port.msb}:${port.lsb}] `;   // 原始表达式，iverilog 求值
+    } else if (port.width > 1) {
+      width = `[${port.msb || port.width - 1}:${port.lsb || 0}] `;
+    }
+    if (port.direction === "output" || port.direction === "inout") {
+      lines.push(`  wire ${width}${port.name};`);
     } else {
-      lines.push(`  reg ${width}${binding.port.name};`);
+      lines.push(`  reg ${width}${port.name};`);
     }
   }
 
@@ -780,6 +844,13 @@ export function buildAutoTestbench(design, project = {}) {
   const events = [];
   for (const binding of inputBindings) {
     const signal = binding.signal;
+    // 激励格式化位宽：参数化端口的 port.width 是保守值 1（表达式留给 iverilog），
+    // 须用绑定信号自身的位宽兜底，否则 8 位矢量值被 1 位格式化截成首字符（错值）
+    const fmtWidth = Math.max(
+      1,
+      Number(binding.port.width) || 1,
+      Number(signal && signal.width) || 1
+    );
     // 位宽 1 的信号一律用分数时间逐格驱动（readWaveDocument 传来的每格序列），
     // 使仿真频率与画布显示一致（每格 1/stride 个时间单位，一个主步内完成 1→0 翻转
     // → 每主步一个上升沿）。不要求 kind==='clock'：导入的 JSON 信号可能没有该标记，
@@ -799,10 +870,10 @@ export function buildAutoTestbench(design, project = {}) {
       const cells = resetPolarity(binding.port.name)
         ? ensureResetPulse(clockCells, binding.port.name)
         : clockCells;
-      let previous = formatVerilogValue(cells[0], binding.port.width);
+      let previous = formatVerilogValue(cells[0], fmtWidth);
       events.push({ time: 0, clock: true, text: `${binding.port.name} = ${previous};` });
       for (let k = 1; k < cells.length; k += 1) {
-        const current = formatVerilogValue(cells[k], binding.port.width);
+        const current = formatVerilogValue(cells[k], fmtWidth);
         if (current === previous) continue;
         events.push({ time: k / stride, clock: true, text: `${binding.port.name} = ${current};` });
         previous = current;
@@ -813,10 +884,10 @@ export function buildAutoTestbench(design, project = {}) {
     // 注意：只影响生成的 TB，不改动画布上的原始波形。
     const rawValues = ensureResetPulse(Array.isArray(signal.values) ? signal.values : [], binding.port.name);
     const isClock = signal.kind === "clock";
-    let previous = formatVerilogValue(rawValues[0], binding.port.width);
+    let previous = formatVerilogValue(rawValues[0], fmtWidth);
     events.push({ time: 0, clock: isClock, text: `${binding.port.name} = ${previous};` });
     for (let index = 1; index < rawValues.length; index += 1) {
-      const current = formatVerilogValue(rawValues[index], binding.port.width);
+      const current = formatVerilogValue(rawValues[index], fmtWidth);
       if (current === previous) continue;
       events.push({ time: index, clock: isClock, text: `${binding.port.name} = ${current};` });
       previous = current;

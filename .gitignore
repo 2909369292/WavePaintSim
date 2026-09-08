@@ -4,3 +4,4 @@ node_modules/
 WavePaintClean.exe
 resources.txt
 version.txt
+.e2e-tmp/
