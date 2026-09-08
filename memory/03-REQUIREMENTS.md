@@ -82,7 +82,7 @@
 | #55 | launcher 自愈 | ✅ | AcceptLoop 异常同端口重建；`/api/sim` Interlocked 计数 |
 | #56 | 死代码清理 | ✅ | 删除无调用方导出与过时启发式 |
 | #57 | 文档归档 | ✅ | 旧架构文档归档，现行文档收敛 |
-| #58 | 回归规模提升 | ✅ | 当前 regression 49 项 |
+| #58 | 回归规模提升 | ✅ | 当前 regression 58 项 |
 | #59~#72 | 批次1~10 细分需求 | ✅ | 见每日日志与 git 历史 |
 
 ## F. 2026-09-08 参数化与总纲
@@ -91,7 +91,7 @@
 |----|------|------|----------------|
 | #73 | 参数化位宽完整支持（嵌套参数/$clog2/移位/sized字面量） | ✅ | 求值器升级 + TB 内嵌参数定义，位宽算术交给 iverilog |
 | #74 | 跨 AI 总纲文档 | ✅ | 已升级为本 `memory/` 体系 |
-| #75 | Verdi 借鉴 P0：CodeMirror6 代码视图 + RTL Tree + VCD 全路径索引 | ⬜ | 方案见 `08-ROADMAP.md` |
+| #75 | Verdi 借鉴 P0：CodeMirror6 代码视图 + RTL Tree + VCD 全路径索引 | ✅ | esbuild 预打包 CM6 单文件入 `lib/`；新增 `rtl-nav.js`(纯函数行号定位) / `vcd-index.js`(纯函数 VCD 层次索引) / `rtl-panel.js`(DOM 渲染层)；textarea 保留为数据镜像、CM 缺失自动降级；回归 58/58 + e2e-rtl 9/9 |
 | #76 | Verdi 借鉴 P1：点变量→加波形 + 树↔代码跳转 + 信号组入 `.wp` | ⬜ | 复用 `toNativeSignal` 注入链路 |
 | #77 | Verdi 借鉴 P2：Active Annotation + driver/load 高亮 | ⬜ | 数据全齐，待 UI 实现 |
 | #78 | Verdi 借鉴 P3（备选）：X 追溯 / 波形 diff / VSCode 扩展 | ⬜ | 可复用 launcher HTTP `/api` |

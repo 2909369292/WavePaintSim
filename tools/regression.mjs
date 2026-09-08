@@ -146,6 +146,8 @@ test("stride = 子步数 + 1，主值下标 = 主步 × stride", () => {
 group("sim.js");
 
 const sim = await import(new URL("../js/sim/engine.js", import.meta.url).href);
+const rtlNav = await import(new URL("../js/sim/rtl-nav.js", import.meta.url).href);
+const vcdIndex = await import(new URL("../js/sim/vcd-index.js", import.meta.url).href);
 
 const COUNTER_SRC = `module counter(
   input clk,
@@ -455,6 +457,170 @@ test("buildAutoTestbench 黄金快照一致", () => {
   }
   assert.equal(src, readFileSync(file, "utf8"),
     "生成的 testbench 与黄金快照不一致；若改动是有意的，请运行 node tools/regression.mjs --update");
+});
+
+// ---------------------------------------------------------------------------
+group("rtl-nav.js（#75 P0 RTL 结构树数据源，纯函数）");
+
+const ANSI_MULTI_SRC = `// top comment
+module counter #(parameter WIDTH = 8, parameter STEP = 1) (
+  input clk,
+  input rst_n,
+  input [WIDTH-1:0] data_in,
+  output reg [WIDTH-1:0] count,
+  output done
+);
+  wire [WIDTH-1:0] next_count;
+  assign next_count = count + STEP;
+  always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) count <= 0;
+    else count <= next_count;
+  end
+endmodule
+`;
+
+test("blankComments 抹平注释但保留长度与换行（行号不漂移）", () => {
+  const src = "module m(\n  // line comment\n  input clk, /* block\n  spanning */ output q\n);\nendmodule\n";
+  const blanked = rtlNav.blankComments(src);
+  assert.equal(blanked.length, src.length, "抹平后长度必须与原文件一致");
+  assert.equal(blanked.split("\n").length, src.split("\n").length, "换行必须原样保留");
+  assert.ok(!/line comment/.test(blanked), "行注释文本应被抹掉");
+  assert.ok(!/block/.test(blanked) && !/spanning/.test(blanked), "块注释文本应被抹掉");
+  assert.ok(/input clk/.test(blanked), "代码文本不受影响");
+});
+
+test("rtl-nav ANSI 头部端口行号逐行精确（共享方向关键字不串行）", () => {
+  const nav = rtlNav.buildRtlNav([{ name: "counter.v", content: ANSI_MULTI_SRC }]);
+  assert.equal(nav.length, 1);
+  const mod = nav[0];
+  assert.equal(mod.name, "counter");
+  assert.equal(mod.moduleLine, 2, "module 行号应指向 module 关键字所在行");
+  const byName = new Map(mod.ports.map((p) => [p.name, p]));
+  assert.equal(byName.get("clk").line, 3);
+  assert.equal(byName.get("rst_n").line, 4, "rst_n 不得串到 clk 所在行（共享 input 关键词）");
+  assert.equal(byName.get("data_in").line, 5);
+  assert.equal(byName.get("count").line, 6);
+  assert.equal(byName.get("done").line, 7);
+  assert.equal(byName.get("data_in").range, "[7:0]", "端口应带解析出的位宽标签");
+  assert.equal(mod.parameters[0].line, 2, "头部 parameter 行号指向参数块所在行");
+});
+
+test("rtl-nav 共享方向单行列表与参数化声明定位正确", () => {
+  const src = "module m(input a, b, input [3:0] c, output d);\n  assign d = a & b & c;\nendmodule\n";
+  const nav = rtlNav.buildRtlNav([{ name: "m.v", content: src }]);
+  const byName = new Map(nav[0].ports.map((p) => [p.name, p]));
+  assert.equal(byName.get("a").line, 1);
+  assert.equal(byName.get("b").line, 1, "同列表共享方向的多端口应都落在声明行");
+  assert.equal(byName.get("c").line, 1);
+  assert.equal(byName.get("c").range, "[3:0]");
+});
+
+test("rtl-nav 非 ANSI（端口列表 + 体内方向声明）定位到声明行", () => {
+  const src = "module m(a, b);\n  input a;\n  input wire signed [7:0] b;\n  output reg q;\n  assign q = a & b;\nendmodule\n";
+  const nav = rtlNav.buildRtlNav([{ name: "m.v", content: src }]);
+  const byName = new Map(nav[0].ports.map((p) => [p.name, p]));
+  assert.equal(byName.get("a").line, 2, "非 ANSI 应跳到 input a; 声明行");
+  assert.equal(byName.get("b").line, 3);
+  assert.equal(byName.get("b").range, "[7:0]");
+  assert.equal(byName.get("q").line, 4);
+});
+
+test("rtl-nav 实例与注释抹白：行号按原文计算、注释里的 module 字样不干扰", () => {
+  const src = `// this file instantiates nothing: module fake(...); endmodule
+module tb;
+  reg clk;
+  wire [7:0] count;
+  // TODO: add counter later
+  counter #(.WIDTH(8), .STEP(1)) u_dut (
+    .clk(clk),
+    .count(count)
+  );
+endmodule
+`;
+  const nav = rtlNav.buildRtlNav([{ name: "tb.v", content: src }]);
+  assert.equal(nav.length, 1, "注释里的 module 关键字不得被解析成模块");
+  assert.equal(nav[0].name, "tb");
+  assert.equal(nav[0].instances.length, 1);
+  const inst = nav[0].instances[0];
+  assert.equal(inst.moduleName, "counter");
+  assert.equal(inst.instanceName, "u_dut");
+  assert.equal(inst.line, 6, "实例行号应指向实例化语句（注释行不参与偏移）");
+});
+
+// ---------------------------------------------------------------------------
+group("vcd-index.js（#75 P0 VCD 全路径索引，纯函数）");
+
+function sampleParsedVcd() {
+  return {
+    tmax: 10,
+    signals: [
+      { width: 1, name: "clk", reference: "clk", scope: "tb.dut", steps: [] },
+      { width: 8, name: "data_in", reference: "data_in", scope: "tb.dut", steps: [] },
+      { width: 1, name: "done", reference: "done", scope: "tb", steps: [] },
+      { width: 1, name: "top_net", reference: "top_net", scope: "", steps: [] }
+    ]
+  };
+}
+
+test("buildVcdHierarchy 沿点分作用域建链并把信号挂到正确节点", () => {
+  const idx = vcdIndex.buildVcdHierarchy(sampleParsedVcd());
+  assert.equal(idx.signalCount, 4);
+  assert.equal(idx.scopeCount, 2, "应有两级作用域：tb 与 tb.dut");
+  assert.equal(idx.tree.path, "");
+  const tb = idx.tree.scopes[0];
+  assert.equal(tb.path, "tb");
+  assert.equal(tb.signals.length, 1);
+  assert.equal(tb.signals[0].name, "done");
+  const dut = tb.scopes[0];
+  assert.equal(dut.path, "tb.dut");
+  assert.equal(dut.signals.length, 2);
+  const names = dut.signals.map((s) => s.name).sort();
+  assert.deepEqual(names, ["clk", "data_in"]);
+  assert.equal(dut.signals.find((s) => s.name === "data_in").width, 8, "信号应带位宽");
+});
+
+test("buildVcdHierarchy 根作用域信号挂在 root、可 JSON 序列化（无循环引用）", () => {
+  const idx = vcdIndex.buildVcdHierarchy(sampleParsedVcd());
+  const rootSignals = idx.tree.signals.map((s) => s.name);
+  assert.deepEqual(rootSignals, ["top_net"], "空 scope 信号应挂在 root");
+  const json = JSON.parse(JSON.stringify(idx.tree));
+  assert.equal(json.scopes[0].scopes[0].path, "tb.dut", "树应可序列化（供渲染层直接消费）");
+});
+
+test("buildVcdHierarchy 对空/缺字段入参安全返回空索引", () => {
+  const empty = vcdIndex.buildVcdHierarchy(null);
+  assert.equal(empty.signalCount, 0);
+  assert.equal(empty.scopeCount, 0);
+  assert.equal(empty.tree.scopes.length, 0);
+  const partial = vcdIndex.buildVcdHierarchy({ signals: [{ width: 0, reference: "x" }] });
+  assert.equal(partial.signalCount, 1);
+  assert.equal(partial.tree.signals[0].width, 1, "width 缺失/为 0 时按 1 位兜底");
+});
+
+test("buildVcdHierarchy 与真实 parseVcd 产物打通（parseVcd → 索引）", () => {
+  const vcdText = [
+    "$timescale 1ns $end",
+    "$scope module tb $end",
+    "$scope module dut $end",
+    "$var wire 1 ! clk $end",
+    "$var wire 8 \" data_in $end",
+    "$upscope $end",
+    "$var wire 1 # done $end",
+    "$upscope $end",
+    "$enddefinitions $end",
+    "#0",
+    "0!",
+    "b00000000 \"",
+    "#5",
+    "1!"
+  ].join("\n");
+  const parsed = sim.parseVcd(vcdText);
+  const idx = vcdIndex.buildVcdHierarchy(parsed);
+  assert.equal(idx.signalCount, 3);
+  assert.equal(idx.scopeCount, 2);
+  assert.equal(idx.tree.scopes[0].path, "tb");
+  assert.equal(idx.tree.scopes[0].scopes[0].path, "tb.dut");
+  assert.deepEqual(idx.tree.scopes[0].scopes[0].signals.map((s) => s.name), ["clk", "data_in"]);
 });
 
 // ---------------------------------------------------------------------------

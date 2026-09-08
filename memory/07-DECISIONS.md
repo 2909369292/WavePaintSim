@@ -102,3 +102,21 @@
 - **理由**：单一入口、单一真相源、便于维护。
 - **否决方案**：继续多目录并存。
 - **影响**：所有记忆更新只发生在 `memory/`。
+
+---
+
+## D11 · CodeMirror 6 与 textarea 数据镜像共存（#75）
+
+- **背景**：引入 CM6 代码视图，但核心与旧逻辑大量读 `refs.sourceEditor.value`，直接切换会大面积改 `ui-bridge`。
+- **决策**：textarea 保留为数据镜像（display:none）；CM 用户编辑 onChange 同步回 textarea；CM bundle 缺失时 `installCodeEditor` 返回 `active=false` 并隐藏 CM host 降级纯 textarea；切文件/程序性写统一走 `setEditorText`，销毁重建 EditorView。
+- **理由**：旧读路径零改动；降级无风险；重建 EditorView 使 undo 不跨文件回滚。
+- **否决方案**：大规模改写全部读路径用 CM 状态；Monaco（体积 +4MB）。
+- **影响**：`setEditorText` / `jumpToEditorLine` 成为唯一写入口；编辑防抖 350ms 重建 RTL 树。
+
+## D12 · RTL/VCD 结构数据纯函数化，DOM 只做渲染（#75）
+
+- **背景**：RTL 树与 VCD 树既要 UI 又要可回归；P1 点变量加波形还要复用同一数据口径。
+- **决策**：`js/sim/rtl-nav.js`、`js/sim/vcd-index.js` 为纯函数数据源（无 DOM、可 JSON 序列化），`js/sim/rtl-panel.js` 只负责渲染与点击交互，不 import ui-bridge（防循环依赖）。
+- **理由**：`regression.mjs` 可直接 import 单测；行号与全路径口径单一，P1/P2 直接复用。
+- **否决方案**：逻辑全部内联进 `rtl-panel.js` / `ui-bridge.js`。
+- **影响**：回归 58/58（新增 9 项纯函数用例）；P1 的「信号 → 加波形」拿到完整点分路径即插即用。

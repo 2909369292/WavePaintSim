@@ -8,14 +8,16 @@
 
 | 期 | 内容 | 状态 | 关键点 |
 |---|---|---|---|
-| P0 | **CodeMirror 6 代码视图 + RTL Tree 面板 + VCD 全路径索引** | ⬜ | 预打包单文件入 `lib/`；esbuild 一次性构建；`engine.js` 已有模块/端口/参数/实例数据 |
-| P1 | **点变量 → 加波形 + 树↔代码双向跳转 + 信号组入 `.wp`** | ⬜ | 复用 `toNativeSignal` 注入链路；多实例歧义选择器；未 dump 信号提示 |
+| P0 | **CodeMirror 6 代码视图 + RTL Tree 面板 + VCD 全路径索引** | ✅ | 已完成 2026-09-09：CM6 预打包入 `lib/`；`rtl-nav/vcd-index/rtl-panel`；回归 58/58、e2e-rtl 9/9、exe 重建 |
+| P1 | **点变量 → 加波形 + 树↔代码双向跳转 + 信号组入 `.wp`** | ⬜ | 复用 `toNativeSignal` 注入链路 + P0 的完整路径数据源；多实例歧义选择器；未 dump 信号提示 |
 | P2 | **Active Annotation + driver/load 高亮** | ⬜ | 波形游标时刻 → 代码行内标值；driver/load 启发式高亮 |
 | P3 | **X 首现追溯 / 波形 diff / VSCode 外接扩展** | ⬜ 备选 | VSCode 扩展复用 launcher HTTP `/api`；扩展读取 `%TEMP%/WavePaintClean_port_*.txt` 获取端口 |
 
 ---
 
 ## 2. P0 具体拆解
+
+> **P0 已于 2026-09-09 完成**，实现记录见当日日志 `memory/logs/2026-09-09.md`；P1 直接复用 P0 的数据源与渲染层。
 
 ### 2.1 CodeMirror 6 代码视图
 

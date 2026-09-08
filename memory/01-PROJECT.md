@@ -41,7 +41,7 @@ VCD 结果回填画布，实现“画波形即可仿真 RTL”。
 | 3. 重构收编 | 2026-09-02 | 建立 `__core` 桥接、`core/editor/sim` 分层，清除全部历史 hack |
 | 4. 正确性收口 | 2026-09-03~04 | 私有 divisor 模型、`wpf.parseValue` 唯一解析、launcher 自愈、历史回归根治 |
 | 5. 功能增强 | 2026-09-04~08 | 工程存取、实时预览、DUT 回显、顶层选择、版本显示、参数化位宽 |
-| 6. Verdi 路线 | 未来 | 代码查看器、RTL Tree、点变量加波形、Active Annotation |
+| 6. Verdi 借鉴 P0 | 2026-09-09 | CM6 代码视图 / RTL Tree / VCD 全路径索引完成；下一步 P1 点变量加波形 |
 
 ---
 
@@ -85,6 +85,10 @@ VCD 结果回填画布，实现“画波形即可仿真 RTL”。
 15. `js/editor/file-menu.js`
 16. `js/sim/ui-bridge.js`（ES module）
 
+> #75 P0 补充：`lib/codemirror.bundle.js` 以普通 script 在 ui-bridge 之前执行，挂
+> `globalThis.WPCm`；`ui-bridge.js` 作为 ESM import `js/sim/rtl-nav.js` /
+> `js/sim/vcd-index.js` / `js/sim/rtl-panel.js`（随模块图一并加载）。
+
 ---
 
 ## 5. 目录与模块职责
@@ -94,7 +98,7 @@ VCD 结果回填画布，实现“画波形即可仿真 RTL”。
 | `index.html` | 入口页面，内嵌进 exe |
 | `css/` | 样式 |
 | `img/` | 图标与图片资源 |
-| `lib/` | 第三方库（wavedrom 等） |
+| `lib/` | 第三方库（wavedrom、`codemirror.bundle.js`=esbuild 预打包 CM6，挂 `globalThis.WPCm`） |
 | `js/wavepaint.clean.js` | 解混淆核心引擎，行为=原版 + 补丁段 `[PATCH-A*]` |
 | `js/core/__core.js` | 唯一官方核心桥接：state、selection、prompt、ready |
 | `js/core/wpf.js` | 共享层：stride、divisor、parseValue、undo、进制、弹窗 |
@@ -111,6 +115,10 @@ VCD 结果回填画布，实现“画波形即可仿真 RTL”。
 | `js/sim/engine.js` | RTL 解析、端口匹配、TB 生成、VCD 解析回填（最易碎区） |
 | `js/sim/project-model.js` | 值归一化、进制格式化、工程模型 |
 | `js/sim/ui-bridge.js` | 仿真面板 UI、多文件、顶层选择、运行与回显 |
+| `js/sim/rtl-nav.js` | #75 RTL 树数据源：复用 engine 解析，为节点定位文件+行号（纯函数） |
+| `js/sim/vcd-index.js` | #75 VCD 全路径索引：parseVcd 产物 → 点分作用域树（纯函数） |
+| `js/sim/rtl-panel.js` | #75 DOM 渲染层：CM6 挂载、RTL/VCD 树渲染与跳转交互 |
+| `tools/cm6-entry.js` | CM6 bundle 的 esbuild 构建源（tools/ 不进 exe） |
 | `js/util/id.js` | 通用工具：uid、deepClone、clamp |
 | `tools/` | 构建、回归、e2e、探针、开发服务器 |
 | `memory/` | 项目唯一记忆目录（本文件所在） |
@@ -164,6 +172,9 @@ VCD 结果回填画布，实现“画波形即可仿真 RTL”。
 | TB 生成 | `sim.buildAutoTestbench()` |
 | VCD 解析 | `sim.parseVcd()` / `sim.vcdToProjectOutputs()` |
 | 工程存取 | `editor/file-menu.js` 调核心 `.wp` API |
+| RTL 树数据 | `js/sim/rtl-nav.js` `buildRtlNav(files)`（#75） |
+| VCD 层次索引 | `js/sim/vcd-index.js` `buildVcdHierarchy(parsed)`（#75） |
+| 代码视图写入口 | `ui-bridge` `setEditorText` / `jumpToEditorLine`（#75，textarea 为数据镜像） |
 
 ---
 
@@ -173,7 +184,7 @@ VCD 结果回填画布，实现“画波形即可仿真 RTL”。
 # 语法
 node --check js/sim/engine.js
 
-# 逻辑/快照回归（当前 49 项）
+# 逻辑/快照回归（当前 58 项）
 node tools/regression.mjs
 
 # 真实 iverilog 仿真链路
@@ -184,6 +195,9 @@ node tools/probe-param.mjs
 
 # 真实 Edge UI 回归（需要本机 Edge）
 node tools/e2e-ui.mjs
+
+# #75 浏览器冒烟：CM6 / RTL Tree / VCD 树（需要本机 Edge，非沙箱执行）
+node tools/e2e-rtl.mjs
 
 # 开发服务器
 node tools/dev-server.mjs 8947

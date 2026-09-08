@@ -12,12 +12,12 @@
 | 当前版本 | `v0.4.0 build <自动时间> <git短哈希>` |
 | 代码状态 | 主线可用，`main` 分支 |
 | 构建产物 | `D:\Files\Code\波形\WavePaintClean.exe` |
-| 最近完成需求 | #73 参数化位宽完整支持 |
+| 最近完成需求 | #75 Verdi 借鉴 P0（CM6 代码视图 + RTL Tree + VCD 全路径索引） |
 | 最近完成文档 | #80 记忆体系重构（已完成，旧目录已删除） |
 | 当前阻塞 | 无 |
-| 下一步主线 | #75 Verdi 借鉴 P0 |
-| 测试基线 | regression 49/49、e2e-sim 0 失败、probe-param 全过 |
-| UI 基线 | e2e-ui 35 项（环境正常时全绿） |
+| 下一步主线 | #75 Verdi 借鉴 P1（点变量加波形 + 双向跳转 + 信号组入 `.wp`） |
+| 测试基线 | regression 58/58、e2e-sim 0 失败、probe-param 全过 |
+| UI 基线 | e2e-rtl 9/9（#75 浏览器冒烟）；e2e-ui 35 项（环境正常时全绿） |
 | 交付提醒 | 重启应用、从唯一路径启动、面板版本号自查 |
 
 ---
@@ -34,6 +34,7 @@
 | 2026-09-04 | 批次1~10 完成 | 文件菜单、实时预览、DUT 回显、顶层选择、版本显示、launcher 自愈 |
 | 2026-09-08 | 参数化位宽修复 | 位宽算术交给 iverilog，regression 49/49 |
 | 2026-09-09 | 记忆体系重构 | 所有跨 AI 记忆统一收敛到 `memory/` |
+| 2026-09-09 | #75 Verdi 借鉴 P0 完成 | CM6 代码视图 + RTL Tree + VCD 全路径索引；regression 58/58、e2e-rtl 9/9、exe 已重建 |
 
 ---
 
@@ -58,22 +59,29 @@
 
 ## 4. 当前进行中 / 待交接
 
-### 4.1 【下一步主线】#75 Verdi 借鉴 P0
+### 4.1 ✅ 已完成：#75 Verdi 借鉴 P0（2026-09-09）
+
+- **CM6 代码视图**：`tools/cm6-entry.js` esbuild 预打包为 `lib/codemirror.bundle.js`（305KB，挂 `globalThis.WPCm`）；`rtl-panel.installCodeEditor` 挂载；textarea 保留为数据镜像（display:none），旧读路径 `refs.sourceEditor.value` 不变；bundle 缺失自动降级纯 textarea。
+- **RTL Tree**：`js/sim/rtl-nav.js` 纯函数复用 `parseVerilogDesign` 为 module/port/param/instance 定位「文件+行号」（注释抹平等长空格保行号）；点击行跳转源码（跨文件先切标签页），状态栏显示「已定位到 module …」。
+- **VCD 全路径索引**：`js/sim/vcd-index.js` 纯函数把 `parseVcd` 产物转点分作用域树，信号 title = 完整路径（如 `tb.q`）；`state.vcd` 存最近一次成功解析结果，仿真失败时清空防过期展示。
+- 接入点全部在 `ui-bridge.js`：`initSourceCodeView` / `setEditorText` / `jumpToEditorLine` / `refreshStructureTrees` / `refreshVcdTree`。
+
+### 4.2 【下一步主线】#75 Verdi 借鉴 P1
 
 **目标**
-- 内嵌 CodeMirror 6 代码视图
-- RTL Tree 面板
-- VCD 全路径索引
+- 点变量 → 加波形（复用 `toNativeSignal` 注入链路）。
+- 树 ↔ 代码双向跳转。
+- 信号组入 `.wp` 工程。
 
 **已有地基**
-- `engine.js` 已解析模块、端口、参数、实例。
-- VCD 已带层次路径。
-- `toNativeSignal` 注入链路可复用。
+- P0 的 RTL 树 / VCD 层次树已能点击跳源码（跨文件）。
+- `engine.js` 已解析模块、端口、参数、实例；VCD 带层次路径。
+- P1 需处理：多实例歧义选择器、未 dump 信号提示、点信号加波形回调。
 
 **建议顺序**
-1. 先做代码视图与文件树。
-2. 再做 RTL Tree 面板。
-3. 最后接 VCD 全路径索引。
+1. 先把「VCD/结构树信号行 → 加波形」的回调接到仿真面板。
+2. 再做树 ↔ 代码双向跳转（代码行 → 反向高亮树节点）。
+3. 最后做信号组写入 `.wp` 工程并回归存档。
 
 ---
 
@@ -96,6 +104,9 @@
 - **新建工程**：必须就地重置 `document_wave`，禁止换对象。
 - **参数化位宽**：TB 内嵌参数定义，最终由 iverilog 求值。
 - **旧 exe 假象**：本地全绿但用户异常时，先查启动路径与版本号。
+- **CM6 降级策略**：textarea 永远保留为数据镜像；CM 不可用只隐藏宿主，不影响任何旧逻辑。
+- **行号真相源**：RTL/代码跳转行号一律按原始文件文本计算（注释抹成等长空格），不能从渲染后的 DOM 反推。
+- **VCD 完整路径**：信号全路径 = 作用域点分 path + `.` + signal.name（`vcd-index.buildVcdHierarchy` 口径），P1/P2 直接复用。
 
 ---
 

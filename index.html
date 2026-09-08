@@ -288,7 +288,107 @@
         #sim-toggle-btn:hover { background: var(--accent-hover, #3d9141); border-color: var(--accent-hover, #3d9141); }
 
         /* ── v0.3.0 R8：值输入弹窗非法输入红框提示 ─────────────────────── */
-        #wp-modal-input.wp-modal-error { border-color: #e53935 !important; box-shadow: 0 0 0 2px rgba(229,57,53,.25) !important; }</style>
+        #wp-modal-input.wp-modal-error { border-color: #e53935 !important; box-shadow: 0 0 0 2px rgba(229,57,53,.25) !important; }
+
+        /* ── #75 P0（Verdi 借鉴）：CodeMirror 6 代码视图 + RTL/VCD 结构树 ── */
+        #verilog-cm-host {
+            display: none; /* CodeMirror 可用时由 ui-bridge 打开 */
+            height: 200px;
+            border: 1px solid var(--input-border, #c0d0c0);
+            border-radius: var(--radius-sm, 6px);
+            overflow: hidden;
+            background: var(--input-bg, #fff);
+        }
+        #verilog-cm-host .cm-editor { height: 100%; }
+        #verilog-cm-host .cm-editor.cm-focused { outline: none; }
+        .rtl-tree, .vcd-tree {
+            max-height: 240px;
+            overflow: auto;
+            font-size: 12px;
+            line-height: 1.6;
+            color: var(--text-color, #1a1f1a);
+            padding: 2px 0;
+        }
+        .rtl-tree summary, .vcd-tree summary {
+            cursor: pointer;
+            list-style: none;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            flex-wrap: wrap;
+            padding: 1px 4px;
+            border-radius: 4px;
+            user-select: none;
+        }
+        .rtl-tree summary::-webkit-details-marker,
+        .vcd-tree summary::-webkit-details-marker { display: none; }
+        .rtl-tree summary::before, .vcd-tree summary::before {
+            content: "▸";
+            display: inline-block;
+            width: 10px;
+            color: var(--text-muted, #8a9a8a);
+            transition: transform 120ms ease;
+        }
+        .rtl-tree details[open] > summary::before,
+        .vcd-tree details[open] > summary::before { transform: rotate(90deg); }
+        .rtl-tree summary:hover, .vcd-tree summary:hover { background: var(--hover-bg, #e8f0e8); }
+        .rtl-jump-btn {
+            font-family: Consolas, monospace;
+            font-size: 12px;
+            line-height: 1.5;
+            text-align: left;
+            background: none;
+            border: 1px solid transparent;
+            border-radius: 4px;
+            padding: 0 4px;
+            margin: 0;
+            cursor: pointer;
+            color: var(--text-color, #1a1f1a);
+        }
+        .rtl-jump-btn:hover {
+            background: var(--hover-bg, #e8f0e8);
+            border-color: var(--accent, #4CAF50);
+            color: var(--signal-color, #2e7d32);
+        }
+        .rtl-module-go { font-weight: 600; }
+        .rtl-module-meta { color: var(--text-muted, #8a9a8a); font-size: 11px; }
+        .rtl-grp { margin: 1px 0 1px 8px; }
+        .rtl-grp-title { color: var(--text-muted, #8a9a8a); font-size: 11px; margin: 2px 0 1px; }
+        .rtl-grp-list {
+            display: grid;
+            gap: 1px;
+            margin-left: 12px;
+            border-left: 1px solid var(--section-border, #e0e8e0);
+            padding-left: 6px;
+        }
+        .rtl-file { margin-bottom: 4px; }
+        .rtl-module { margin-left: 10px; }
+        .rtl-empty, .vcd-empty {
+            color: var(--text-muted, #8a9a8a);
+            font-size: 11px;
+            font-style: italic;
+            padding: 4px;
+        }
+        .vcd-meta { color: var(--text-muted, #8a9a8a); font-size: 11px; margin: 0 0 2px 4px; }
+        .vcd-scope { margin: 1px 0; }
+        .vcd-scope-body { margin-left: 12px; border-left: 1px solid var(--section-border, #e0e8e0); padding-left: 6px; }
+        .vcd-signals { display: grid; gap: 1px; }
+        .vcd-signal-row {
+            font-family: Consolas, monospace;
+            font-size: 12px;
+            line-height: 1.5;
+            text-align: left;
+            background: none;
+            border: 1px solid transparent;
+            border-radius: 4px;
+            padding: 0 6px;
+            cursor: pointer;
+            color: var(--signal-color, #2e7d32);
+        }
+        .vcd-signal-row:hover {
+            background: var(--hover-bg, #e8f0e8);
+            border-color: var(--accent, #4CAF50);
+        }</style>
     <script>
         (function () {
             function removeLoader() {
@@ -571,6 +671,9 @@
                     </div>
                 </div>
                 <textarea id="verilog-source" spellcheck="false"></textarea>
+                <!-- #75 P0：CodeMirror 6 宿主。可用时 ui-bridge 隐藏 textarea 并在此挂编辑器；
+                     bundle 缺失（开发降级）时保持隐藏，textarea 照常工作。 -->
+                <div id="verilog-cm-host"></div>
                 <div class="helper-box">
                     <div id="port-preview" class="helper"></div>
                     <div id="module-preview" class="helper"></div>
@@ -581,6 +684,16 @@
                     <label for="sim-top-select" style="flex:none;">顶层模块：</label>
                     <select id="sim-top-select" style="flex:1;min-width:0;padding:3px 6px;border:1px solid #bbb;border-radius:6px;font-size:12px;"></select>
                 </div>
+            </div>
+            <!-- #75 P0：RTL 结构树（模块/端口/参数/实例，点击跳转源码行） -->
+            <div>
+                <div class="sim-sec-title">RTL 结构树</div>
+                <div id="rtl-tree" class="rtl-tree"></div>
+            </div>
+            <!-- #75 P0：VCD 信号层次（仿真后按 $scope 全路径列出；点击信号可查看完整路径） -->
+            <div>
+                <div class="sim-sec-title">VCD 信号层次</div>
+                <div id="vcd-tree" class="vcd-tree"></div>
             </div>
             <div>
                 <div class="tb-title-row">
@@ -676,6 +789,9 @@
          New/Open/Save As 等，汉化后五个文件菜单项全部失效（死菜单）；
          本模块按中文文本重绑并复用核心 .wp 工程存取（openFile/saveToFile）。 -->
     <script src="js/editor/file-menu.js"></script>
+    <!-- #75 P0：CodeMirror 6 离线 bundle（IIFE，普通 script 先于 ESM 模块执行；
+         挂到 globalThis.WPCm，供 js/sim/rtl-panel.js 创建代码视图）。 -->
+    <script src="lib/codemirror.bundle.js"></script>
     <!-- model.js 是 ESM，普通 script 无法直接 import。
          这里把矢量值处理函数挂到 window，供 editor/selection.js / core/wpf.js 使用
          （module 为 defer 语义，晚于普通 script；使用方都在用户交互时才读取，故安全）。 -->

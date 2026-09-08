@@ -58,10 +58,11 @@
 | 命令 | 用途 | 期望 | 适用 |
 |---|---|---|---|
 | `node --check <改过的js>` | 语法 | OK | 任何 JS 改动 |
-| `node tools/regression.mjs` | 逻辑/快照回归 | 全过（当前 49 项） | 任何 JS 改动 |
+| `node tools/regression.mjs` | 逻辑/快照回归 | 全过（当前 58 项） | 任何 JS 改动 |
 | `node tools/e2e-sim.mjs` | 真跑 iverilog 全链路 | 失败 0 项 | `sim/engine` / `ui-bridge` / `launcher` 改动 |
 | `node tools/probe-param.mjs` | 参数化设计真 iverilog 端到端 | 全过 | `engine` 参数 / TB 生成改动 |
 | `node tools/e2e-ui.mjs` | 真实 Edge 交互（35 项） | 35/35 | `editor` / `core` / `index.html` 改动 |
+| `node tools/e2e-rtl.mjs` | #75 冒烟：CM6 / RTL Tree / VCD 树（9 项） | 9/9 | `rtl-nav/vcd-index/rtl-panel/ui-bridge/index.html` 改动 |
 | `node tools/exe-smoke.mjs` | 真实 exe 冒烟 | 通过 | exe 重建后 |
 | 浏览器人工验收 | UI 视觉/交互 | 用户确认 | AI 无法完整实测的 UI 改动，必须明确告知用户 |
 

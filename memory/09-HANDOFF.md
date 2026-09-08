@@ -11,10 +11,10 @@
 |---|---|
 | 主线 | `main` |
 | 当前版本 | `v0.4.0 build <自动时间> <git短哈希>` |
-| 最近完成 | #73 参数化位宽完整支持；#80 记忆体系重构 |
-| 测试基线 | regression 49/49；e2e-sim 0 失败；probe-param 全过 |
+| 最近完成 | #75 Verdi 借鉴 P0（CM6 代码视图 + RTL Tree + VCD 全路径索引）；#73 参数化位宽；#80 记忆体系重构 |
+| 测试基线 | regression 58/58；e2e-sim 0 失败；probe-param 全过；e2e-rtl 9/9 |
 | 当前阻塞 | 无 |
-| 下一步 | #75 Verdi 借鉴 P0 |
+| 下一步 | #75 Verdi 借鉴 P1 |
 
 ---
 
@@ -29,32 +29,32 @@
 
 ---
 
-## 3. 下一步任务：#75 Verdi 借鉴 P0
+## 3. 下一步任务：#75 Verdi 借鉴 P1
 
 ### 3.1 目标
 
-1. 内嵌 CodeMirror 6 代码视图
-2. 建 RTL Tree 面板
-3. 建 VCD 全路径索引
+1. **点变量 → 加波形**（复用 P0 的 VCD/结构树完整路径 + `toNativeSignal` 注入链路）。
+2. **树 ↔ 代码双向跳转**（P0 已有「代码侧跳转」，补「代码行 → 反向高亮树节点」）。
+3. **信号组入 `.wp` 工程**（存档后重开可恢复）。
 
 ### 3.2 建议顺序
 
-1. **代码视图**
-   - 引入 CodeMirror 6，先支持 Verilog 语法高亮。
-   - 不急着做编辑，先做“可读 + 可跳转”。
-2. **RTL Tree**
-   - 复用 `parseVerilogDesign()` 的 module / ports / instances / params。
-   - 树节点点击后跳转对应代码行。
-3. **VCD 全路径索引**
-   - 复用 `parseVcd()` 的层次路径。
-   - 为 P1 的“点变量 → 加波形”打地基。
+1. **信号选择 → 加波形**
+   - 先确认 P0 数据源输出：`buildVcdHierarchy` 的节点含 `path`（点分作用域）、信号含完整路径 title；`buildRtlNav` 的节点含文件/行号。
+   - 处理多实例歧义：同名模块多次例化时需让用户选实例作用域。
+   - 未 dump 信号（仿真没跑到 / 被优化掉）给中文提示，不要静默失败。
+2. **双向跳转**
+   - 点代码里的信号名 → 高亮对应结构树/VCD 树节点。
+3. **信号组入 `.wp`**
+   - 复用 `editor/file-menu.js` 的 `.wp` 存取链路，P0/P1 新增的面板状态随工程存档/恢复。
 
 ### 3.3 不要做
 
-- 不要一次性做 P1/P2/P3。
+- 不要一次性做 P2/P3。
 - 不要换主仿真器。
 - 不要重写核心引擎。
 - 不要绕过 `__core` / `wpf` 直接抓内部标识符。
+- 不要改 `sim/engine.js` 的 stride / 端口匹配 / VCD 回填（最易碎区）。
 
 ---
 
@@ -66,6 +66,7 @@ node tools/regression.mjs
 node tools/e2e-sim.mjs
 node tools/probe-param.mjs
 node tools/e2e-ui.mjs
+node tools/e2e-rtl.mjs   # #75 P0 浏览器冒烟 9 项（需真实 Edge，非沙箱执行）
 .\build.ps1
 ```
 
@@ -79,6 +80,8 @@ node tools/e2e-ui.mjs
 - `e2e-ui` 依赖本机 Edge，C 盘满会卡死组件更新。
 - `package.json` 无 `"type": "module"`，Node 会以 ESM 探测加载，出现无害警告。
 - `WavePaintClean.exe` 为构建产物，不提交。
+- 改 `lib/codemirror.bundle.js` 依赖重跑 `npx esbuild tools/cm6-entry.js`（见该文件头注释），再重建 exe。
+- `memory/logs/2026-09-09.md` 记录了 #75 P0 的实现细节与设计决策，P1 开工前建议先读。
 
 ---
 
@@ -98,6 +101,7 @@ node tools/e2e-ui.mjs
 - 批次1~10
 - 参数化位宽修复
 - 记忆体系重构
+- #75 Verdi 借鉴 P0（CM6 代码视图 / RTL Tree / VCD 全路径索引）
 
 ---
 
@@ -112,4 +116,5 @@ node tools/e2e-ui.mjs
 
 ## 9. 本轮遗留
 
-- 无。`memory/` 已成为唯一记忆入口，`.workbuddy/` 与 `docs/` 已删除。
+- 无功能阻塞。#75 P1（点变量加波形 / 双向跳转 / 信号组入 `.wp`）为下一主线。
+- P0 已验证：regression 58/58、e2e-rtl 9/9、exe 已按 C1 重建并核验特征串。

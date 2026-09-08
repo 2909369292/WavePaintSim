@@ -164,3 +164,19 @@
 - **根因**：直接裸删。
 - **解法**：统一移入 `D:/Files/Code/.trash-<日期>/`。
 - **预防**：任何删除/隔离必须可恢复。
+
+---
+
+## P19 · ANSI 头部内部端口行号串行（#75）
+
+- **症状**：ANSI 风格 `module m ( input clk, rst_n, data_in )` 多行书写时，所有端口行号都被定位到首行；`clk/rst_n/data_in` 全落在模块头第一行。
+- **根因**：行号定位用「模块内第一个方向关键字 + 端口名」正则，共享的 input 关键词一旦跨行/复用，就把后面端口全算到第一处 input 上。
+- **解法**：`rtl-nav.js` 对 ANSI 头部内部做精确处理——从头部「列表开括号 `lastIndexOf("(")`」到「分号」逐段重定位每个端口；共享方向单行列表 `input a, b` 同列 1；非 ANSI 落到体内方向声明行。
+- **预防**：任何行号计算都以“原始文本 + 括号/分号边界”为准，禁止依赖方向关键字第一次出现的位置；新增解析必须进 `regression.mjs` 单测。
+
+## P20 · `.cm-content` 的 textContent 不含换行（#75 e2e 陷阱）
+
+- **症状**：e2e 用 `.cm-content.textContent` 与 textarea `.value` 比对“内容同步”误报不同步。
+- **根因**：CodeMirror 的 `.cm-content` 按行渲染，`textContent` 会丢换行符；textarea 保留 `\r\n`/`\n`，直接比对必然不等。
+- **解法**：断言改为“去掉全部换行后全等”（`replace(/[\r\n]/g,'')`），e2e-rtl A2 用此法通过。
+- **预防**：涉及 CM 内容与外部文本的断言一律先归一化换行；不要假设 DOM textContent 保留原始换行。

@@ -1,5 +1,8 @@
 import { buildAutoTestbench, buildSimulationPayload, createPortStimulus, createSignalFromPort, diagnoseSimulation, parseVerilogDesign, vcdToProjectOutputs } from "./engine.js";
 import { formatVectorValue, normalizeVectorValue } from "./project-model.js";
+import { buildRtlNav } from "./rtl-nav.js";
+import { buildVcdHierarchy } from "./vcd-index.js";
+import { installCodeEditor, renderRtlTree, renderVcdTree } from "./rtl-panel.js";
 
 const DEFAULT_SOURCE = `module counter(
   input clk,
@@ -25,10 +28,13 @@ const state = {
   lastTestbench: "",
   lastBindings: [],
   readyTimer: null,
-  ready: false
+  ready: false,
+  vcd: null // #75 P0：最近一次成功仿真解析出的 VCD（parseVcd 产物），供 VCD 层次树使用
 };
 
 const refs = {};
+let sourceCodeView = null;      // #75 P0：CodeMirror 6 控制器（installCodeEditor 返回值）
+let rtlRefreshTimer = null;     // 编辑后防抖刷新 RTL 树
 
 // WavePaint 核心的 Bit 值数字编码（window.__wpConstants.WaveValue 默认值）：
 //   0=低, 1=高, -1=未定义(x), 2=高阻(z), 3=上拉(u), 4=下拉(d)
@@ -307,6 +313,9 @@ function initRefs() {
   refs.waveCanvas = el("wave-canvas");
   refs.sourceFiles = el("source-files");
   refs.sourceEditor = el("verilog-source");
+  refs.cmHost = el("verilog-cm-host");
+  refs.rtlTree = el("rtl-tree");
+  refs.vcdTree = el("vcd-tree");
   refs.portPreview = el("port-preview");
   refs.modulePreview = el("module-preview");
   refs.status = el("sim-status");
@@ -356,6 +365,86 @@ function syncEditor() {
   state.outputs = [];
   state.lastTestbench = "";
   updateTbViewer();
+}
+
+// #75 P0：把 CodeMirror 6 挂到 .cm-host。可用时隐藏 textarea（仍保留为数据镜像，
+// syncEditor 等旧读路径继续读 .value）；bundle 缺失则降级回纯 textarea。
+function initSourceCodeView() {
+  if (!refs.cmHost || !refs.sourceEditor) return;
+  sourceCodeView = installCodeEditor({
+    host: refs.cmHost,
+    textarea: refs.sourceEditor,
+    doc: currentFile()?.content || "",
+    onChange: (text) => {
+      // 用户编辑：与旧 textarea input 处理一致（存回文件 + 重绘 + 防抖刷新结构树）
+      void text;
+      syncEditor();
+      render();
+      scheduleRtlTreeRefresh();
+    }
+  });
+  const usingCm = !!sourceCodeView.active;
+  refs.cmHost.style.display = usingCm ? "block" : "none";
+  refs.sourceEditor.style.display = usingCm ? "none" : "";
+}
+
+// 程序性写入当前源码（切文件/新建/载入）。CM 可用时由控制器同步并重建文档；
+// 否则直接写 textarea。永远不同时写两处（textarea 由 CM 控制器镜像）。
+function setEditorText(text) {
+  const value = String(text || "");
+  if (sourceCodeView?.active) {
+    sourceCodeView.setText(value);
+  } else if (refs.sourceEditor) {
+    refs.sourceEditor.value = value;
+  }
+}
+
+function jumpToEditorLine(line) {
+  if (sourceCodeView?.active) {
+    sourceCodeView.jumpToLine(line);
+    return;
+  }
+  // 无 CM 时跳到 textarea（尽量定位行首）
+  refs.sourceEditor?.focus();
+}
+
+// 防抖：用户连续编辑时只在停顿 350ms 后重建一次 RTL 树（避免每键全量重排 DOM）
+function scheduleRtlTreeRefresh() {
+  if (rtlRefreshTimer) clearTimeout(rtlRefreshTimer);
+  rtlRefreshTimer = window.setTimeout(() => {
+    rtlRefreshTimer = null;
+    refreshStructureTrees();
+  }, 350);
+}
+
+function refreshVcdTree() {
+  if (!refs.vcdTree) return;
+  const index = state.vcd ? buildVcdHierarchy(state.vcd) : null;
+  renderVcdTree(refs.vcdTree, index, (path) => {
+    setStatus(`VCD 信号完整路径：${path}`);
+  });
+}
+
+// 重建 RTL 结构树（纯数据 buildRtlNav 从 state.files 现算，不依赖 state.design）。
+// 点击节点：若在其它文件先切换标签页，再跳到对应源码行。
+function refreshStructureTrees() {
+  if (!refs.rtlTree && !refs.vcdTree) return;
+  if (refs.rtlTree) {
+    const nav = buildRtlNav(state.files);
+    renderRtlTree(refs.rtlTree, nav, (target) => {
+      if (!target) return;
+      if (typeof target.fileIndex === "number" && target.fileIndex !== state.active) {
+        syncEditor();
+        state.active = target.fileIndex;
+        renderFileTabs();
+      }
+      if (Number(target.line) > 0) jumpToEditorLine(target.line);
+      if (target.kind === "module" && target.name) {
+        setStatus(`已定位到 module ${target.name}（第 ${target.line} 行）。`);
+      }
+    });
+  }
+  refreshVcdTree();
 }
 
 function readWaveDocument() {
@@ -469,6 +558,7 @@ function parseDesign() {
     refs.portPreview.textContent = "⚠ 未识别到任何 module。请检查 RTL 语法：module/endmodule 是否匹配、模块名是否合法。";
     refs.modulePreview.textContent = "解析失败：未找到 module。";
     setStatus("解析失败：未找到 module。");
+    refreshStructureTrees();
     render();
     return;
   }
@@ -482,6 +572,7 @@ function parseDesign() {
   ].join("\n");
   setStatus(`已解析 ${design.moduleCount} 个模块。`);
   syncTopSelector();
+  refreshStructureTrees();
   render();
 }
 
@@ -524,6 +615,9 @@ async function runSimulation() {
     return;
   }
   syncEditor();
+  // 新一轮仿真开始前清空旧的 VCD 层次（失败时保持「暂无」占位，避免展示过期结果）
+  state.vcd = null;
+  refreshVcdTree();
   // 读画布 → 生成 TB 若抛异常会导致 sim 按钮静默无响应（用户反馈"第二次仿真失效"）。
   // 这里显式捕获并展示，让问题可定位。
   let design, project, tbResult;
@@ -577,6 +671,7 @@ async function runSimulation() {
 
     const { parsed, outputs } = vcdToProjectOutputs(text, project);
     state.outputs = outputs;
+    state.vcd = parsed;
     replaceInjectedOutputs(outputs);
     state.lastTestbench = tbResult.source;
     state.lastBindings = tbResult.bindings;
@@ -590,6 +685,7 @@ async function runSimulation() {
       ...(notes.length ? ["", ...notes] : [])
     ].join("\n");
     render();
+    refreshStructureTrees();
     setStatus(notes.length
       ? `仿真完成：${outputs.length} 个输出信号，但有 ${notes.length} 条提醒，请查看详情。`
       : `仿真完成：${outputs.length} 个输出信号。`);
@@ -708,12 +804,13 @@ function renderFileTabs() {
     chip.addEventListener("click", () => {
       syncEditor();
       state.active = index;
-      refs.sourceEditor.value = currentFile()?.content || "";
+      setEditorText(currentFile()?.content || "");
       renderFileTabs();
     });
     return chip;
   }));
-  if (refs.sourceEditor) refs.sourceEditor.value = currentFile()?.content || "";
+  setEditorText(currentFile()?.content || "");
+  scheduleRtlTreeRefresh();
 }
 
 function addFile() {
@@ -778,8 +875,10 @@ function bindEvents() {
 function init() {
   initRefs();
   if (!refs.panel || !refs.sourceEditor) return;
+  initSourceCodeView();
   bindEvents();
   renderFileTabs();
+  refreshStructureTrees();
   document.body.classList.add("sim-open");
   onWavepaintReady();
   if (!state.readyTimer) {
