@@ -23,9 +23,11 @@ const port = await (async () => {
   const { execSync } = await import('node:child_process');
   const fs = await import('node:fs');
   const dir = 'C:/Users/Admin/AppData/Local/Temp';
+  // 选「最近写入」而非「文件名最大」：随机端口下残留的旧 port_* 文件若数字更大，
+  // 会把冒烟指向已死端口（2026-09-09 踩坑：连到旧实例端口 → 页面全局全 undefined）。
   const files = fs.readdirSync(dir).filter((f) => f.startsWith('WavePaintClean_port_'));
-  files.sort();
-  const latest = files[files.length - 1];
+  files.sort((a, b) => fs.statSync(dir + '/' + b).mtimeMs - fs.statSync(dir + '/' + a).mtimeMs);
+  const latest = files[0];
   return fs.readFileSync(dir + '/' + latest, 'utf8').trim();
 })();
 console.log('端口:', port);

@@ -12,12 +12,12 @@
 | 当前版本 | `v0.4.0 build <自动时间> <git短哈希>` |
 | 代码状态 | 主线可用，`main` 分支 |
 | 构建产物 | `D:\Files\Code\波形\WavePaintClean.exe` |
-| 最近完成需求 | #75 Verdi 借鉴 P0（CM6 代码视图 + RTL Tree + VCD 全路径索引） |
+| 最近完成需求 | #81 Bug 自研修复（sim 瞬时离线自愈重试 / 添加信号图标消失 / 教程隐形重启拦截） |
 | 最近完成文档 | #80 记忆体系重构（已完成，旧目录已删除） |
 | 当前阻塞 | 无 |
-| 下一步主线 | #75 Verdi 借鉴 P1（点变量加波形 + 双向跳转 + 信号组入 `.wp`） |
+| 下一步主线 | #76 Verdi 借鉴 P1（点变量加波形 + 双向跳转 + 信号组入 `.wp`） |
 | 测试基线 | regression 58/58、e2e-sim 0 失败、probe-param 全过 |
-| UI 基线 | e2e-rtl 9/9（#75 浏览器冒烟）；e2e-ui 35 项（环境正常时全绿） |
+| UI 基线 | e2e-rtl 9/9（#75 浏览器冒烟）；e2e-ui 35 项（环境正常时全绿）；probe-tutorial / probe-addbtn / probe-simfail 全过；真 exe 冒烟通过 |
 | 交付提醒 | 重启应用、从唯一路径启动、面板版本号自查 |
 
 ---
@@ -35,6 +35,7 @@
 | 2026-09-08 | 参数化位宽修复 | 位宽算术交给 iverilog，regression 49/49 |
 | 2026-09-09 | 记忆体系重构 | 所有跨 AI 记忆统一收敛到 `memory/` |
 | 2026-09-09 | #75 Verdi 借鉴 P0 完成 | CM6 代码视图 + RTL Tree + VCD 全路径索引；regression 58/58、e2e-rtl 9/9、exe 已重建 |
+| 2026-09-09 | #81 Bug 自研修复完成 | sim 瞬时离线自愈重试+45s 超时；添加信号按钮消失根治（教程 CSS/高亮）；教程隐形重启+键盘拦截拦截；exe 已重建 |
 
 ---
 
@@ -59,14 +60,43 @@
 
 ## 4. 当前进行中 / 待交接
 
-### 4.1 ✅ 已完成：#75 Verdi 借鉴 P0（2026-09-09）
+### 4.1 ✅ 已完成：#81 Bug 自研修复（2026-09-09，用户本轮交付）
+
+用户报告：① 仿真服务“有可能不在线”；② 添加信号按钮图标“有时候会消失”。调查中又发现
+③ 教程隐形重启（键盘拦截 + 给真实控件挂隐藏 class）。三个根因全部定位并修复：
+
+- **Bug1 sim 瞬时离线**（`js/sim/ui-bridge.js`）：launcher 自愈（RestartServer）会造成
+  “瞬时不可达窗口”，旧 UI 把窗口内被丢弃的请求一律误报“请重启应用”。修复 =
+  `probeServerAlive()`（GET `api/ping`，800ms 超时）区分“进程死 / 自愈窗口”；
+  `/api/sim` 挂 45s `AbortController`；网络失败且探活成功 → 自动静默重试一次
+  （`simAutoRetried` 每次手动点击复位）；在线但请求未完成 → 准确定位超时/被丢弃。
+- **Bug2 添加信号按钮图标消失**（`index.html`）：汉化 CSS 把 `.wp-tutorial-highlight`
+  与瞬态教程元素一起 `display:none`，而教程 JS 把该 class 标到真实控件
+  （`#add-signal-btn` 等）上 → 控件被永久隐藏。修复 = 隐藏列表移除该 class +
+  防御规则保证真实控件（tool-btn/dropdown/menu-item/input）带高亮时仍可见可点。
+- **Bug3 教程隐形重启**（`index.html` + `js/editor/file-menu.js`）：随机端口 ⇒
+  localStorage 每会话全新 ⇒ 教程每次启动重跑（键盘拦截 + 高亮副作用）。修复 =
+  `<head>` 内联脚本在 `clean.js` 前预置 `wavepaint_tutorial_done='true'`；
+  `file-menu.js` 捕获阶段拦截「帮助→教程」，改弹中文提示，杜绝 `removeItem+queueTutorial`。
+
+探针（`.e2e-tmp/`，gitignore 覆盖）与套件全部通过：probe-simfail 3 场景、probe-addbtn
+全场景、probe-tutorial T1/T2、regression 58/58、probe-param、e2e-sim 0 失败、真 exe
+冒烟通过。exe 已重建（C1）并核验 5 个特征串。完整过程见 `memory/logs/2026-09-09.md` 第三轮。
+
+> 编号说明：用户会话里把本次任务称为「把 73 完成」，与台账 #73（参数化位宽，09-08 已
+> 完成）数字相同但**不是同一件事**；为避免台账冲突，本 Bug 任务登记为 #81。
+
+### 4.2 ✅ 已完成：#75 Verdi 借鉴 P0（2026-09-09）
 
 - **CM6 代码视图**：`tools/cm6-entry.js` esbuild 预打包为 `lib/codemirror.bundle.js`（305KB，挂 `globalThis.WPCm`）；`rtl-panel.installCodeEditor` 挂载；textarea 保留为数据镜像（display:none），旧读路径 `refs.sourceEditor.value` 不变；bundle 缺失自动降级纯 textarea。
 - **RTL Tree**：`js/sim/rtl-nav.js` 纯函数复用 `parseVerilogDesign` 为 module/port/param/instance 定位「文件+行号」（注释抹平等长空格保行号）；点击行跳转源码（跨文件先切标签页），状态栏显示「已定位到 module …」。
 - **VCD 全路径索引**：`js/sim/vcd-index.js` 纯函数把 `parseVcd` 产物转点分作用域树，信号 title = 完整路径（如 `tb.q`）；`state.vcd` 存最近一次成功解析结果，仿真失败时清空防过期展示。
 - 接入点全部在 `ui-bridge.js`：`initSourceCodeView` / `setEditorText` / `jumpToEditorLine` / `refreshStructureTrees` / `refreshVcdTree`。
 
-### 4.2 【下一步主线】#75 Verdi 借鉴 P1
+### 4.3 【下一步主线】#76 Verdi 借鉴 P1
+
+> 编号口径：台账中 P1 = #76（#75 是已完成的 P0）；此前 04/09 文档把 P1 误写成
+> “#75 P1”，2026-09-09 第三轮已纠正。
 
 **目标**
 - 点变量 → 加波形（复用 `toNativeSignal` 注入链路）。
@@ -107,6 +137,10 @@
 - **CM6 降级策略**：textarea 永远保留为数据镜像；CM 不可用只隐藏宿主，不影响任何旧逻辑。
 - **行号真相源**：RTL/代码跳转行号一律按原始文件文本计算（注释抹成等长空格），不能从渲染后的 DOM 反推。
 - **VCD 完整路径**：信号全路径 = 作用域点分 path + `.` + signal.name（`vcd-index.buildVcdHierarchy` 口径），P1/P2 直接复用。
+- **教程 = 只留副作用**：汉化版隐藏教程 UI 后，教程重跑只剩“挂高亮 + 拦键盘”两类副作用；随机端口下 localStorage 每会话全新，必须在 `clean.js` 前预置 `wavepaint_tutorial_done`，并拦截「帮助→教程」菜单。
+- **sim 失败先分死因**：`/api/sim` 失败必须探活区分「进程死 / 自愈窗口 / 在线但请求超时」；进程死才提示重启，自愈窗口自动重试一次，超时给准确文案。
+- **自动化探测注意**：核心模态 Enter=Escape 会自行关闭；探测按键拦截必须先把弹窗关掉。`wpModalState` 是词法全局，`window.wpModalState` 取不到。
+- **exe-smoke 端口文件**：按最近写入时间选 `WavePaintClean_port_*.txt`（残留旧文件的数字可能更大）。
 
 ---
 

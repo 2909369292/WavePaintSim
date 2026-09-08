@@ -43,6 +43,7 @@
 | #41 | 重写框选（selection）实现 | ✅ | `selection.js` 全量重写，`globalSampleIndex` 统一端点 |
 | #42 | 修复仿真服务运行一段时间后“不在线” | ✅ | 加 `heartbeat.js` 心跳保活 + launcher 退出判据放宽 |
 | #44 | 统一值解析实现（根治多 bit 写值变 0） | ✅ | 全链路唯一入口 `wpf.parseValue(raw,sig)` |
+| #81 | **Bug 自研修复**（2026-09-09）：仿真服务瞬时离线自愈重试 / 添加信号按钮图标偶发消失 / 教程隐形重启（键盘拦截+控件被藏） | ✅ | `ui-bridge.js` 探活(`api/ping`)+45s 超时+自动重试一次；`index.html` 教程 localStorage 预置 + CSS 隐藏列表移除 `.wp-tutorial-highlight` + 真实控件防御规则；`file-menu.js` 捕获拦截「帮助→教程」。探针全过 + regression 58/58 + exe 重建。⚠ 编号说明：用户会话里把本任务称为「把 73 完成」，与台账 #73（参数化位宽，09-08 已完成）数字撞号但不是同一件事 |
 
 ## C. 仿真链路
 

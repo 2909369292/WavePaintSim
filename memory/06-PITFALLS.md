@@ -180,3 +180,40 @@
 - **根因**：CodeMirror 的 `.cm-content` 按行渲染，`textContent` 会丢换行符；textarea 保留 `\r\n`/`\n`，直接比对必然不等。
 - **解法**：断言改为“去掉全部换行后全等”（`replace(/[\r\n]/g,'')`），e2e-rtl A2 用此法通过。
 - **预防**：涉及 CM 内容与外部文本的断言一律先归一化换行；不要假设 DOM textContent 保留原始换行。
+
+---
+
+## P21 · 仿真失败要先分“进程死”与“自愈窗口”（#81 Bug1）
+
+- **症状**：用户反馈“仿真服务不在线”，点运行仿真提示“请重启应用”，但服务其实马上恢复，再点一次就成功。
+- **根因**：launcher 的 AcceptLoop 异常自愈（RestartServer 同端口重绑）会制造“瞬时不可达窗口”，窗口内 `/api/sim` 请求被丢弃；旧 UI 把所有 fetch 失败一律按“进程已退出”提示。
+- **解法**：`ui-bridge.probeServerAlive()` 快速 GET `api/ping`（800ms 超时）区分死因：探活成功且未自动重试 → 静默自动重试一次（`simAutoRetried`，手动点击复位）；探活成功但已重试 → “服务在线，本次请求未完成”（iverilog 超时/被丢弃，给 45s 超时文案）；探活失败 → 才提示重启应用。
+- **预防**：任何 fetch 失败不得直接给“重启应用”；先探活。exe 内置服务（WavePaintLauncher.cs）与 dev-server.mjs 都必须有 `api/ping`，两边语义一致。
+
+## P22 · 教程高亮 class 曾进 CSS 隐藏列表 → 真实控件永久消失（#81 Bug2）
+
+- **症状**：`#add-signal-btn`（+图标）偶发消失，刷新/切主题后可能复现。
+- **根因**：汉化版为“隐藏教程弹窗”写的 CSS 把 `.wp-tutorial-highlight` 也放进 `display:none !important` 列表；而教程 JS 恰恰把这个 class 标到**真实控件**（按钮/下拉/菜单项/输入框）上 → 控件被永久隐藏。
+- **解法**：隐藏列表只放瞬态教程元素（overlay/tooltip/quickstart/arrow/进度条）；真实控件的高亮用防御规则保证可见可点（`visibility:visible; pointer-events:auto; animation:none; box-shadow:none` + `.tool-btn`/`.dropdown` 的 display 修正）。
+- **预防**：新增隐藏类时先确认它只会出现在瞬态弹窗上；`.wp-tutorial-highlight` 表示“引导指向的真实控件”，永远不许 display:none。
+
+## P23 · 随机端口 ⇒ localStorage 每会话全新 ⇒ 教程每次启动隐形重跑（#81 Bug3）
+
+- **症状**：键盘 Enter/Space/方向键偶发“失灵”；真实控件偶发出现高亮残留；其实都是教程在重跑。
+- **根因**：exe 每次启动随机端口，Edge 的 localStorage 按 origin（含端口）隔离 → 教程完成标记 `wavepaint_tutorial_done` 永不跨会话保留 → 教程每次启动都隐性执行；汉化版又把教程 UI 整体隐藏，用户只见副作用（document 上 keydown preventDefault + 控件挂高亮）不见引导。
+- **解法**：`index.html` 在 `<head>`、核心 `clean.js` 解析**之前**用内联脚本预置 `wavepaint_tutorial_done='true'`（try/catch 包裹）；`file-menu.js` 捕获阶段拦截「帮助→教程」（核心 handler 会 `removeItem` + `queueTutorial` 重启隐形教程），改弹中文提示。
+- **预防**：凡是“只跑一次”的状态，不能假设 localStorage 会跨会话保留；exe 场景必须把默认值写进启动脚本或干脆不要依赖持久化。`window.__wavepaintTutorialQueued` 出现 true 不代表教程会播（runTutorial 仍查 done），判定副作用要测“高亮数 + 按键是否被拦截”。
+
+## P24 · 核心模态 Enter=Escape 会自行关闭（自动化探测陷阱）
+
+- **症状**：自动化脚本“先派发 Enter 探测键盘 → 再断言弹窗还开着”永远失败；或误判“教程键盘钩子导致按键失灵”。
+- **根因**：核心模态（wavepaint.clean.js `_0x2507bb`）在 Enter=Escape 时 `preventDefault` + 关闭自己；派发合成 Enter 会先把弹窗关掉，后续“检测模态显示”自然拿不到。
+- **解法**：探测顺序 = 先查 overlay（`#wp-modal-overlay` 不带 `.hidden`）与标题 → 点 OK/确定 关掉弹窗 → 再派发按键断言无拦截。判断“教程钩子是否残留”必须以**弹窗关闭后**的按键探测为准。
+- **预防**：涉及模态的自动化断言先搞清楚模态键位语义；调试用裸 `wpModalState`（核心词法全局），`window.wpModalState` 是 undefined，会误导。
+
+## P25 · exe-smoke 选端口文件要按 mtime，不能按“最大文件名”
+
+- **症状**：冒烟连上页面但 core/wpf/canvas 全是 undefined、`zh:false`——连到了已死端口。
+- **根因**：`WavePaintClean_port_*.txt` 文件名是随机端口数字；残留旧文件的数字可能比新实例大，`sort()` 取最后一个会选到陈旧文件（旧实例已退出 → Edge 拿到错误页）。
+- **解法**：`tools/exe-smoke.mjs` 改为按 `mtimeMs` 取最近写入的端口文件。
+- **预防**：任何“读最新状态文件”的逻辑不要假设文件名单调；按写入时间排。清理旧端口文件需谨慎（C 盘 Temp 删除被策略拦时，直接改读取逻辑）。

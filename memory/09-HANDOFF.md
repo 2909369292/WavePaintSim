@@ -11,10 +11,10 @@
 |---|---|
 | 主线 | `main` |
 | 当前版本 | `v0.4.0 build <自动时间> <git短哈希>` |
-| 最近完成 | #75 Verdi 借鉴 P0（CM6 代码视图 + RTL Tree + VCD 全路径索引）；#73 参数化位宽；#80 记忆体系重构 |
-| 测试基线 | regression 58/58；e2e-sim 0 失败；probe-param 全过；e2e-rtl 9/9 |
+| 最近完成 | #81 Bug 自研修复（sim 瞬时离线自愈 / 添加信号图标消失 / 教程隐形重启）；#75 Verdi P0；#80 记忆体系重构 |
+| 测试基线 | regression 58/58；e2e-sim 0 失败；probe-param 全过；e2e-rtl 9/9；probe-tutorial/addbtn/simfail 全过；真 exe 冒烟通过 |
 | 当前阻塞 | 无 |
-| 下一步 | #75 Verdi 借鉴 P1 |
+| 下一步 | #76 Verdi 借鉴 P1（台账口径：P1=#76，#75 是已完成的 P0） |
 
 ---
 
@@ -29,7 +29,9 @@
 
 ---
 
-## 3. 下一步任务：#75 Verdi 借鉴 P1
+## 3. 下一步任务：#76 Verdi 借鉴 P1
+
+> 编号纠正：此前 04/09 把 P1 误写成“#75 P1”；台账中 #75 = 已完成的 P0，P1 = #76。
 
 ### 3.1 目标
 
@@ -70,6 +72,18 @@ node tools/e2e-rtl.mjs   # #75 P0 浏览器冒烟 9 项（需真实 Edge，非�
 .\build.ps1
 ```
 
+### 4.1 Bug 自研修复探针（#81 遗留，可复跑回归）
+
+```powershell
+node .e2e-tmp/probe-simfail.mjs    # Bug1：selfheal/dead/abort 三场景
+node .e2e-tmp/probe-addbtn.mjs     # Bug2：添加信号按钮/图标可见性全场景
+node .e2e-tmp/probe-tutorial.mjs   # Bug3：教程不隐形重启、无键盘拦截
+node tools/exe-smoke.mjs           # 先启动真 exe 再跑（读最新端口文件）
+```
+
+`.e2e-tmp/` 已被 `.gitignore` 覆盖，探针不进 git；需要长期保留时再提炼成正式
+`tools/e2e-*.mjs`（未做，属可选）。
+
 ---
 
 ## 5. 当前已知环境注意点
@@ -82,6 +96,7 @@ node tools/e2e-rtl.mjs   # #75 P0 浏览器冒烟 9 项（需真实 Edge，非�
 - `WavePaintClean.exe` 为构建产物，不提交。
 - 改 `lib/codemirror.bundle.js` 依赖重跑 `npx esbuild tools/cm6-entry.js`（见该文件头注释），再重建 exe。
 - `memory/logs/2026-09-09.md` 记录了 #75 P0 的实现细节与设计决策，P1 开工前建议先读。
+- `memory/logs/2026-09-09.md` 第三轮记录了 #81 Bug 修复的根因/验证与探针用法。
 
 ---
 
@@ -102,6 +117,7 @@ node tools/e2e-rtl.mjs   # #75 P0 浏览器冒烟 9 项（需真实 Edge，非�
 - 参数化位宽修复
 - 记忆体系重构
 - #75 Verdi 借鉴 P0（CM6 代码视图 / RTL Tree / VCD 全路径索引）
+- #81 Bug 自研修复（sim 探活自愈重试 / 教程 localStorage 预置与菜单拦截 / 添加信号 CSS 防御）
 
 ---
 
@@ -116,5 +132,8 @@ node tools/e2e-rtl.mjs   # #75 P0 浏览器冒烟 9 项（需真实 Edge，非�
 
 ## 9. 本轮遗留
 
-- 无功能阻塞。#75 P1（点变量加波形 / 双向跳转 / 信号组入 `.wp`）为下一主线。
-- P0 已验证：regression 58/58、e2e-rtl 9/9、exe 已按 C1 重建并核验特征串。
+- 无功能阻塞。#76 Verdi P1（点变量加波形 / 双向跳转 / 信号组入 `.wp`）为下一主线。
+- #81 已验证：regression 58/58、probe-param、e2e-sim 0 失败、probe-tutorial/addbtn/simfail
+  全过、真 exe 冒烟通过；exe 已按 C1 重建并核验 5 个特征串
+  （`simAutoRetried`/`wavepaint_tutorial_done`/`wp-tutorial-highlight`/`probeServerAlive`/
+  `SIM_REQUEST_TIMEOUT_MS`）。

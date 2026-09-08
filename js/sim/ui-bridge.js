@@ -35,6 +35,8 @@ const state = {
 const refs = {};
 let sourceCodeView = null;      // #75 P0：CodeMirror 6 控制器（installCodeEditor 返回值）
 let rtlRefreshTimer = null;     // 编辑后防抖刷新 RTL 树
+let simAutoRetried = false;     // Bug1：/api/sim 网络失败后最多自动重试一次（用户重新点击时复位）
+const SIM_REQUEST_TIMEOUT_MS = 45000; // 兜底：iverilog 卡死/服务假死时提示超时，避免无限「正在运行...」
 
 // WavePaint 核心的 Bit 值数字编码（window.__wpConstants.WaveValue 默认值）：
 //   0=低, 1=高, -1=未定义(x), 2=高阻(z), 3=上拉(u), 4=下拉(d)
@@ -606,6 +608,26 @@ function buildTbPreview() {
   render();
 }
 
+// Bug1：探活 —— 快速 GET api/ping（带超时）。用于区分「服务进程已死」与
+// 「服务瞬时重启/自愈中」：后者 ping 能在几百 ms 内成功，前者会失败。
+function probeServerAlive(timeoutMs = 800) {
+  return new Promise((resolve) => {
+    const controller = (typeof AbortController !== "undefined") ? new AbortController() : null;
+    const timer = setTimeout(() => {
+      if (controller) { try { controller.abort(); } catch (e) { /* ignore */ } }
+      resolve(false);
+    }, timeoutMs);
+    fetch("api/ping", {
+      cache: "no-store",
+      signal: controller ? controller.signal : undefined
+    }).then((response) => {
+      resolve(!!(response && response.ok));
+    }).catch(() => {
+      resolve(false);
+    });
+  });
+}
+
 async function runSimulation() {
   onWavepaintReady();
   // ⚠ 核心未就绪时旧实现静默跑出一次「全 0 激励的空仿真」，用户以为仿真坏了。
@@ -648,11 +670,16 @@ async function runSimulation() {
   refs.modulePreview.textContent = "正在运行真实仿真（iverilog）...";
   const payload = buildSimulationPayload(state.files, tbResult.source);
 
+  const simAbort = (typeof AbortController !== "undefined") ? new AbortController() : null;
+  const simTimeoutId = simAbort
+    ? setTimeout(() => { try { simAbort.abort(); } catch (e) { /* ignore */ } }, SIM_REQUEST_TIMEOUT_MS)
+    : null;
   try {
     const response = await fetch("/api/sim", {
       method: "POST",
       headers: { "Content-Type": "text/plain; charset=utf-8" },
-      body: payload
+      body: payload,
+      signal: simAbort ? simAbort.signal : undefined
     });
     // ⚠ 旧实现不检查 response.ok：服务端 500 + 空 body 时会「正常走完」vcdToProjectOutputs("")
     // 显示「仿真完成：0 个输出信号」，掩盖真实故障（2026-09-04 修）。
@@ -690,17 +717,46 @@ async function runSimulation() {
       ? `仿真完成：${outputs.length} 个输出信号，但有 ${notes.length} 条提醒，请查看详情。`
       : `仿真完成：${outputs.length} 个输出信号。`);
   } catch (error) {
-    const message = String(error);
-    const friendly = /fetch/i.test(message)
-      ? "仿真请求失败：本地仿真服务无响应（Failed to fetch）。\n"
-        + "可能原因：\n"
-        + "  1. 应用进程已退出（窗口检测或异常导致）\n"
-        + "  2. iverilog 编译/仿真卡死或超时\n"
-        + "  3. RTL 含导致 iverilog 崩溃的内容\n"
-        + "请重启应用，或查看日志：%TEMP%\\WavePaintClean_sim.log"
-      : message;
-    refs.modulePreview.textContent = friendly;
-    setStatus(friendly);
+    // Bug1（2026-09-09）：失败要区分「服务进程已死」与「服务瞬时重启/自愈中」。
+    // 旧实现任何 fetch 失败都只提示“请重启应用” —— launcher 的 AcceptLoop 异常自愈
+    // （RestartServer 同端口重绑）会造成几秒窗口内请求被丢弃，但服务其实马上恢复，
+    // 用户再点一次就成功；旧提示会让用户误以为服务永久离线。这里先探活：
+    //   探活成功 + 未自动重试过 → 静默自动重试一次（绝大多数自愈场景一次即成功）；
+    //   探活成功 + 已重试过    → 服务在线但请求没完成（iverilog 卡死等），给准确定位；
+    //   探活失败              → 服务进程真的不在了，保留“重启应用”指引。
+    const raw = String(error && error.message ? error.message : error);
+    const isTimeout = /abort/i.test(raw);
+    const isNetworkFailure = /fetch|abort|networkerror|network error|failed to fetch|connection/i.test(raw);
+    if (isNetworkFailure) {
+      const alive = await probeServerAlive();
+      if (alive && !simAutoRetried && !isTimeout) {
+        simAutoRetried = true;
+        refs.modulePreview.textContent = "检测到仿真服务瞬时不可达，正在自动重试（1/1）...";
+        setStatus("本地服务短暂重启中，自动重试一次...");
+        setTimeout(runSimulation, 600);
+        return;
+      }
+      const friendly = alive
+        ? "仿真请求失败：本地服务在线，但本次请求未完成。\n"
+          + (isTimeout
+            ? `  1. iverilog 编译/仿真耗时超过 ${SIM_REQUEST_TIMEOUT_MS / 1000} 秒，已自动放弃\n`
+            : "  1. 请求被丢弃（服务可能正在重启，或上一次仿真尚未结束）\n")
+          + "  2. 可再点一次「运行仿真」重试\n"
+          + "若反复失败请查看日志：%TEMP%\\WavePaintClean_sim.log"
+        : "仿真请求失败：本地仿真服务无响应。\n"
+          + "可能原因：\n"
+          + "  1. 应用进程已退出（窗口检测或异常导致）\n"
+          + "  2. iverilog 编译/仿真卡死或超时\n"
+          + "  3. RTL 含导致 iverilog 崩溃的内容\n"
+          + "请重启应用，或查看日志：%TEMP%\\WavePaintClean_sim.log";
+      refs.modulePreview.textContent = friendly;
+      setStatus(friendly);
+      return;
+    }
+    refs.modulePreview.textContent = raw || String(error);
+    setStatus(raw || String(error));
+  } finally {
+    if (simTimeoutId) clearTimeout(simTimeoutId);
   }
 }
 
@@ -864,7 +920,10 @@ function bindEvents() {
   });
   refs.addSignals?.addEventListener("click", addPortSignalsToCanvas);
   refs.tbBtn?.addEventListener("click", buildTbPreview);
-  refs.runBtn?.addEventListener("click", runSimulation);
+  refs.runBtn?.addEventListener("click", () => {
+    simAutoRetried = false; // Bug1：每次用户手动点击都重新允许一次自动重试
+    runSimulation();
+  });
   refs.tbCopy?.addEventListener("click", copyTb);
   refs.sourceEditor?.addEventListener("input", () => {
     syncEditor();

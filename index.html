@@ -11,6 +11,14 @@
          缺失 favicon 正是「任务栏图标空白」的原因之一。 -->
     <link rel="icon" type="image/svg+xml" href="img/favicon.svg">
     <link rel="alternate icon" type="image/x-icon" href="img/app.ico">
+    <script>
+        /* 汉化版隐藏教程/引导弹窗（见下方样式）。
+           必须在核心 clean.js 解析前标记「教程已完成」：否则每次启动（exe 随机端口
+           意味着 localStorage 永不跨会话保留）隐形教程都会重跑 —— 它会在真实控件上
+           挂 .wp-tutorial-highlight（历史 bug：添加信号按钮偶发消失的根源之一），
+           并在 document 上拦截 Enter/Space/方向键（键盘失灵）。这里一次性跳过。 */
+        try { localStorage.setItem('wavepaint_tutorial_done', 'true'); } catch (e) { /* 隐私模式等：忽略 */ }
+    </script>
     <link rel="stylesheet" href="css/wavepaint.e7b903ef.css">
     <!-- WaveDrom Library for live preview - must load early (localized for offline use) -->
     <script src="lib/wavedrom-skin.js"></script>
@@ -52,11 +60,14 @@
         body:not(.loading) #app-loader {
             display: none;
         }
-        /* 汉化版：完全隐藏打开时的教程/引导弹窗 */
+        /* 汉化版：完全隐藏打开时的教程/引导弹窗。
+           注意：.wp-tutorial-highlight 是教程 JS 标记的「真实控件」（如 #add-signal-btn、
+           .tool-btn、.dropdown、菜单项等），绝不能与瞬态弹窗一起隐藏，否则该控件
+           会被永久 display:none（历史 bug：添加信号按钮偶发消失）。
+           这里只隐藏瞬态教程元素（遮罩/气泡/箭头/进度条），真实控件另见下方防御规则。 */
         .wp-tutorial-overlay,
         .wp-tutorial-tooltip,
         .wp-tutorial-quickstart,
-        .wp-tutorial-highlight,
         .wp-tutorial-arrow,
         .tutorial-dot,
         .tutorial-step-dots,
@@ -66,6 +77,20 @@
             visibility: hidden !important;
             pointer-events: none !important;
         }
+        /* 防御：教程把高亮标记加到真实控件上时，控件本体保持可见可点；
+           光环/脉冲在弹窗已被隐藏的前提下没有意义，一并去掉。 */
+        .tool-btn.wp-tutorial-highlight,
+        .dropdown.wp-tutorial-highlight,
+        .menu-item.wp-tutorial-highlight,
+        .submenu li.wp-tutorial-highlight,
+        input.wp-tutorial-highlight {
+            visibility: visible !important;
+            pointer-events: auto !important;
+            animation: none !important;
+            box-shadow: none !important;
+        }
+        .tool-btn.wp-tutorial-highlight { display: flex !important; }
+        .dropdown.wp-tutorial-highlight { display: inline-block !important; }
         /* 工具栏分段控件（编辑力度 / 总线进制 共用） */
         .seg-toggle {
             display: inline-flex;
