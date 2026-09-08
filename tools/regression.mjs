@@ -765,7 +765,7 @@ test("ANSI 端口多类型关键字：input wire signed [7:0] a 的端口名应�
   assert.equal(a.width, 8, "a 的位宽应为 8");
 });
 
-test("参数化位宽 [WIDTH-1:0]：parameter 代入求值成具体位宽，TB 不出现参数名", () => {
+test("参数化位宽 [WIDTH-1:0]：代入求值成具体位宽，TB 内嵌参数定义", () => {
   const src = `module m #(parameter WIDTH = 8)(input clk, input [WIDTH-1:0] din, output [WIDTH-1:0] dout);
   assign dout = din; endmodule`;
   const d = sim.parseVerilogDesign(src);
@@ -776,8 +776,9 @@ test("参数化位宽 [WIDTH-1:0]：parameter 代入求值成具体位宽，TB �
     { name: "clk", kind: "clock", width: 1, values: "01010101".split("") }
   ], outputs: [] };
   const tb = String(sim.buildAutoTestbench(d, project).source || "");
-  assert.ok(!/WIDTH/.test(tb), "TB 中不得出现未定义的参数名 WIDTH");
-  assert.ok(/\[7:0\]\s*din/.test(tb), "din 应声明为 [7:0]");
+  assert.ok(/parameter\s+WIDTH\s*=\s*8;/.test(tb), "TB 应内嵌 parameter WIDTH = 8 定义");
+  assert.ok(/reg\s+\[7:0\]\s+din/.test(tb), "din 应声明为 reg [7:0]");
+  assert.ok(!/NaN/.test(tb), "TB 不得出现 NaN");
 });
 
 test("参数化位宽无法求值时回退标量（绝不把参数表达式带进 TB）", () => {
@@ -911,7 +912,7 @@ test("TB 内嵌参数定义 + 原始位宽表达式（iverilog 是位宽算术�
   assert.ok(/parameter\s+DW\s*=\s*8;/.test(tb), "TB 应内嵌 parameter DW = 8");
   assert.ok(/parameter\s+AW\s*=\s*DW \+ 2;/.test(tb), "TB 应内嵌 parameter AW = DW + 2");
   // 求值器算得出 → 具体数字 [9:0]；算不出 → 原始表达式 [AW-1:0]，两者皆合法
-  assert.ok(/\[9:0\]\s*(reg|wire)\s+addr|\[AW-1:0\]\s*(reg|wire)\s+addr/.test(tb), "addr 声明应为具体位宽或原始表达式");
+  assert.ok(/(?:reg|wire)\s+\[(?:9:0|AW-1:0)\]\s+addr/.test(tb), "addr 声明应为具体位宽或原始表达式");
   assert.ok(!/NaN/.test(tb), "TB 不得含 NaN");
 
   // 求值器无法处理的表达式（含 & 位运算）：保留原始表达式交 iverilog 求值

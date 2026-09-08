@@ -5,7 +5,7 @@ WavePaint 是一款运行于 Windows 的波形（Waveform）编辑与 Verilog �
 源码、自动识别端口信号、生成 testbench 并运行仿真查看结果。
 
 > 维护背景：本项目的核心引擎由早期混淆发布的代码还原得到，便于长期维护与扩展；该还原过程属于
-> 开发内部事项，仅在项目记忆（`.workbuddy/memory/`）与开发文档（`docs/`）中记录，不在产品使用
+> 开发内部事项，仅在项目记忆（`memory/`）中记录，不在产品使用
 > 层面体现。
 
 ## 功能
@@ -27,7 +27,7 @@ js/
   editor/                画布编辑域（draw / selection / value-input / shortcuts / measure / resize / generator / templates）
   sim/                   仿真（engine 纯逻辑 / project-model 数据模型 / ui-bridge 面板）
   util/                  工具（id 等）
-docs/                    功能总览 / 补丁清单 / 重构方案 / 代码规范（开发记忆）
+memory/                  跨 AI 记忆中心（项目 / 工作流 / 需求 / 进展 / 日志 / 坑 / 决策 / 路线图）
 tools/                   构建与验证脚本（deobfuscate / gen-resources / dev-server / regression / e2e-* / exe-smoke / probe-core）
 WavePaintLauncher.cs     启动器（资源解压 + HTTP + sim + Edge）
 build.ps1                构建 exe
@@ -65,6 +65,4 @@ node tools/exe-smoke.mjs           # 真实 exe 冒烟
 
 ## 详见
 
-- 功能 / 补丁 / 重构 / 代码规范：`docs/`
-- 项目记忆与需求清单：`.workbuddy/memory/`（MEMORY.md 为重要记忆总纲，REQUIREMENTS.md 为需求清单，
-  二者均支持跨 AI 新对话直接读取承接）
+- 项目记忆与需求清单：`memory/`（从 `INDEX.md` 进入，支持跨 AI 新对话直接承接）

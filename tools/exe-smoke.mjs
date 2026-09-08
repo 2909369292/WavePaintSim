@@ -6,7 +6,7 @@
 // 用法：
 //   1. 删除旧端口文件 → 启动 WavePaintClean.exe → 等 ~10s
 //   2. node tools/exe-smoke.mjs
-// ⚠ 判断「exe 是否真包含新代码」还得配合 grep 内嵌标记（见 docs/03 验证门槛）。
+// ⚠ 判断「exe 是否真包含新代码」还得配合 grep 内嵌标记（见 memory/02-WORKFLOW.md 验证门槛）。
 // ⚠ Edge profile / 系统 TEMP 走 D 盘 .e2e-tmp：headless Edge 组件更新器会往 C 盘写
 //   msedge_url_fetcher_*（150MB+），C 盘曾被写满 0GB。禁组件更新 + TEMP 重定向。
 // ⚠ 每次运行用「唯一新 profile」（沙箱拦截 node 里递归删大目录；新 profile 天然无旧缓存）。
