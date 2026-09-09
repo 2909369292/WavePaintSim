@@ -162,10 +162,12 @@ regression 58/58；e2e-sim 0 失败；exe 已重建并核验特征串。
   - 改动：`index.html` 两个 `.step-input-wrapper` 内各加一对 `.step-arrow`（`data-target`/`data-step=±1`）；CSS 末尾追加 `.step-stepper/.step-arrow`；`js/editor/resize.js` 新增 `wireStepSteppers()` —— document capture `pointerdown` 命中 `.step-arrow` 时 `preventDefault`（不抢输入框焦点）+ `stopPropagation`，在 min/max 内取 `input.value` ±1，写回 spin 后派发 `change(bubbles)`，**复用**既有 capture change → `resizeSignals`（含撤销快照），与手输/回车同通道，不另起第二套 resize。
   - 验证：e2e-ui 新增 D2 段（6 断言：±1 提交、min=4/max=16 收敛）→ 42/42（真实 Edge）；`node tools/regression.mjs` 58/58；用例结束把 spin+模型恢复到 D 段状态，避免污染后续 E 段。
   - ⚠ exe 尚未重建：本批 5 项全部完成后再统一重建（见 03 表 I 备注）。
-- **⬜ #88 编辑模式点击 Vector 不再进框选（Task1，下一项）**
-  - 线索（上一会话定位，动码前重读 `js/editor/value-input.js` 核实）：其 `onMouseDown` 中 `ctrlKey||metaKey||isVector` → 切 native/select 且不拦截 → Vector 纯单击也进框选。
-  - 预期：仅 Ctrl/Cmd 保留 native/框选；非 Ctrl 的 Vector 单击 → 不切工具、阻断 vectorSelecting，mouseup 未拖动时 `openValuePrompt`（对齐 Bit），拖动期间不弹框。
-- **⬜ #92 框选输入后点画布其它处自动提交（Task5）**
+- **✅ #88 编辑模式点击 Vector 不再进框选（Task1，2026-09-09 已提交）**
+  - 改动：`js/editor/value-input.js` onMouseDown 由 `ctrlKey||metaKey||isVector` 一锅端切 native/select，改为三分支 —— Ctrl/⌘（Bit/Vector）→ `mode='native'` 切 select 交 selection.js（框选保留）；非 Ctrl Vector → `mode='vector-paint'`：**不切工具** + `stopImmediatePropagation()/preventDefault()` 阻断核心 canvas 冒泡 vectorSelecting（否则 mouseup 会自弹旧式「Vector Value」框），mouseup 未拖动（>4px 阈值）时 `openValuePrompt` 弹「矢量值」弹窗（与 Bit 对齐，走 `wpf.parseValue`）；Bit → `mode=null` 原样放行 draw.js（核心仍先画一笔再弹窗，C 段依赖该行为，未触碰）。
+  - 关键机制实证：value-input.js 在 index.html 先于 draw.js/selection.js 加载（L813~L817）→ 其 document capture 监听先注册 → `stopImmediatePropagation` 先于同层 draw/selection 且早于 canvas 冒泡的核心。
+  - 验证：e2e-ui 新增 F 段（真实 Edge，7 断言：F1 单击弹「矢量值」不切 select 无工具条 / F2 输入 A→主步格 10+标签 A / F3 拖动不弹窗不框选值不变 / F4 Ctrl+单击框选 1 主步+工具条+Esc 自动回 paint / F4.5 会话后不再滞留 select）→ 50/50 全绿；`node tools/regression.mjs` 58/58。
+  - ⚠ exe 尚未重建：本批 5 项全部完成后再统一重建（见 03 表 I 备注）。
+- **⬜ #92 框选输入后点画布其它处自动提交（Task5，下一项）**
   - 线索：输入框 blur→commitInput；画布 mousedown 先被 document capture 的 dismissBar 移除工具条 → blur 因 `bar.__closing` 丢值。修法：画布 mousedown 时若活动输入存在 → 先 commit 再 dismiss。
 - **⬜ #91 步长/子步变化时 Clock 自动填充防全 0/全 1（Task4）**
   - 疑因：仅步数变化（dOld===dNew）也走「cell→主值→每格铺主值」重建；用户 0101 若画在子步/跨格 cell 层 → 主值=每步首个 cell 恒值 → 抹平。仅 `isClockPattern` 走周期延续。

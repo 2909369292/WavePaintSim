@@ -9,6 +9,9 @@
 //   D. 步数/子步 spin：input 中间态不提交、change 一次性生效
 //   D2. 步数/子步 ▲/▼ 微调按钮（Task3 #90）：pointerdown → ±1 → 派发 change →
 //      统一走 resizeSignals；min/max 收敛；点按钮不抢输入框焦点
+//   F. 编辑模式点击 Vector 不再自动切框选（Task1 #88）：paint 单击 → 「矢量值」
+//      弹窗；输入 A → 主步格 10/标签 A；拖动 → 不弹窗不框选不改值；
+//      Ctrl+单击 → 正常框选；Esc 后自动切回 paint
 //   E. 框选（editor/selection.js，2026-09-03 重写）：单击粒度 / 反向拖动 /
 //      私有子步行与普通行跨行写值不错位 / Vector 输入 'A' → 10 / 工具条带焦点时
 //      连续第二次/第三次拖动不再抛 NotFoundError、不再误提交半输入的值
@@ -285,6 +288,191 @@ else {
   await key('Escape', 'Escape', 27);
   await sleep(200);
   check('弹窗内键入不触发全局位状态快捷键', stateBefore === stateAfter, stateBefore + ' → ' + stateAfter);
+}
+
+// ---------------------------------------------------------------- F. 编辑模式点击 Vector（Task1 #88）
+// 历史 bug：value-input 的 onMouseDown 把 `ctrlKey||metaKey||isVector` 一并切到
+// select 工具且不拦截 → paint（或无激活工具）下**单击** bus 信号也会进框选模式。
+// 修复后：仅 Ctrl/⌘ 切 select；非 Ctrl 的 Vector 单击 → 阻断核心 vectorSelecting，
+// mouseup 未拖动时弹「矢量值」弹窗（与 Bit 对齐）；拖动期间不弹不框选。
+{
+  // 扩视口，保证 fvec 行与所有格都可点（E 段同样做法；D/D2 不依赖视口）。
+  await send('Emulation.setDeviceMetricsOverride', { width: 1600, height: 1200, deviceScaleFactor: 1, mobile: false });
+  await sleep(400);
+  await ev(`(() => { if (typeof drawWaveform === 'function') drawWaveform(); return 1; })()`);
+
+  const f0 = await ev(`(() => {
+    const dw = document_wave;
+    if (!dw || typeof dw.addVectorSignal !== 'function') return null;
+    const beforeTool = window.__wpf.currentTool();       // 进入 F 前的真实工具状态（通常 null）
+    dw.addBitSignal('fbit'); const fbit = dw.signalList().length - 1;
+    dw.addVectorSignal('fvec'); const fvec = dw.signalList().length - 1;
+    const sig = dw.signalList()[fvec];
+    if (sig) sig.radix = window.Radix ? window.Radix.Hexadecimal : 0;   // F2 走 hex 'A' → 10
+    if (typeof window.__wpf.setEditGranularity === 'function') window.__wpf.setEditGranularity('step');
+    if (typeof drawWaveform === 'function') drawWaveform();
+    // 激活画笔，使「编辑模式点击 Vector」处于用户真实可见的状态（paint 激活 → 旧代码必切 select）。
+    let tool = window.__wpf.currentTool();
+    if (tool !== 'paint') {
+      const b = document.querySelector('.tool-btn[data-tool="paint"]');
+      if (b) { b.click(); tool = window.__wpf.currentTool(); }
+    }
+    const S = window.__wpf.stride();
+
+    // 状态读取：弹窗 / 工具 / 框选 / 批量工具条
+    window.__Fstate = function () {
+      const ov = document.getElementById('wp-modal-overlay');
+      const bar = document.getElementById('wpf-batch-bar');
+      const t = document.getElementById('wp-modal-title');
+      return JSON.stringify({
+        hidden: ov ? ov.classList.contains('hidden') : true,
+        title: t ? t.textContent : '',
+        active: typeof __core.promptActive === 'function' ? __core.promptActive() : false,
+        tool: window.__wpf.currentTool(),
+        sel: window.__wpf.selection || null,
+        bar: !!bar
+      });
+    };
+    window.__Fvals = function (row) {
+      const s = document_wave.signalList()[row];
+      return JSON.stringify({ values: s.values.slice(), labels: s.labels ? s.labels.slice() : null });
+    };
+    // 坐标定位：row 行的 target 格中心（canvas 相对 → client 坐标）
+    window.__Fcell = function (row, target) {
+      const cv = document.getElementById('wave-canvas');
+      if (!cv) return null;
+      const r = cv.getBoundingClientRect();
+      function at(x, y) { try { return mapCanvasPosition(x, y); } catch (e) { return null; } }
+      let yTop = -1, yBot = -1;
+      const mx = Math.max(60, Math.floor(r.width / 2));
+      for (let y = 2; y < r.height; y += 1) {
+        const m = at(mx, y);
+        if (m && m.signalIndex === row) { if (yTop < 0) yTop = y; yBot = y; }
+      }
+      if (yTop < 0 || yBot < 0) return null;
+      const yr = Math.floor((yTop + yBot) / 2);
+      let xL = -1, xR = -1;
+      for (let x = 2; x < r.width; x += 1) {
+        const m = at(x, yr);
+        if (!m || m.clickedOnName) continue;
+        if (m.signalIndex !== row) { if (xL >= 0) break; continue; }
+        if (xL < 0 && m.signalSampleIndex === target) xL = x;
+        else if (xL >= 0 && m.signalSampleIndex !== target) { xR = x; break; }
+      }
+      if (xL < 0) return null;
+      if (xR < 0) xR = Math.min(r.width, xL + 24);
+      return { x: Math.round(r.left + Math.floor((xL + xR - 1) / 2)), y: Math.round(r.top + yr), xL: xL, xR: xR, yr: yr };
+    };
+    return JSON.stringify({ fbit: fbit, fvec: fvec, S: S, len: sig ? sig.values.length : -1,
+      tool: tool, beforeTool: beforeTool });
+  })()`);
+  if (!f0) { check('F: 建立 fbit/fvec 信号', false, '页面能力缺失'); }
+  else {
+    const F = JSON.parse(f0);
+    const st = async () => JSON.parse(await ev(`window.__Fstate()`));
+    const vals = async (row) => JSON.parse(await ev(`window.__Fvals(${row})`));
+    const p0r = await ev(`window.__Fcell(${F.fvec}, 0)`);
+    const p0 = p0r && typeof p0r === 'string' ? JSON.parse(p0r) : p0r; // __Fcell 直接返回对象
+    const pSr = await ev(`window.__Fcell(${F.fvec}, ${F.S})`);
+    const pS = pSr && typeof pSr === 'string' ? JSON.parse(pSr) : pSr;
+    const fClick = async (p) => {
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: p.x, y: p.y, button: 'left', buttons: 1, clickCount: 1 });
+      await sleep(50);
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: p.x, y: p.y, button: 'left', buttons: 0, clickCount: 1 });
+    };
+    const fDrag = async (from, to) => {
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: from.x, y: from.y, button: 'left', buttons: 1, clickCount: 1 });
+      await sleep(40);
+      for (let i = 1; i <= 6; i += 1) {
+        await send('Input.dispatchMouseEvent', { type: 'mouseMoved',
+          x: Math.round(from.x + (to.x - from.x) * i / 6),
+          y: Math.round(from.y + (to.y - from.y) * i / 6), button: 'left', buttons: 1 });
+        await sleep(14);
+      }
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: to.x, y: to.y, button: 'left', buttons: 0, clickCount: 1 });
+    };
+    const sameArr = (a, b) => !!a && !!b && a.length === b.length && a.every((v, i) => v === b[i]);
+
+    check('F: 建立 fbit/fvec（paint 激活、步粒度、stride 已知）',
+      F.fbit >= 0 && F.fvec >= 0 && F.fbit !== F.fvec && F.tool === 'paint' && F.S >= 1 && F.len > 0, f0);
+
+    // ---- F1. paint 单击 Vector → 「矢量值」弹窗，不切 select、无框选工具条 ----
+    if (!p0) check('F1: 定位 fvec 格', false, '无法定位');
+    else {
+      await fClick(p0);
+      await sleep(450);
+      const s1 = await st();
+      check('F1: 单击 Vector 弹「矢量值」（核心弹窗 + promptActive）',
+        s1.hidden === false && s1.title === '矢量值' && s1.active === true, JSON.stringify(s1));
+      check('F1: 不切 select、无框选工具条、无选区',
+        s1.tool === 'paint' && s1.bar === false && s1.sel === null, JSON.stringify(s1));
+
+      // ---- F2. 继续在弹窗输入 A → 主步格 = 10、标签 = A（与 E5 同解析口径） ----
+      const V0 = await vals(F.fvec);
+      await send('Input.insertText', { text: 'A' });
+      await key('Enter', 'Enter', 13);
+      await sleep(450);
+      const s2 = await st();
+      const V2 = await vals(F.fvec);
+      let okGroup = true;
+      for (let i = 0; i < F.S; i += 1) {
+        if (V2.values[i] !== 10 || !V2.labels || V2.labels[i] !== 'A') okGroup = false;
+      }
+      let okOut = true;
+      for (let i = F.S; i < V2.values.length; i += 1) {
+        if (V2.values[i] !== V0.values[i]) okOut = false;
+      }
+      check('F2: Vector 输入 A 回车 → 主步格=10、标签=A、弹窗关闭',
+        okGroup === true && okOut === true && s2.hidden === true && s2.active === false,
+        JSON.stringify({ g: V2.values.slice(0, F.S), l: V2.labels ? V2.labels.slice(0, F.S) : null, s: s2 }));
+
+      // ---- F3. 拖动（>4px）→ 不弹窗、不框选、值不变（阻断核心 vectorSelecting） ----
+      const V3 = await vals(F.fvec);
+      if (!pS) check('F3: 定位 fvec 第2主步格', false, '无法定位');
+      else {
+        await fDrag(p0, pS);
+        await sleep(400);
+        const s3 = await st();
+        const V4 = await vals(F.fvec);
+        const unchanged = sameArr(V4.values, V3.values) && sameArr(V4.labels, V3.labels);
+        check('F3: Vector 拖动不弹窗、不框选、值不变',
+          unchanged === true && s3.hidden === true && s3.active === false && s3.bar === false && s3.sel === null,
+          JSON.stringify({ s: s3, changed: !unchanged }));
+      }
+
+      // ---- F4. Ctrl+单击仍可框选（复用 select 会话）----
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: p0.x, y: p0.y, button: 'left', buttons: 1, clickCount: 1, modifiers: 2 });
+      await sleep(60);
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: p0.x, y: p0.y, button: 'left', buttons: 0, clickCount: 1, modifiers: 2 });
+      await sleep(450);
+      const s4 = await st();
+      check('F4: Ctrl+单击 Vector 正常框选 1 主步 + 工具条 + 已切 select',
+        s4.sel !== null && s4.sel.signalStart === s4.sel.signalEnd && s4.sel.signalStart === F.fvec
+          && s4.sel.sampleStart === 0 && s4.sel.sampleEnd === F.S - 1
+          && s4.bar === true && s4.tool === 'select', JSON.stringify(s4));
+      await key('Escape', 'Escape', 27);
+      await sleep(400);
+      const s5 = await st();
+      check('F4: Esc 清选框/工具条并自动切回 paint',
+        s5.sel === null && s5.bar === false && s5.tool === 'paint', JSON.stringify(s5));
+
+      // ---- F4.5. 会话结束后再单击 Vector 仍弹「矢量值」（不滞留 select 工具）----
+      await fClick(p0);
+      await sleep(450);
+      const s6 = await st();
+      check('F4.5: 会话结束后再单击 Vector 仍弹「矢量值」',
+        s6.hidden === false && s6.title === '矢量值' && s6.tool === 'paint', JSON.stringify(s6));
+      await key('Escape', 'Escape', 27);
+      await sleep(300);
+
+      // 收尾：弹窗全关后，把工具恢复到进入 F 前的状态（原本无激活工具 → paint 再点一次取消）
+      const sEnd = await st();
+      if (F.beforeTool !== 'paint' && sEnd.tool === 'paint') {
+        await ev(`(() => { const b = document.querySelector('.tool-btn[data-tool="paint"]'); if (b) b.click(); return 1; })()`);
+        await sleep(200);
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------- D. 步数/子步输入提交时机（PATCH-A6 沉入核心）

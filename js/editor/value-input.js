@@ -2,10 +2,11 @@
 // WavePaintClean js/editor/value-input.js —— 值输入编辑（Bit/Vector 弹窗）
 // ----------------------------------------------------------------------------
 // 职责（画笔工具 tool-paint 下）：
-//   - Bit 单击（无拖动）→ 弹值输入弹窗（整步/子步粒度写入）
-//   - Ctrl/⌘+拖动 / Vector 单击 → 切 select 工具，交给 editor/selection.js
+//   - Bit / Vector 单击（无拖动）→ 弹值输入弹窗（整步/子步粒度写入）
+//   - Ctrl/⌘+拖动（Bit/Vector）→ 切 select 工具，交给 editor/selection.js
 //     （复用框选工具条，不再弹本模块弹窗）
 //   - Bit 普通拖动 → 交给 editor/draw.js（TimeGen 绘制）
+//   - Vector 普通拖动 → 不写值不框选（#88：需框选请用 Ctrl/⌘ 或 select 工具）
 // 弹窗交互：自动聚焦、回车/点击别处即写入、无输入点别处即取消、Esc 取消
 // （隐藏 #wp-modal 自带确定/取消按钮，保留右上角 X）。
 // 依赖：core/wpf.js（window.__wpf）、core/__core.js（window.__core.prompt）
@@ -170,17 +171,19 @@
     }
 
     // ---------------------------------------------------------- 鼠标接管
-    // 画笔工具下：
-    //  - Ctrl/⌘+拖动 / Vector：切到 select 工具 → editor/selection.js 接管框选
-    //    （直驱核心原生 range selection），弹框选工具条（用户要求 Ctrl 框选
-    //    完全复用框选模式代码，本模块不再弹窗）。
+    // 画笔工具下（#88 后 Vector 与 Bit 对齐）：
+    //  - Ctrl/⌘+拖动（Bit/Vector）：切到 select 工具 → editor/selection.js
+    //    接管框选（直驱核心原生 range selection），弹框选工具条（用户要求
+    //    Ctrl 框选完全复用框选模式代码，本模块不再弹窗）。
+    //  - Bit / Vector 纯点击：弹值输入弹窗（不切工具）
     //  - Bit 普通拖动：交给 editor/draw.js（TimeGen 绘制，不弹窗）
-    //  - Bit 纯点击：弹值输入弹窗（不切工具）
+    //  - Vector 普通拖动：阻断核心 vectorSelecting（见 onMouseDown），不写值不弹框
     const sel = {
       active: false, signalIndex: -1, start: -1, end: -1, moved: false,
       x0: 0, y0: 0, ex: 0, ey: 0,
       docRef: null, // 按下时的 document_wave 引用（mouseup 校验文档代际，见 onMouseUp）
-      mode: null // 'native' = Ctrl/Vector 会话（切 select，交给 selection.js）
+      mode: null // 'native' = Ctrl/⌘ 会话（切 select，交给 selection.js）；
+                 // 'vector-paint' = 非 Ctrl Vector 会话（#88，本模块自管，见 onMouseDown）
     };
 
     // 切换工具（'select'/'paint'）：通过点击工具栏按钮让核心 currentTool 同步。
@@ -198,9 +201,9 @@
       return (t === null || t === undefined) ? 'paint' : t;
     }
 
-    // Ctrl/Vector「native 会话」标记：由本模块从画笔切入 select，会话结束
+    // Ctrl/⌘「native 会话」标记：由本模块从画笔切入 select，会话结束
     // （框选工具条关闭）后经 wpf.onSelectionSessionEnd 切回画笔 —— 否则用户点一次
-    // 矢量信号就滞留在 select 工具，画笔静默失效。纯 select 工具用户不受影响。
+    // Ctrl+信号就滞留在 select 工具，画笔静默失效。纯 select 工具用户不受影响。
     let nativeFromPaint = false;
     wpf.onSelectionSessionEnd = function () {
       if (!nativeFromPaint) return;
@@ -234,13 +237,24 @@
       sel.x0 = sel.ex = e.clientX;
       sel.y0 = sel.ey = e.clientY;
 
-      if (e.ctrlKey || e.metaKey || isVector) {
-        // Ctrl/Vector：切 select 工具，**不拦截** → 核心原生 range selection
-        // 接管本次拖动（紫色对齐框选）；editor/selection.js 记录起止并弹批量工具条
-        // （用户要求：编辑模式下 Ctrl 框选完全复用框选模式的代码/工具条）。
+      if (e.ctrlKey || e.metaKey) {
+        // Ctrl/⌘（Bit/Vector）：切 select 工具，**不拦截** → 核心原生 range
+        // selection 接管本次拖动（紫色对齐框选）；editor/selection.js 记录起止并
+        // 弹批量工具条（用户要求：编辑模式下 Ctrl 框选完全复用框选模式的代码/工具条）。
         sel.mode = 'native';
         nativeFromPaint = true;
         switchTool('select');
+      } else if (isVector) {
+        // #88（2026-09-09）：非 Ctrl 的 Vector 按下不再切 select/框选 —— 用户反馈
+        // 「编辑模式点击 bus 类型信号会自动变成框选模式」是 Bug。改为对齐 Bit：
+        // 不切工具、并阻断核心原生 vectorSelecting —— 核心在 paint+Vector mousedown
+        // 会开启 vectorSelecting 并在 mouseup 自弹旧式「Vector Value」输入框（解析/撤销
+        // 口径与本模块不一致），必须在这里拦掉；本模块在 mouseup 未拖动时统一弹值输入
+        // 弹窗（见 onMouseUp）。拖动期间不弹框；需要框选请用 Ctrl/⌘+拖动或 select 工具。
+        sel.mode = 'vector-paint';
+        nativeFromPaint = false;
+        e.stopImmediatePropagation();
+        e.preventDefault();
       } else {
         // Bit 普通按下：不切工具、不拦截 → editor/draw.js 准备 TimeGen 绘制
         sel.mode = null;
@@ -255,9 +269,11 @@
       if (!sel.moved && (Math.abs(e.clientX - sel.x0) > 4 || Math.abs(e.clientY - sel.y0) > 4)) {
         sel.moved = true;
       }
-      // Ctrl/Vector 会话（sel.mode==='native'）已切到 select 工具并放行给
+      // Ctrl/⌘ 会话（sel.mode==='native'）已切到 select 工具并放行给
       // editor/selection.js：选框/工具条全部由它驱动，这里不再记录任何选区状态。
-      // Bit 非 Ctrl 拖动：放行 editor/draw.js 绘制（不拦截）。
+      // Bit 非 Ctrl 拖动：放行 editor/draw.js 绘制（不拦截）；
+      // Vector 非 Ctrl 会话（'vector-paint'）：mousedown 已阻断核心，这里只跟踪
+      // moved 阈值供 mouseup 判断「单击弹窗 / 拖动忽略」。
     }
 
     function onMouseUp(e) {
@@ -267,11 +283,14 @@
       sel.mode = null;
 
       if (mode === 'native') {
-        // Ctrl/Vector：已切 select 工具，不拦截、不弹窗——
+        // Ctrl/⌘：已切 select 工具，不拦截、不弹窗——
         // editor/selection.js 负责框选并弹批量工具条；工具条关闭时经
         // wpf.onSelectionSessionEnd 切回画笔（nativeFromPaint）。
         return;
       }
+      // mode === null（Bit）与 'vector-paint'（#88 非 Ctrl Vector）统一走下方：
+      // 未拖动 → 弹值输入弹窗；已拖动 → 不弹（Bit 拖动由 draw.js 绘制，
+      // Vector 拖动按 #88 口径忽略，避免误写/误框选）。
 
       // ⚠ 文档代际守卫：mousedown 与 mouseup 之间核心可能重建 document_wave
       // （新建/导入/载入示例），此时旧 signalIndex 在新文档里指向别的行。

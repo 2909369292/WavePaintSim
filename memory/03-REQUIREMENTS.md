@@ -137,7 +137,7 @@
 
 | ID | 需求 | 状态 | 实现思路 / 备注 |
 |----|------|------|----------------|
-| #88 | **编辑模式 Bug：点击 bus 类型信号自动变框选** | 🔄 | 预期：点击 Vector 像 Bit 一样只弹值输入；仅 Ctrl/Cmd 单击保留 native/框选路径（见 04 §4.6 Task1 与 `js/editor/value-input.js`/`selection.js`） |
+| #88 | **编辑模式 Bug：点击 bus 类型信号自动变框选** | ✅ | 修 `js/editor/value-input.js` onMouseDown 三分支：Ctrl/⌘（Bit/Vector）→ 保留 native 框选；非 Ctrl Vector → `vector-paint` 会话（不切工具 + `stopImmediatePropagation` 阻断核心 vectorSelecting，mouseup 未拖动时弹「矢量值」弹窗与 Bit 对齐、拖动期间不弹不框选）；Bit → 原样放行 draw.js。验证：e2e-ui 新增 F 段 → 50/50（真实 Edge：单击弹「矢量值」/输入 A→主步格 10/拖动不改值不框选/Ctrl+单击框选+Esc 自动回 paint）；regression 58/58。⚠ exe 重建待本批末尾统一 |
 | #89 | **信号名标记多比特信号位宽**（如 `name[3:0]`） | ⬜ | 仅显示层：绘制时拼接局部显示名，**不改 `sig.name`**；核心 `calculateDynamicNameWidth`/`drawSignalName` 需把 `[msb:lsb]` 纳入宽度缓存失效（04 §4.6 Task2） |
 | #90 | **步数/子步数 ▲/▼ 微调按钮**（±1） | ✅ | `index.html` 两 spin 加 `.step-stepper`（data-target/data-step）；`resize.js` capture pointerdown ±1 → 写 spin → 派发 change → 复用统一 resizeSignals（含撤销快照）；min/max 收敛；点按钮不抢输入框焦点。验证：e2e-ui 新增 D2 段 42/42（真实 Edge）；regression 58/58。⚠ exe 重建待本批末尾统一 |
 | #91 | **优化步长改变时 Clock 自动填充**（防全 0/全 1） | ⬜ | 疑因：仅步数变化（dOld===dNew）也走 cell→主值→铺主值重建，把子步/跨格画法的 0101 抹平；修法保留 stride 块语义（04 §4.6 Task4） |
