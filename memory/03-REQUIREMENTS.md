@@ -141,7 +141,7 @@
 | #89 | **信号名标记多比特信号位宽**（如 `name[3:0]`） | ⬜ | 仅显示层：绘制时拼接局部显示名，**不改 `sig.name`**；核心 `calculateDynamicNameWidth`/`drawSignalName` 需把 `[msb:lsb]` 纳入宽度缓存失效（04 §4.6 Task2） |
 | #90 | **步数/子步数 ▲/▼ 微调按钮**（±1） | ✅ | `index.html` 两 spin 加 `.step-stepper`（data-target/data-step）；`resize.js` capture pointerdown ±1 → 写 spin → 派发 change → 复用统一 resizeSignals（含撤销快照）；min/max 收敛；点按钮不抢输入框焦点。验证：e2e-ui 新增 D2 段 42/42（真实 Edge）；regression 58/58。⚠ exe 重建待本批末尾统一 |
 | #91 | **优化步长改变时 Clock 自动填充**（防全 0/全 1） | ⬜ | 疑因：仅步数变化（dOld===dNew）也走 cell→主值→铺主值重建，把子步/跨格画法的 0101 抹平；修法保留 stride 块语义（04 §4.6 Task4） |
-| #92 | **框选输入值后点击画布其它处自动提交** | ⬜ | 机制：输入框 blur→commitInput，画布 mousedown 先被 dismissBar 移除工具条导致丢值；修法：画布 mousedown 时若有活动输入先 commit 再 dismiss（04 §4.6 Task5） |
+| #92 | **框选输入值后点击画布其它处自动提交** | ✅ | 修 `js/editor/selection.js`：工具条 input 只认「真实键入/粘贴」（`input` 事件 → userTyped），画布 mousedown 与画布外 mousedown 收条前先 `dismissBar({commitIfTyping:true})` —— 有键入先自动提交再继续鼠标会话；空值或程序直改 `input.value` 不误写（保住 E6 语义）；Esc/resize 仍取消；删死代码 hideBarKeepSelection。验证：e2e-ui 新增 G 段（G1 输入后点画布其它格自动提交 / G2 输入后拖新区先提交旧区再延续会话 / G3 空输入点画布外取消 / G4 输入后点画布外提交并关闭）→ 60/60（真实 Edge）；regression 58/58。⚠ e2e 调试教训：G2 首败是测试坐标被工具条遮挡（`parkBarAway` 解决），G4 是级联脏状态；跑 e2e 前须清残留 headless Edge 占 9531。exe 重建待本批末尾统一 |
 
 ---
 

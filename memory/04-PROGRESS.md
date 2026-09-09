@@ -167,9 +167,12 @@ regression 58/58；e2e-sim 0 失败；exe 已重建并核验特征串。
   - 关键机制实证：value-input.js 在 index.html 先于 draw.js/selection.js 加载（L813~L817）→ 其 document capture 监听先注册 → `stopImmediatePropagation` 先于同层 draw/selection 且早于 canvas 冒泡的核心。
   - 验证：e2e-ui 新增 F 段（真实 Edge，7 断言：F1 单击弹「矢量值」不切 select 无工具条 / F2 输入 A→主步格 10+标签 A / F3 拖动不弹窗不框选值不变 / F4 Ctrl+单击框选 1 主步+工具条+Esc 自动回 paint / F4.5 会话后不再滞留 select）→ 50/50 全绿；`node tools/regression.mjs` 58/58。
   - ⚠ exe 尚未重建：本批 5 项全部完成后再统一重建（见 03 表 I 备注）。
-- **⬜ #92 框选输入后点画布其它处自动提交（Task5，下一项）**
-  - 线索：输入框 blur→commitInput；画布 mousedown 先被 document capture 的 dismissBar 移除工具条 → blur 因 `bar.__closing` 丢值。修法：画布 mousedown 时若活动输入存在 → 先 commit 再 dismiss。
-- **⬜ #91 步长/子步变化时 Clock 自动填充防全 0/全 1（Task4）**
+- **✅ #92 框选输入后点画布其它处自动提交（Task5，2026-09-09 已提交）**
+  - 改动：`js/editor/selection.js` —— 工具条 input 只跟踪「用户真实键入/粘贴」（`input` 事件 → `userTyped=true` + `data-typed='1'`；程序直改 `input.value` 不视为键入，保住 E6「残留半输入点画布=取消」语义）；`showBar()` 挂 `bar.__commitTyped()`（未键入返回 false；有键入 commitInput 收条后返回 true）。画布 mousedown（`onMouseDown`）与画布外 mousedown（document capture，非 canvas 且非 bar 内）收条前先 `dismissBar({commitIfTyping:true})` —— 有键入先自动提交再继续本次鼠标会话（单击=提交后清旧选区、拖动=提交后开新区）；Esc / resize 不带 commitIfTyping → 仍为取消；`hideBarKeepSelection()` 死代码已删。
+  - 验证：e2e-ui 新增 G 段（真实 Edge，gbit/gvec，S=3）：G1 单击框 1 主步→输入 1→点画布其它格自动提交且清旧选区、工具仍 select；G2 输入 A 后拖新区域 → 旧 gvec 区自动提交 10/标签 A 且新选区在 gbit、bar 重开聚焦（会话延续）；G3 空输入点画布外 → 值不变/条关/选区清；G4 输入 1 后点画布外（inert div）→ 自动提交并关闭。→ **60/60 全绿**；`node tools/regression.mjs` 58/58。
+  - ⚠ e2e 调试教训（防后人误判为产品 bug）：G2 首败 = 第二段拖拽起点落在浮动工具条矩形内（mousedown 命中工具条按钮 → suppressCommit），测试侧新增 `parkBarAway()`（把工具条挪到离拖拽点最远的角落）解决；G4 首败 = G2 失败的级联脏状态，G2 修复后自动转绿。另有环境坑：e2e 依赖固定端口 9531/8949，残留 headless Edge / dev-server 占端口会让新 e2e 连到上次调试的脏页面 → 大面积与改动无关的假失败（本次 37/60 的根因），跑前必须查端口并清理。
+  - ⚠ exe 尚未重建：本批 5 项全部完成后再统一重建（见 03 表 I 备注）。
+- **⬜ #91 步长/子步变化时 Clock 自动填充防全 0/全 1（Task4，下一项）**
   - 疑因：仅步数变化（dOld===dNew）也走「cell→主值→每格铺主值」重建；用户 0101 若画在子步/跨格 cell 层 → 主值=每步首个 cell 恒值 → 抹平。仅 `isClockPattern` 走周期延续。
   - 修法方向：dOld===dNew 时保留原 cell 数组，按原有 stride 块重复/截断；dOld!==dNew 时仍重排但保留跨格翻转语义；一律走 `wpf.divisorOf`，不引入第二套步数语义。
 - **⬜ #89 信号名显示位宽 `[msb:lsb]`（Task2，仅显示层）**

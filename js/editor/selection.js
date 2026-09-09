@@ -34,6 +34,12 @@
 //   「removeChild 触发同步 blur → blur 处理器重入 hideBar → 二次 removeChild
 //   抛 NotFoundError → onMouseDown 中断、选框状态撕裂」的框选不稳定问题。
 //
+// ★ #92（2026-09-09）：输入值后点画布/画布外自动提交。工具条输入框只跟踪
+//   「用户真实键入」（input 事件 → bar.__commitTyped 闭包 userTyped）；程序直改
+//   input.value 不视为输入。画布 mousedown（onMouseDown）与画布外 mousedown
+//   （dismissBar({commitIfTyping})）在收条前若检测到键入 → 先 commitInput 再关条；
+//   Esc / resize 仍为「取消」语义。空文本键入后点别处 = 取消（不写值）。
+//
 // 依赖：core/__core.js、core/wpf.js（window.__wpf）；普通 script，
 // 加载顺序：核心 → __core → wpf → 本文件。
 // ============================================================================
@@ -87,11 +93,6 @@
         if (el.parentElement) el.parentElement.removeChild(el);
         else if (typeof el.remove === 'function') el.remove();
       } catch (e) { /* 摘除失败不致命 */ }
-    }
-
-    // 关工具条并保留选框（用于：开始新框选、切走等——选区生命周期由鼠标会话决定）
-    function hideBarKeepSelection() {
-      detachBar();
     }
 
     // 关工具条且清除选框（菜单消失时选框同步消失，视觉与菜单同步出现/消失）。
@@ -235,7 +236,10 @@
       if (e.target !== canvas) return;
       if (wpf.currentTool() !== 'select') return;
       marquee.hadSelection = !!window.__wpf.selection;
-      if (bar) hideBarKeepSelection(); // 只收菜单；选框的清除/替换在 mouseup 决定
+      // #92：收工具条前先处理“用户正在输入”的值——有键入 → 先自动提交再继续本次
+      // 鼠标会话（单击=提交后清旧选区、拖动=提交后开新选区）；空值/未键入 → 直接
+      // 收条取消（不提交）。选框的清除/替换仍由 mouseup 决定。
+      if (bar) dismissBar({ commitIfTyping: true });
       const r = canvas.getBoundingClientRect();
       const m = wpf.mapAt(e.clientX, e.clientY);
       marquee.active = true;
@@ -466,6 +470,22 @@
         input.value = '';
         hideBar();
       }
+      // #92：只有“用户真实键入/粘贴过”（input 事件）的文本才允许「点别处自动提交」。
+      // 程序直改 input.value（自动化/测试/残留半输入）不触发 input 事件，绝不能当作
+      // 用户输入被误提交（E6 语义：直接赋值的残留文本，点画布 = 取消不写）。
+      // 供模块级 dismissBar({commitIfTyping}) 判定：有键入 → commitInput() 收条并
+      // 返回 true（调用方不再二次 hideBar）；未键入/文本已清空 → 返回 false 由调用方
+      // 按“取消”收条。
+      let userTyped = false;
+      input.addEventListener('input', function () {
+        userTyped = true;
+        input.setAttribute('data-typed', '1');
+      });
+      bar.__commitTyped = function () {
+        if (!userTyped) return false;
+        commitInput(); // 空文本 → hideBar 取消；有文本 → 写值 + hideBar
+        return true;
+      };
       input.addEventListener('keydown', function (ev) {
         ev.stopPropagation();
         if (ev.key === 'Enter') { ev.preventDefault(); commitInput(); }
@@ -496,8 +516,13 @@
     }
 
     // ------------------------------------------------ 工具条全局关闭
-    function dismissBar() {
+    function dismissBar(opts) {
       if (!bar) return false;
+      // #92：提交路径只处理“用户键入过”的输入；Esc / 窗口 resize 等取消语义
+      // 不传 commitIfTyping，保持“Esc = 取消”不变。
+      if (opts && opts.commitIfTyping && typeof bar.__commitTyped === 'function') {
+        if (bar.__commitTyped()) return true; // 已提交并收条，避免二次 hideBar
+      }
       hideBar();
       return true;
     }
@@ -509,7 +534,7 @@
       if (!bar) return;
       if (insideBar(e.target)) return; // 工具条按钮交给 click
       if (e.target === canvas) return; // 画布按下由 onMouseDown 决定
-      dismissBar();
+      dismissBar({ commitIfTyping: true }); // #92：点画布外先提交键入值
     }, true);
 
     document.addEventListener('keydown', function (e) {

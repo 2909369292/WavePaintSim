@@ -851,6 +851,173 @@ else {
   }
 }
 
+// ---------------------------------------------------------------- G. 框选输入后点击其它处自动提交（Task5 #92）
+// 历史 bug：框选后工具条输入框聚焦输入，此时点画布/画布外 → mousedown 捕获先
+// hideBarKeepSelection/dismissBar → detachBar 把 bar.__closing 置 true 再 removeChild
+// → 摘除触发的 blur 被 closing 守卫吞掉 → 用户键入的值被静默丢弃（只能回车/按钮提交）。
+// 修复：收工具条前先提交活动输入（画布 mousedown 与画布外 mousedown 两条路径）。
+{
+  await send('Emulation.setDeviceMetricsOverride', { width: 1600, height: 1200, deviceScaleFactor: 1, mobile: false });
+  await sleep(400);
+  await ev(`(() => { if (typeof drawWaveform === 'function') drawWaveform(); return 1; })()`);
+  const g0 = await ev(`(() => {
+    const dw = document_wave;
+    dw.addBitSignal('gbit'); const gbit = dw.signalList().length - 1;
+    dw.addVectorSignal('gvec'); const gvec = dw.signalList().length - 1;
+    const s = dw.signalList()[gvec];
+    if (s) s.radix = window.Radix ? window.Radix.Hexadecimal : 0;
+    if (typeof window.__wpf.setEditGranularity === 'function') window.__wpf.setEditGranularity('step');
+    let t = window.__wpf.currentTool();
+    if (t !== 'select') { const b = document.querySelector('.tool-btn[data-tool="select"]'); if (b) b.click(); }
+    if (typeof drawWaveform === 'function') drawWaveform();
+    window.__Gslice = function (row, a, b) {
+      const sig = dw.signalList()[row];
+      return JSON.stringify({ v: sig.values.slice(a, b + 1), l: sig.labels ? sig.labels.slice(a, b + 1) : null });
+    };
+    return JSON.stringify({ gbit: gbit, gvec: gvec, S: window.__wpf.stride(),
+      len: dw.signalList()[gbit].values.length, tool: window.__wpf.currentTool() });
+  })()`);
+  const G = g0 && JSON.parse(g0);
+  check('G: 建立 gbit/gvec + select 工具 + 步粒度', !!G && G.gbit >= 0 && G.gvec >= 0 && G.gbit !== G.gvec && G.tool === 'select' && G.S >= 2 && G.len > 0, g0);
+  if (G) {
+    const pt = async (row, g) => { const r = await ev(`window.__pt(${row}, ${g})`); return r && typeof r === 'string' ? JSON.parse(r) : r; };
+    const reg = async () => { const r = await ev(`window.__reg()`); return r ? JSON.parse(r) : null; };
+    const slice = async (row, a, b) => JSON.parse(await ev(`window.__Gslice(${row}, ${a}, ${b})`));
+    const ustate = async () => JSON.parse(await ev(`(() => {
+      const bar = document.getElementById('wpf-batch-bar');
+      const inp = bar && bar.querySelector('input');
+      return JSON.stringify({ bar: !!bar, focus: inp ? document.activeElement === inp : false,
+        tool: window.__wpf.currentTool(), sel: window.__wpf.selection || null });
+    })()`));
+    // 把工具条挪到离给定 client 点最远的角落（保持打开+聚焦），避免浮动工具条
+    // 恰好盖住下一段拖拽起点（工具条在选区右上方，第二段起点常落在其矩形内）。
+    const parkBarAway = async (px, py) => {
+      await ev(`(() => { const bar = document.getElementById('wpf-batch-bar'); if (!bar) return 'NOBAR';
+        const w = bar.offsetWidth, h = bar.offsetHeight;
+        const cands = [[8, 8], [Math.max(8, window.innerWidth - w - 8), 8],
+          [8, Math.max(8, window.innerHeight - h - 8)],
+          [Math.max(8, window.innerWidth - w - 8), Math.max(8, window.innerHeight - h - 8)]];
+        let best = cands[0], bd = -1;
+        for (const c of cands) {
+          const d = Math.hypot(c[0] + w / 2 - ${px}, c[1] + h / 2 - ${py});
+          if (d > bd) { bd = d; best = c; }
+        }
+        bar.style.left = best[0] + 'px'; bar.style.top = best[1] + 'px'; return 'ok';
+      })()`);
+      await sleep(40);
+    };
+    const allEq = (arr, v) => !!arr && arr.length > 0 && arr.every((x) => x === v);
+    const clickAt = async (p) => {
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: p.cx, y: p.cy, button: 'left', buttons: 1, clickCount: 1 });
+      await sleep(40);
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: p.cx, y: p.cy, button: 'left', buttons: 0, clickCount: 1 });
+      await sleep(320);
+    };
+    const drag = async (from, to) => {
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: from.cx, y: from.cy, button: 'left', buttons: 1, clickCount: 1 });
+      await sleep(30);
+      for (let i = 1; i <= 5; i += 1) {
+        await send('Input.dispatchMouseEvent', { type: 'mouseMoved',
+          x: Math.round(from.cx + (to.cx - from.cx) * i / 5),
+          y: Math.round(from.cy + (to.cy - from.cy) * i / 5), button: 'left', buttons: 1 });
+        await sleep(12);
+      }
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: to.cx, y: to.cy, button: 'left', buttons: 0, clickCount: 1 });
+      await sleep(300);
+    };
+    const typeInto = async (text) => {
+      await sleep(120);
+      await send('Input.insertText', { text: text });
+      await sleep(120);
+    };
+    const S = G.S;
+    const pFirst = await pt(G.gbit, S);
+    if (!pFirst) check('G1: 定位 gbit 主步1', false, '无法定位');
+    else {
+      // ---- G1. 单击框 1 主步 → 输入 '1' → 点画布其它格：自动提交，旧选框清除 ----
+      await clickAt(pFirst);
+      const r1 = await reg();
+      const bar1 = await ustate();
+      await typeInto('1');
+      const pAway = await pt(G.gvec, 6 * S);
+      if (!pAway) check('G1: 定位其它格', false, '无法定位');
+      else {
+        await clickAt(pAway);
+        const after = await ustate();
+        const d1 = r1 && await slice(G.gbit, r1.ps, r1.pe);
+        check('G1: 单击选中 1 主步 + 工具条聚焦',
+          !!r1 && bar1.bar === true && bar1.focus === true && r1.ps === S && r1.pe === 2 * S - 1,
+          JSON.stringify({ r1: r1, bar1: bar1 }));
+        check('G1: 输入 1 后点画布其它格 → 自动提交该主步（无需回车）',
+          !!d1 && allEq(d1.v, 1), JSON.stringify(d1));
+        check('G1: 提交后旧选框/工具条清除、工具仍 select',
+          after.bar === false && after.sel === null && after.tool === 'select', JSON.stringify(after));
+      }
+    }
+
+    // ---- G2. 拖动框多主步 → 输入 'A' → 再拖动新区域：先提交再开新区（会话延续）----
+    const pA = await pt(G.gvec, 0);
+    const pB = await pt(G.gvec, 2 * S);
+    if (!pA || !pB) check('G2: 定位 gvec 拖区', false, '无法定位');
+    else {
+      await drag(pA, pB);
+      const r2 = await reg();
+      const bar2 = await ustate();
+      await typeInto('A');
+      const pC = await pt(G.gbit, 4 * S);
+      const pD = await pt(G.gbit, 5 * S);
+      if (pC) await parkBarAway(pC.cx, pC.cy);
+      await drag(pC, pD);
+      const r3 = await reg();
+      const bar3 = await ustate();
+      const d2 = r2 && await slice(G.gvec, r2.ps, r2.pe);
+      check('G2: 拖动 gvec 打开工具条（输入框聚焦）',
+        !!r2 && bar2.bar === true && bar2.focus === true, JSON.stringify({ r2: r2, bar2: bar2 }));
+      check('G2: 输入 A 后再拖新区域 → 旧区自动提交 10/标签 A',
+        !!d2 && allEq(d2.v, 10) && allEq(d2.l, 'A'), JSON.stringify(d2));
+      check('G2: 新拖区会话延续（bar 重开、选区在 gbit）',
+        bar3.bar === true && !!r3 && r3.ss === r3.se && r3.ss === G.gbit, JSON.stringify({ r3: r3, bar3: bar3 }));
+    }
+
+    // ---- G3. 空输入 + 点画布外（惰性 div）→ 不写值、关工具条清选框 ----
+    const pE = await pt(G.gbit, 0);
+    const pF = await pt(G.gbit, S);
+    if (!pE || !pF) check('G3: 定位 gbit 拖区', false, '无法定位');
+    else {
+      await drag(pE, pF);
+      const r3b = await reg();
+      const before = r3b && await slice(G.gbit, r3b.ps, r3b.pe);
+      await ev(`(() => {
+        let d = document.getElementById('g-inert');
+        if (!d) { d = document.createElement('div'); d.id = 'g-inert';
+          d.style.cssText = 'position:fixed;right:2px;bottom:2px;width:16px;height:16px;z-index:2147483000;background:transparent;';
+          document.body.appendChild(d); }
+        return 1;
+      })()`);
+      const inert = { cx: 1590, cy: 1190 };
+      await clickAt(inert);
+      const after3 = await ustate();
+      const d3 = r3b && await slice(G.gbit, r3b.ps, r3b.pe);
+      check('G3: 空输入点画布外 → 值不变、工具条关、选框清',
+        !!d3 && !!before && JSON.stringify(d3.v) === JSON.stringify(before.v)
+          && after3.bar === false && after3.sel === null, JSON.stringify({ d3: d3, s: after3 }));
+
+      // ---- G4. 有输入 + 点画布外 → 自动提交并关闭 ----
+      await drag(pE, pF);
+      const r4 = await reg();
+      await typeInto('1');
+      await clickAt(inert);
+      const after4 = await ustate();
+      const d4 = r4 && await slice(G.gbit, r4.ps, r4.pe);
+      check('G4: 输入 1 点画布外 → 自动提交该区并关闭',
+        !!d4 && allEq(d4.v, 1) && after4.bar === false && after4.sel === null, JSON.stringify({ d4: d4, s: after4 }));
+      await ev(`(() => { const d = document.getElementById('g-inert'); if (d && d.parentElement) d.parentElement.removeChild(d); return 1; })()`);
+    }
+    const errN = await ev(`window.__errCount ? window.__errCount() : -1`);
+    check('G: 期间无页面运行时错误', errN === 0, String(errN));
+  }
+}
+
 // ---------------------------------------------------------------- 收尾
 console.log('\n资源加载失败(404等)：' + netFails);
 console.log('\n控制台异常：' + (errors.length ? errors.join(' | ') : '无'));
