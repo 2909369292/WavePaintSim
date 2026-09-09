@@ -12,12 +12,12 @@
 | 当前版本 | `v0.4.0 build <自动时间> <git短哈希>` |
 | 代码状态 | 主线可用，`main` 分支 |
 | 构建产物 | `D:\Files\Code\波形\WavePaintClean.exe` |
-| 最近完成需求 | #81 Bug 自研修复（sim 瞬时离线自愈重试 / 添加信号图标消失 / 教程隐形重启拦截） |
+| 最近完成需求 | #82 遗留窗口收拢（旧 Edge 窗口停死随机端口 → “直接无法仿真”根治）；#81 Bug 自研修复 |
 | 最近完成文档 | #80 记忆体系重构（已完成，旧目录已删除） |
 | 当前阻塞 | 无 |
 | 下一步主线 | #76 Verdi 借鉴 P1（点变量加波形 + 双向跳转 + 信号组入 `.wp`） |
 | 测试基线 | regression 58/58、e2e-sim 0 失败、probe-param 全过 |
-| UI 基线 | e2e-rtl 9/9（#75 浏览器冒烟）；e2e-ui 35 项（环境正常时全绿）；probe-tutorial / probe-addbtn / probe-simfail 全过；真 exe 冒烟通过 |
+| UI 基线 | e2e-rtl 9/9（#75 浏览器冒烟）；e2e-ui 35 项（环境正常时全绿）；probe-tutorial / probe-addbtn / probe-simfail 全过；真 exe 冒烟通过（#82：收窗 5→1 + 端到端仿真 + UIA 真实点击 RUN→RESULT） |
 | 交付提醒 | 重启应用、从唯一路径启动、面板版本号自查 |
 
 ---
@@ -36,6 +36,7 @@
 | 2026-09-09 | 记忆体系重构 | 所有跨 AI 记忆统一收敛到 `memory/` |
 | 2026-09-09 | #75 Verdi 借鉴 P0 完成 | CM6 代码视图 + RTL Tree + VCD 全路径索引；regression 58/58、e2e-rtl 9/9、exe 已重建 |
 | 2026-09-09 | #81 Bug 自研修复完成 | sim 瞬时离线自愈重试+45s 超时；添加信号按钮消失根治（教程 CSS/高亮）；教程隐形重启+键盘拦截拦截；exe 已重建 |
+| 2026-09-09 | #82 遗留窗口收拢完成 | 重建/杀进程后旧 Edge 窗口残留死随机端口 → “直接无法仿真”+旧实例永不退出；launcher 开新窗前 `CloseLegacyWindows()` 收全部同名窗口；真机 5→1、新实例仿真通过、exe 已重建 |
 
 ---
 
@@ -60,7 +61,32 @@
 
 ## 4. 当前进行中 / 待交接
 
-### 4.1 ✅ 已完成：#81 Bug 自研修复（2026-09-09，用户本轮交付）
+### 4.1 ✅ 已完成：#82 遗留窗口收拢（2026-09-09，最新交付）
+
+用户报障「存在仿真失败的问题，直接无法仿真」。排查实证：
+
+- 当前存活服务本身健康（headless 直连能正常出 4 信号）→ **不是服务/代码坏**；
+- 真凶是用户 Edge 窗口停在**上一个已死实例的随机端口**（当天 9245），该页面同源
+  `/api/*` 全部断连，点仿真必失败；
+- 桌面当时有 5 个同名「WavePaint 波形编辑」窗口（部分活端口、部分死端口）——重建/
+  杀进程时旧窗口不消失，而 `HasWindow()` 只看窗口标题 → 旧实例永不退出 +
+  `OpenExistingInstance` 只开不收 → 死窗口越积越多。
+
+修复（`WavePaintLauncher.cs`，+80 行）：
+
+- 新增 `CloseLegacyWindows()`：开窗前枚举全部**可见**、标题含 `WavePaint/WaveWorkbench`
+  的顶层窗口 → `PostMessage(WM_CLOSE)` → 最多等 2.5s；调用点 = `MainCore`（全新启动）
+  与 `OpenExistingInstance`（接管已有实例）的 `Process.Start` 之前。
+- 语义：桌面同一时刻只有一份指向最新实例的页面（死窗口/重复窗口先收再开）。
+- 取舍见 `07-DECISIONS.md` D13：接受“活窗口时再次双击 exe 会关旧开新”的副作用。
+
+验证：`CLOSE-LEGACY 5 window(s)`（真机 5→1）；新实例（端口 3521）headless 端到端仿真
+通过（零异常零网络失败）；真实前台窗口 UIA 点 `sim-run` → 服务端 RUN→RESULT；
+regression 58/58；e2e-sim 0 失败；exe 已重建并核验特征串。
+
+> 完整过程见 `memory/logs/2026-09-09.md` 第四轮。
+
+### 4.2 ✅ 已完成：#81 Bug 自研修复（2026-09-09）
 
 用户报告：① 仿真服务“有可能不在线”；② 添加信号按钮图标“有时候会消失”。调查中又发现
 ③ 教程隐形重启（键盘拦截 + 给真实控件挂隐藏 class）。三个根因全部定位并修复：
@@ -86,14 +112,14 @@
 > 编号说明：用户会话里把本次任务称为「把 73 完成」，与台账 #73（参数化位宽，09-08 已
 > 完成）数字相同但**不是同一件事**；为避免台账冲突，本 Bug 任务登记为 #81。
 
-### 4.2 ✅ 已完成：#75 Verdi 借鉴 P0（2026-09-09）
+### 4.3 ✅ 已完成：#75 Verdi 借鉴 P0（2026-09-09）
 
 - **CM6 代码视图**：`tools/cm6-entry.js` esbuild 预打包为 `lib/codemirror.bundle.js`（305KB，挂 `globalThis.WPCm`）；`rtl-panel.installCodeEditor` 挂载；textarea 保留为数据镜像（display:none），旧读路径 `refs.sourceEditor.value` 不变；bundle 缺失自动降级纯 textarea。
 - **RTL Tree**：`js/sim/rtl-nav.js` 纯函数复用 `parseVerilogDesign` 为 module/port/param/instance 定位「文件+行号」（注释抹平等长空格保行号）；点击行跳转源码（跨文件先切标签页），状态栏显示「已定位到 module …」。
 - **VCD 全路径索引**：`js/sim/vcd-index.js` 纯函数把 `parseVcd` 产物转点分作用域树，信号 title = 完整路径（如 `tb.q`）；`state.vcd` 存最近一次成功解析结果，仿真失败时清空防过期展示。
 - 接入点全部在 `ui-bridge.js`：`initSourceCodeView` / `setEditorText` / `jumpToEditorLine` / `refreshStructureTrees` / `refreshVcdTree`。
 
-### 4.3 【下一步主线】#76 Verdi 借鉴 P1
+### 4.4 【下一步主线】#76 Verdi 借鉴 P1
 
 > 编号口径：台账中 P1 = #76（#75 是已完成的 P0）；此前 04/09 文档把 P1 误写成
 > “#75 P1”，2026-09-09 第三轮已纠正。
@@ -141,6 +167,9 @@
 - **sim 失败先分死因**：`/api/sim` 失败必须探活区分「进程死 / 自愈窗口 / 在线但请求超时」；进程死才提示重启，自愈窗口自动重试一次，超时给准确文案。
 - **自动化探测注意**：核心模态 Enter=Escape 会自行关闭；探测按键拦截必须先把弹窗关掉。`wpModalState` 是词法全局，`window.wpModalState` 取不到。
 - **exe-smoke 端口文件**：按最近写入时间选 `WavePaintClean_port_*.txt`（残留旧文件的数字可能更大）。
+- **死窗口陷阱（#82）**：Edge 同 profile 的 `--app` 窗口合并进一个 msedge 进程、无法按
+  命令行区分 URL；`HasWindow()` 只看标题 → 残留窗口会让旧实例永不退出。重启/重建后开
+  新窗前必须 `CloseLegacyWindows()` 收掉全部同名窗口，否则死端口页面会持续欺骗用户。
 
 ---
 

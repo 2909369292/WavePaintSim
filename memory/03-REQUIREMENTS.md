@@ -44,6 +44,7 @@
 | #42 | 修复仿真服务运行一段时间后“不在线” | ✅ | 加 `heartbeat.js` 心跳保活 + launcher 退出判据放宽 |
 | #44 | 统一值解析实现（根治多 bit 写值变 0） | ✅ | 全链路唯一入口 `wpf.parseValue(raw,sig)` |
 | #81 | **Bug 自研修复**（2026-09-09）：仿真服务瞬时离线自愈重试 / 添加信号按钮图标偶发消失 / 教程隐形重启（键盘拦截+控件被藏） | ✅ | `ui-bridge.js` 探活(`api/ping`)+45s 超时+自动重试一次；`index.html` 教程 localStorage 预置 + CSS 隐藏列表移除 `.wp-tutorial-highlight` + 真实控件防御规则；`file-menu.js` 捕获拦截「帮助→教程」。探针全过 + regression 58/58 + exe 重建。⚠ 编号说明：用户会话里把本任务称为「把 73 完成」，与台账 #73（参数化位宽，09-08 已完成）数字撞号但不是同一件事 |
+| #82 | **Bug：遗留 WavePaint 窗口停在死随机端口 → “直接无法仿真”**（2026-09-09 用户报障“存在仿真失败的问题，直接无法仿真”） | ✅ | 根因：旧实例被重建/杀掉后其 Edge 窗口残留（指向旧随机端口），`HasWindow()` 只看窗口标题 → 旧实例永不退出 + `OpenExistingInstance` 只开不收 → 死端口页面越积越多，用户点开即 `/api/*` 全断。修复：`WavePaintLauncher.cs` 新增 `CloseLegacyWindows()`（`EnumWindows` 枚举标题含 WavePaint/WaveWorkbench 的可见顶层窗口 → `PostMessage(WM_CLOSE)` → 最多等 2.5s），在 `MainCore`（全新启动）与 `OpenExistingInstance`（接管已有实例）的 `Process.Start` 前调用，保证桌面同一时刻只有一份指向最新实例的页面。验证：真机死窗口 5→1、日志 `CLOSE-LEGACY 5 window(s)`、新实例端到端仿真通过、真实窗口 UIA 点击 RUN→RESULT、regression 58/58、e2e-sim 0 失败、exe 已重建 |
 
 ## C. 仿真链路
 

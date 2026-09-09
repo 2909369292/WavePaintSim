@@ -5,6 +5,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Net;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using Microsoft.Win32;
@@ -638,6 +639,83 @@ namespace WaveWorkbench
             catch { return false; }
         }
 
+        // 收拢遗留窗口（2026-09-09 修复）：重建/重启 exe 时旧实例被杀，但其 Edge 窗口
+        // 仍停在上一个随机端口 → 页面同源 /api/* 全部连接失败 → 用户看到“仿真直接
+        // 无法运行”；而窗口本身不消失，还会让新实例的 HasWindow 误判“有窗口在服务”
+        // 而永不空闲退出。因此本实例在（a）接管已有实例、（b）全新启动开窗前，
+        // 先对所有标题含 WavePaint/WaveWorkbench 的顶层窗口发 WM_CLOSE，随后只开
+        // 一个新窗口 —— 保证桌面上同一时刻只有一份指向最新实例的页面。
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+        delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+        [DllImport("user32.dll")]
+        static extern bool IsWindowVisible(IntPtr hWnd);
+        [DllImport("user32.dll")]
+        static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+        const uint WM_CLOSE = 0x0010;
+
+        static void CloseLegacyWindows()
+        {
+            var targets = new List<IntPtr>();
+            try
+            {
+                EnumWindows(delegate(IntPtr hWnd, IntPtr lParam)
+                {
+                    try
+                    {
+                        if (!IsWindowVisible(hWnd)) return true;
+                        var sb = new StringBuilder(512);
+                        if (GetWindowText(hWnd, sb, sb.Capacity) > 0)
+                        {
+                            string title = sb.ToString();
+                            if (title.IndexOf("WavePaint", StringComparison.OrdinalIgnoreCase) >= 0
+                                || title.IndexOf("WaveWorkbench", StringComparison.OrdinalIgnoreCase) >= 0)
+                                targets.Add(hWnd);
+                        }
+                    }
+                    catch { }
+                    return true;
+                }, IntPtr.Zero);
+            }
+            catch { return; }
+            if (targets.Count == 0) return;
+            foreach (var hWnd in targets)
+            {
+                try { PostMessage(hWnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero); } catch { }
+            }
+            Log(DateTime.Now.ToString("u") + " CLOSE-LEGACY " + targets.Count + " window(s)" + Environment.NewLine);
+            // 最多等 ~2.5s 让 Edge 收窗；等不到也不阻塞（新窗口随后打开即可）
+            for (int i = 0; i < 5; i++)
+            {
+                bool any = false;
+                try
+                {
+                    EnumWindows(delegate(IntPtr hWnd, IntPtr lParam)
+                    {
+                        try
+                        {
+                            if (!IsWindowVisible(hWnd)) return true;
+                            var sb = new StringBuilder(512);
+                            if (GetWindowText(hWnd, sb, sb.Capacity) > 0)
+                            {
+                                string title = sb.ToString();
+                                if (title.IndexOf("WavePaint", StringComparison.OrdinalIgnoreCase) >= 0
+                                    || title.IndexOf("WaveWorkbench", StringComparison.OrdinalIgnoreCase) >= 0)
+                                { any = true; return false; }
+                            }
+                        }
+                        catch { }
+                        return true;
+                    }, IntPtr.Zero);
+                }
+                catch { break; }
+                if (!any) break;
+                Thread.Sleep(500);
+            }
+        }
+
         // 单实例保护：避免多个 WavePaint 进程同时运行、共享 %TEMP% 资源目录互相覆盖，
         // 以及多个 Edge 窗口残留旧版本 JS 导致用户看到过期的行为。
         static bool TryAcquireSingleInstance()
@@ -681,6 +759,7 @@ namespace WaveWorkbench
                         psi.FileName = edge;
                         psi.Arguments = "--app=\"http://127.0.0.1:" + port + "/index.html\" --no-first-run --no-default-browser-check";
                         psi.UseShellExecute = false;
+                        CloseLegacyWindows();
                         Process.Start(psi);
                         return;
                     }
@@ -732,6 +811,7 @@ namespace WaveWorkbench
             psi.FileName = edge;
             psi.Arguments = "--app=\"" + url + "\" --no-first-run --no-default-browser-check";
             psi.UseShellExecute = false;
+            CloseLegacyWindows();
             try { Process.Start(psi); }
             catch (Exception ex)
             {

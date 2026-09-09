@@ -11,8 +11,8 @@
 |---|---|
 | 主线 | `main` |
 | 当前版本 | `v0.4.0 build <自动时间> <git短哈希>` |
-| 最近完成 | #81 Bug 自研修复（sim 瞬时离线自愈 / 添加信号图标消失 / 教程隐形重启）；#75 Verdi P0；#80 记忆体系重构 |
-| 测试基线 | regression 58/58；e2e-sim 0 失败；probe-param 全过；e2e-rtl 9/9；probe-tutorial/addbtn/simfail 全过；真 exe 冒烟通过 |
+| 最近完成 | #82 遗留窗口收拢（旧 Edge 窗口停死端口 → “直接无法仿真”根治）；#81 Bug 自研修复；#75 Verdi P0；#80 记忆体系重构 |
+| 测试基线 | regression 58/58；e2e-sim 0 失败；probe-param 全过；e2e-rtl 9/9；probe-tutorial/addbtn/simfail 全过；#82 真机冒烟（收窗 5→1 + 端到端仿真 + UIA 真实点击 RUN→RESULT）通过 |
 | 当前阻塞 | 无 |
 | 下一步 | #76 Verdi 借鉴 P1（台账口径：P1=#76，#75 是已完成的 P0） |
 
@@ -84,6 +84,24 @@ node tools/exe-smoke.mjs           # 先启动真 exe 再跑（读最新端口�
 `.e2e-tmp/` 已被 `.gitignore` 覆盖，探针不进 git；需要长期保留时再提炼成正式
 `tools/e2e-*.mjs`（未做，属可选）。
 
+### 4.2 #82 遗留窗口收拢（2026-09-09 第四轮，交付内容）
+
+**问题**：用户报“存在仿真失败的问题，直接无法仿真”。实证 = 服务与代码都健康，真凶是
+重建/杀进程后旧 Edge `--app` 窗口停在**上一个已死实例的随机端口**（同源 `/api/*` 全断），
+且残留窗口让 `HasWindow()` 误判 → 旧实例永不退出 → 死端口窗口越积越多。
+
+**改法**：`WavePaintLauncher.cs` 新增 `CloseLegacyWindows()`（枚举可见、标题含
+`WavePaint/WaveWorkbench` 的顶层窗口 → `PostMessage(WM_CLOSE)` → 最多等 2.5s），在
+`MainCore`（全新启动）与 `OpenExistingInstance`（接管已有实例）的 `Process.Start` 前调用。
+
+**验证**：日志 `CLOSE-LEGACY 5 window(s)`（真机 5→1）；新实例端到端仿真通过（零异常
+零网络失败）；真实前台窗口 UIA 点 `sim-run` → RUN→RESULT；regression 58/58；
+e2e-sim 0 失败。exe 已重建并核验特征串（`CloseLegacyWindows`/`EnumWindows`/`WM_CLOSE`）。
+
+**注意（行为变化）**：用户已有活窗口时再次双击 exe（走 `OpenExistingInstance`）会
+关旧开新 —— 活页未保存内容会丢；正常“关窗即退再启动”不受影响。详见
+`07-DECISIONS.md` D13 与 `memory/logs/2026-09-09.md` 第四轮。
+
 ---
 
 ## 5. 当前已知环境注意点
@@ -97,6 +115,9 @@ node tools/exe-smoke.mjs           # 先启动真 exe 再跑（读最新端口�
 - 改 `lib/codemirror.bundle.js` 依赖重跑 `npx esbuild tools/cm6-entry.js`（见该文件头注释），再重建 exe。
 - `memory/logs/2026-09-09.md` 记录了 #75 P0 的实现细节与设计决策，P1 开工前建议先读。
 - `memory/logs/2026-09-09.md` 第三轮记录了 #81 Bug 修复的根因/验证与探针用法。
+- `memory/logs/2026-09-09.md` 第四轮记录了 #82（遗留窗口收拢）的完整排查与验证；
+  交付出现在凌晨（2026-09-09 深夜~次日）。用户若再报“无法仿真”，先查桌面是不是还
+  有多个「WavePaint 波形编辑」窗口 / 是不是旧 exe 进程还活着 —— 而不是先怀疑代码。
 
 ---
 
@@ -106,6 +127,8 @@ node tools/exe-smoke.mjs           # 先启动真 exe 再跑（读最新端口�
 2. 从唯一路径启动：
    `D:\Files\Code\波形\WavePaintClean.exe`
 3. 在面板查看版本号，确认不是旧副本。
+4. 若此前桌面/任务栏堆积了多个「WavePaint 波形编辑」窗口，先全部关掉，再确认没有
+   `WavePaintClean.exe` 旧进程残留后重新启动一次（#82 起 launcher 会自动收旧窗）。
 
 ---
 
@@ -118,6 +141,7 @@ node tools/exe-smoke.mjs           # 先启动真 exe 再跑（读最新端口�
 - 记忆体系重构
 - #75 Verdi 借鉴 P0（CM6 代码视图 / RTL Tree / VCD 全路径索引）
 - #81 Bug 自研修复（sim 探活自愈重试 / 教程 localStorage 预置与菜单拦截 / 添加信号 CSS 防御）
+- #82 遗留窗口收拢（launcher `CloseLegacyWindows` 收旧窗；真机已验证）
 
 ---
 
@@ -137,3 +161,7 @@ node tools/exe-smoke.mjs           # 先启动真 exe 再跑（读最新端口�
   全过、真 exe 冒烟通过；exe 已按 C1 重建并核验 5 个特征串
   （`simAutoRetried`/`wavepaint_tutorial_done`/`wp-tutorial-highlight`/`probeServerAlive`/
   `SIM_REQUEST_TIMEOUT_MS`）。
+- #82 已验证：真机死窗口 5→1（`CLOSE-LEGACY 5 window(s)`）、新实例端到端仿真、真实窗口
+  UIA 点击 RUN→RESULT、regression 58/58、e2e-sim 0 失败；exe 已按 C1 重建并核验特征串。
+- 交付提醒升级：先 `taskkill /F /IM WavePaintClean.exe`（或任务管理器结束）再启动；
+  若桌面又出现多个同名窗口 = 仍在用旧 exe。
