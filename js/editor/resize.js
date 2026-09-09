@@ -19,6 +19,8 @@
 //   2026-08-30 初版（F3）
 //   2026-08-30 P0-3 不再缓存 document_wave 引用（核心重建文档后 resize 失效）
 //   2026-08-30 P2-5 子步数 0 不再被 || 吞掉；currentCounts 子步下限改为 0
+//   2026-09-09 Task3(#90) 步数/子步数输入框右侧新增 ▲/▼ 微调按钮：点击 ±1，
+//     改 spin 值后派发 change，复用下方统一的 capture 监听完成智能 resize（含撤销快照）。
 // ============================================================================
 (function () {
   'use strict';
@@ -182,6 +184,35 @@
         subs: Number.isFinite(subs) && subs >= 0 ? Math.floor(subs) : null
       };
     }
+
+    // ▲/▼ 微调：步数/子步数按钮（HTML: index.html .step-arrow）。
+    // 点按钮不抢输入框焦点（preventDefault 阻止 mousedown 默认聚焦/失焦），
+    // 在 min/max 内取当前输入值 ±1，写入 spin 后派发 change——
+    // 由下方 document capture change 监听统一走 resizeSignals（含撤销快照），
+    // 与用户手输/回车行为完全一致，不另起第二套 resize 逻辑。
+    function wireStepSteppers() {
+      const isArrow = function (el) {
+        return el && el.closest && !!el.closest('.step-arrow');
+      };
+      document.addEventListener('pointerdown', function (e) {
+        if (!isArrow(e.target)) return;
+        const btn = e.target.closest('.step-arrow');
+        const input = btn && document.getElementById(btn.getAttribute('data-target') || '');
+        const delta = Number(btn && btn.getAttribute('data-step'));
+        if (!input || !Number.isFinite(delta)) return;
+        e.preventDefault();   // 保持输入框焦点（若已聚焦），避免点击触发失焦 blur 的二次 change
+        e.stopPropagation();  // 阻断其它 document 捕获监听误判本次点击
+        const min = input.min === '' ? -Infinity : Number(input.min);
+        const max = input.max === '' ? Infinity : Number(input.max);
+        const base = Number(input.value);
+        if (!Number.isFinite(base)) return; // 非法中间态：交给用户回车/失焦处理
+        const next = Math.min(max, Math.max(min, base + delta));
+        if (!Number.isFinite(next) || next === base) return;
+        input.value = String(next);
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      }, true);
+    }
+    wireStepSteppers();
 
     // 拦截 spin 的 input（核心已改绑 change，不再有逐键监听；此兜底阻止任何
     // 残留的 input 级 resize，杜绝逐键全量重绘的闪烁）

@@ -152,6 +152,28 @@ regression 58/58；e2e-sim 0 失败；exe 已重建并核验特征串。
 
 **建议落地顺序**：#85 → #86 → #84（先让“加信号”闭环，再补“找定义源码”，最后波形查看增强）；随后主线收 #76 的双向跳转与信号组入 `.wp`，再进 P2=#77。本轮只规划登记，用户尚未拍板实现范围，**未动任何代码**。
 
+### 4.6 🔄 【当前进行中】#88~#92 存量功能完善（2026-09-09 第六轮，用户点名 5 项）
+
+> 用户明确「目前不着急做 Verdi 远期（#83~#87）」，优先完善 5 项存量功能。编号见台账 03 表 I。
+> 实现顺序：#90 → #88 → #92 → #91 → #89；每项一条 commit + 定向验证；
+> 五项全部完成后再统一 C1 重建 exe + C8 特征串核验 + 全量工具链 + 交付提醒。
+
+- **✅ #90 步数/子步数 ▲/▼ 微调按钮（Task3，2026-09-09 已提交）**
+  - 改动：`index.html` 两个 `.step-input-wrapper` 内各加一对 `.step-arrow`（`data-target`/`data-step=±1`）；CSS 末尾追加 `.step-stepper/.step-arrow`；`js/editor/resize.js` 新增 `wireStepSteppers()` —— document capture `pointerdown` 命中 `.step-arrow` 时 `preventDefault`（不抢输入框焦点）+ `stopPropagation`，在 min/max 内取 `input.value` ±1，写回 spin 后派发 `change(bubbles)`，**复用**既有 capture change → `resizeSignals`（含撤销快照），与手输/回车同通道，不另起第二套 resize。
+  - 验证：e2e-ui 新增 D2 段（6 断言：±1 提交、min=4/max=16 收敛）→ 42/42（真实 Edge）；`node tools/regression.mjs` 58/58；用例结束把 spin+模型恢复到 D 段状态，避免污染后续 E 段。
+  - ⚠ exe 尚未重建：本批 5 项全部完成后再统一重建（见 03 表 I 备注）。
+- **⬜ #88 编辑模式点击 Vector 不再进框选（Task1，下一项）**
+  - 线索（上一会话定位，动码前重读 `js/editor/value-input.js` 核实）：其 `onMouseDown` 中 `ctrlKey||metaKey||isVector` → 切 native/select 且不拦截 → Vector 纯单击也进框选。
+  - 预期：仅 Ctrl/Cmd 保留 native/框选；非 Ctrl 的 Vector 单击 → 不切工具、阻断 vectorSelecting，mouseup 未拖动时 `openValuePrompt`（对齐 Bit），拖动期间不弹框。
+- **⬜ #92 框选输入后点画布其它处自动提交（Task5）**
+  - 线索：输入框 blur→commitInput；画布 mousedown 先被 document capture 的 dismissBar 移除工具条 → blur 因 `bar.__closing` 丢值。修法：画布 mousedown 时若活动输入存在 → 先 commit 再 dismiss。
+- **⬜ #91 步长/子步变化时 Clock 自动填充防全 0/全 1（Task4）**
+  - 疑因：仅步数变化（dOld===dNew）也走「cell→主值→每格铺主值」重建；用户 0101 若画在子步/跨格 cell 层 → 主值=每步首个 cell 恒值 → 抹平。仅 `isClockPattern` 走周期延续。
+  - 修法方向：dOld===dNew 时保留原 cell 数组，按原有 stride 块重复/截断；dOld!==dNew 时仍重排但保留跨格翻转语义；一律走 `wpf.divisorOf`，不引入第二套步数语义。
+- **⬜ #89 信号名显示位宽 `[msb:lsb]`（Task2，仅显示层）**
+  - 位置：`wavepaint.clean.js` `calculateDynamicNameWidth`（~L17299，含 `_cachedSignalNamesHash`）/ `drawSignalName`（~L23116）；`Signal` 构造器无 width/msb/lsb，由 `ui-bridge.js` `toNativeSignal` 注入（`msb=width>1?String(width-1):''; lsb='0'`），Vector 位宽信息并非必然存在 → 无真实位宽信息不硬画。
+  - 预期：绘制时拼**局部显示名**（不改 `sig.name`，避免影响改名/去重/hitTest/保存）；宽度缓存 hash 需纳入 `[msb:lsb]` 后缀。
+
 ---
 
 ## 5. 已知未排期方向

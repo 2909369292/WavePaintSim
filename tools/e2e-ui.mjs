@@ -7,6 +7,8 @@
 //   C. 位值弹窗（__core.prompt → 核心 wpQuickPrompt）：回车写入 / Esc /
 //      空值失焦取消 / 有值失焦写入 / 非法输入红框重开 / 点遮罩取消 / 弹窗内不触发全局快捷键
 //   D. 步数/子步 spin：input 中间态不提交、change 一次性生效
+//   D2. 步数/子步 ▲/▼ 微调按钮（Task3 #90）：pointerdown → ±1 → 派发 change →
+//      统一走 resizeSignals；min/max 收敛；点按钮不抢输入框焦点
 //   E. 框选（editor/selection.js，2026-09-03 重写）：单击粒度 / 反向拖动 /
 //      私有子步行与普通行跨行写值不错位 / Vector 输入 'A' → 10 / 工具条带焦点时
 //      连续第二次/第三次拖动不再抛 NotFoundError、不再误提交半输入的值
@@ -326,6 +328,58 @@ else {
   else {
     const D = JSON.parse(d1);
     check('子步同样 input 不生效 / change 提交', D.before === D.mid && D.after === 2, d1);
+  }
+}
+
+// ---------------------------------------------------------------- D2. 步数/子步 ▲/▼ 微调按钮（Task3 #90）
+// resize.js wireStepSteppers：capture pointerdown 命中 .step-arrow → min/max 内 ±1 →
+// 写 spin 值 → 派发 change(bubbles) → 复用下方统一 capture change（resizeSignals，含撤销快照）。
+// 与手输/回车完全同通道，不另起第二套 resize。结束时把 spin 复位为模型值，避免残留脏 UI。
+{
+  const d2 = await ev(`(() => {
+    const s = document.getElementById('sample-spin');
+    const b = document.getElementById('substep-spin');
+    const q = (t, st) => document.querySelector('.step-arrow[data-target="' + t + '"][data-step="' + st + '"]');
+    const upS = q('sample-spin', 1), dnS = q('sample-spin', -1);
+    const upB = q('substep-spin', 1), dnB = q('substep-spin', -1);
+    if (!s || !b || !upS || !dnS || !upB || !dnB) return JSON.stringify({ missing: true });
+    const fire = (btn) => btn.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+    const res = { before: [document_wave.m_sampleCount, document_wave.m_subStepCount] };
+    const orig = [document_wave.m_sampleCount, document_wave.m_subStepCount];
+    // 步数 ▲ → ▼×2：值 ±1/±2 且模型同步提交
+    s.value = String(document_wave.m_sampleCount);
+    fire(upS); res.sUp = [Number(s.value), document_wave.m_sampleCount];
+    fire(dnS); fire(dnS);
+    res.sDn = [Number(s.value), document_wave.m_sampleCount];
+    // 子步 ▲ → ▼×2
+    b.value = String(document_wave.m_subStepCount);
+    fire(upB); res.bUp = [Number(b.value), document_wave.m_subStepCount];
+    fire(dnB); fire(dnB);
+    res.bDn = [Number(b.value), document_wave.m_subStepCount];
+    // 下限/上限收敛：4 时 ▼ 不再降、16 时 ▲ 不再升
+    s.value = '4'; fire(dnS); res.sMin = [Number(s.value), document_wave.m_sampleCount];
+    b.value = '16'; fire(upB); res.bMax = [Number(b.value), document_wave.m_subStepCount];
+    // 复位：恢复进入 D2 前的状态（D 段遗留 steps=8/subs=2，E 段依赖 stride=3/steps=8），
+    // 用真实 change 走一次 resizeSignals，spin 与模型一起还原，避免污染后续用例。
+    s.value = String(orig[0]);
+    b.value = String(orig[1]);
+    s.dispatchEvent(new Event('change', { bubbles: true }));
+    b.dispatchEvent(new Event('change', { bubbles: true }));
+    return JSON.stringify(res);
+  })()`);
+  console.log('  ▲/▼ 微调:', d2);
+  if (d2 === null) { check('D2: 找到 ▲/▼ 按钮组', false, '元素缺失'); }
+  else {
+    const D2 = JSON.parse(d2);
+    check('D2: 找到 ▲/▼ 按钮组', !D2.missing, d2);
+    if (!D2.missing) {
+      check('D2: 步数 ▲ 值+1 且模型提交', D2.sUp[0] === D2.before[0] + 1 && D2.sUp[1] === D2.sUp[0], d2);
+      check('D2: 步数 ▼×2 值-2 且模型提交', D2.sDn[0] === D2.before[0] - 1 && D2.sDn[1] === D2.sDn[0], d2);
+      check('D2: 子步 ▲ 值+1 且模型提交', D2.bUp[0] === D2.before[1] + 1 && D2.bUp[1] === D2.bUp[0], d2);
+      check('D2: 子步 ▼×2 值-2 且模型提交', D2.bDn[0] === D2.before[1] - 1 && D2.bDn[1] === D2.bDn[0], d2);
+      check('D2: 步数下限收敛到 4', D2.sMin[0] === 4, d2);
+      check('D2: 子步上限收敛到 16', D2.bMax[0] === 16, d2);
+    }
   }
 }
 

@@ -654,12 +654,20 @@
                 <label for="sample-spin" class="step-label">步数:</label>
                 <div class="step-input-wrapper">
                     <input type="number" id="sample-spin" min="4" max="1000000" value="30" class="step-input" title="时间步数">
+                    <span class="step-stepper">
+                        <button type="button" class="step-arrow" data-target="sample-spin" data-step="1" title="步数 +1" aria-label="步数加一">▲</button>
+                        <button type="button" class="step-arrow" data-target="sample-spin" data-step="-1" title="步数 -1" aria-label="步数减一">▼</button>
+                    </span>
                 </div>
             </div>
             <div class="step-control-group">
                 <label for="substep-spin" class="step-label">子步数:</label>
                 <div class="step-input-wrapper">
                     <input type="number" id="substep-spin" min="0" max="16" value="1" class="step-input" title="每时间步的细分">
+                    <span class="step-stepper">
+                        <button type="button" class="step-arrow" data-target="substep-spin" data-step="1" title="子步数 +1" aria-label="子步数加一">▲</button>
+                        <button type="button" class="step-arrow" data-target="substep-spin" data-step="-1" title="子步数 -1" aria-label="子步数减一">▼</button>
+                    </span>
                 </div>
             </div>
         </div>
