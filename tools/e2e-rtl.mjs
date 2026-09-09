@@ -138,6 +138,25 @@ if (ready === 'ready') {
   check('B1: RTL 树按文件渲染模块行', RTL.mods >= 1 && RTL.files >= 1 && RTL.empty === false, rtlState);
   const statusAfterJump = await ev(`(() => document.getElementById('sim-status').textContent || '')()`);
   check('B2: 点击模块行触发跳转（状态栏确认）', /已定位到 module/.test(statusAfterJump), statusAfterJump.slice(0, 80));
+  // 第十二轮澄清：RTL 树 = 纯代码层级浏览，不渲染端口/参数分组（fixture counter 有 4 个端口，
+  // 若分组回归会在这里暴露），模块 meta 也不再显示端口计数。
+  const rtlSlim = await ev(`(() => {
+    const tree = document.getElementById('rtl-tree');
+    if (!tree) return 'missing';
+    const text = tree.textContent || '';
+    return JSON.stringify({
+      portRows: tree.querySelectorAll('.rtl-port').length,
+      paramRows: tree.querySelectorAll('.rtl-param').length,
+      instanceRows: tree.querySelectorAll('.rtl-inst').length,
+      hasPortText: /端口|Ports/.test(text),
+      hasParamText: /参数|Parameters/.test(text)
+    });
+  })()`);
+  const RTL_SLIM = JSON.parse(rtlSlim || '{}');
+  check('B3: RTL 树为纯层级浏览（无 .rtl-port/.rtl-param、无端口/参数文案、实例行仍在）',
+    RTL_SLIM.portRows === 0 && RTL_SLIM.paramRows === 0
+    && RTL_SLIM.hasPortText === false && RTL_SLIM.hasParamText === false
+    && RTL_SLIM.instanceRows >= 0, rtlSlim);
 
   // ---- C. 真实仿真 → VCD 层次树 ----
   await ev(`(() => { const b = document.getElementById('sim-run'); if (b) b.click(); return 1; })()`);

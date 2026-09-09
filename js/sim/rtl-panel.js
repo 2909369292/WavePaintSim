@@ -4,8 +4,10 @@
 //   1. installCodeEditor：把 CodeMirror 6 代码视图挂到 .cm-host；textarea 作为
 //      「数据镜像」保留（display:none），所有旧路径读 refs.sourceEditor.value
 //      依然成立，ui-bridge 无需大规模改写；
-//   2. renderRtlTree：把 buildRtlNav() 的模块/端口/参数/实例树渲染成可点击跳转
-//      的行（点击 → onJump({fileIndex, line, kind, name})）；
+//   2. renderRtlTree：把 buildRtlNav() 的模块/实例树渲染成可点击跳转的行（点击 →
+//      onJump({fileIndex, line, kind, name})）。第十二轮澄清：RTL 树只做「代码层级
+//      浏览」（文件 → 模块 → 实例），不渲染端口/参数分组、不显示接口信号、不承担
+//      任何加信号交互（数据层 buildRtlNav 仍产出 ports/params 供解析与 scope 映射复用）；
 //   3. renderVcdTree：把 buildVcdHierarchy() 的 VCD 层次树渲染成折叠列表
 //      （点击信号 → onSignalPick(完整点分路径)）。
 // 约束：纯 DOM 渲染 + 持有 CodeMirror 实例，不 import ui-bridge（避免循环依赖）；
@@ -153,29 +155,9 @@ export function renderRtlTree(container, modules, onJump) {
       const go = () => onJump && onJump({ fileIndex, line: mod.moduleLine, kind: "module", name: mod.name });
       modSummary.append(makeJumpRow(doc, "rtl-module-go", `module ${mod.name}`, `跳转到 ${fileName} 第 ${mod.moduleLine} 行`, go));
       modSummary.append(elFromDoc(doc, "span", "rtl-module-meta",
-        `端口 ${mod.portCount || 0} · 实例 ${mod.instanceCount || 0} · L${mod.moduleLine}`));
+        `实例 ${mod.instanceCount || 0} · L${mod.moduleLine}`));
       modDetails.append(modSummary);
 
-      if (mod.ports && mod.ports.length) {
-        const rows = mod.ports.map((port) => {
-          const label = `${port.direction || "?"} ${port.name}${port.range || ""}`;
-          return makeJumpRow(doc, "rtl-port", `${label}  L${port.line}`,
-            `${fileName}:${port.line} — ${label}`, () => onJump && onJump({
-              fileIndex, line: port.line, kind: "port", name: port.name
-            }));
-        });
-        modDetails.append(groupRows(doc, "端口 Ports", mod.ports.length, rows));
-      }
-      if (mod.parameters && mod.parameters.length) {
-        const rows = mod.parameters.map((param) => {
-          const label = param.value ? `${param.name} = ${param.value}` : param.name;
-          return makeJumpRow(doc, "rtl-param", `parameter ${label}  L${param.line}`,
-            `${fileName}:${param.line} — parameter ${label}`, () => onJump && onJump({
-              fileIndex, line: param.line, kind: "parameter", name: param.name
-            }));
-        });
-        modDetails.append(groupRows(doc, "参数 Parameters", mod.parameters.length, rows));
-      }
       if (mod.instances && mod.instances.length) {
         const rows = mod.instances.map((inst) => {
           const label = inst.instanceName

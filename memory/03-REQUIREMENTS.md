@@ -94,7 +94,7 @@
 | #73 | 参数化位宽完整支持（嵌套参数/$clog2/移位/sized字面量） | ✅ | 求值器升级 + TB 内嵌参数定义，位宽算术交给 iverilog |
 | #74 | 跨 AI 总纲文档 | ✅ | 已升级为本 `memory/` 体系 |
 | #75 | Verdi 借鉴 P0：CodeMirror6 代码视图 + RTL Tree + VCD 全路径索引 | ✅ | esbuild 预打包 CM6 单文件入 `lib/`；新增 `rtl-nav.js`(纯函数行号定位) / `vcd-index.js`(纯函数 VCD 层次索引) / `rtl-panel.js`(DOM 渲染层)；textarea 保留为数据镜像、CM 缺失自动降级；回归 58/58 + e2e-rtl 9/9 |
-| #76 | Verdi 借鉴 P1：代码点变量→加波形 + 树↔代码跳转 + 信号组入 `.wp` | ⬜ | **第十二轮澄清：代码内点变量为唯一加信号主路径（B4，“中追”式）；RTL 树仅层级浏览、不再点行加信号（B2 撤销）**。复用 `toNativeSignal` + `simWatches` 注入链路（#85 底座） |
+| #76 | Verdi 借鉴 P1：代码点变量→加波形 + 树↔代码跳转 + 信号组入 `.wp` | ⬜ | **第十二轮澄清：代码内点变量为唯一加信号主路径（B4，“中追”式）；RTL 树仅层级浏览、不再点行加信号（B2 撤销）**。复用 `toNativeSignal` + `simWatches` 注入链路（#85 底座）。**首批实施（RTL 树瘦身：renderRtlTree 删端口/参数分组与端口计数）已完成 2026-09-09**（e2e-rtl 16/16 + exe 重建 22:19:04，见 04 §4.10） |
 | #77 | Verdi 借鉴 P2：Active Annotation + driver/load 高亮 | ⬜ 远期 | 数据全齐，待 UI 实现；2026-09-09 第十一轮用户**打入远期**，#87④ Active Annotation 与之合流 |
 | #78 | Verdi 借鉴 P3（备选）：X 追溯 / 波形 diff / VSCode 扩展 | ⬜ | 可复用 launcher HTTP `/api` |
 | #79 | 仿真器选型定论 | ✅ | iverilog 保持主后端，Verilator 远期可选 |

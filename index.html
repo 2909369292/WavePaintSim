@@ -718,7 +718,8 @@
                     <select id="sim-top-select" style="flex:1;min-width:0;padding:3px 6px;border:1px solid #bbb;border-radius:6px;font-size:12px;"></select>
                 </div>
             </div>
-            <!-- #75 P0：RTL 结构树（模块/端口/参数/实例，点击跳转源码行） -->
+            <!-- #75 P0 + 第十二轮：RTL 结构树 = 纯代码层级浏览（文件→模块→实例，点击跳源码行；
+                 不渲染端口/参数分组，不显示接口信号，不承载加信号交互） -->
             <div>
                 <div class="sim-sec-title">RTL 结构树</div>
                 <div id="rtl-tree" class="rtl-tree"></div>
