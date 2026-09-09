@@ -165,6 +165,111 @@ if (ready === 'ready') {
   const VCD = JSON.parse(vcdState || '{}');
   check('C2: VCD 树渲染出信号行（含作用域层级）', VCD.rows > 0 && VCD.empty === false, vcdState);
   check('C3: 信号行带完整点分路径 title', VCD.rows > 0 && /\./.test(VCD.firstTitle || ''), vcdState);
+
+  // ---- D. VCD 点信号 → 加入画布观察行（#85）----
+  const watchRow = await ev(`(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const dw = () => window.document_wave;
+    const mlen = () => dw().m_signals.length;
+    const findW = (path) => dw().m_signals.find((s) => s && s.__simWatchPath === path);
+    const clickRow = (path) => {
+      const row = [...document.querySelectorAll('#vcd-tree .vcd-signal-row')]
+        .find((r) => r.title.includes(path));
+      if (!row) return 'missing';
+      row.click();
+      return 'clicked';
+    };
+    const status = () => document.getElementById('sim-status').textContent || '';
+    const before = mlen();
+    const qRow = dw().m_signals.find((s) => s && s.name === 'q' && !s.__simWatchPath);
+    const qValues = qRow && Array.isArray(qRow.values) ? qRow.values : null;
+    if (clickRow('tb.dut.q') !== 'clicked') return 'row-missing';
+    await sleep(300);
+    const added = findW('tb.dut.q');
+    const res1 = {
+      countDelta: mlen() - before,
+      name: added && added.name,
+      width: added && added.width,
+      kind: added && added.kind,
+      type: added && added.type,
+      injected: !!(added && added.__simInjected),
+      watch: added && added.__simWatchPath,
+      vlen: added && Array.isArray(added.values) ? added.values.length : -1,
+      sameAsQ: !!(added && qValues && JSON.stringify(added.values) === JSON.stringify(qValues)),
+      status: status().slice(0, 60)
+    };
+    const countAfterAdd = mlen();
+    clickRow('tb.dut.q');
+    await sleep(200);
+    const res2 = {
+      countDeltaAfterDup: mlen() - countAfterAdd,
+      status: status().slice(0, 80),
+      scrollTop: document.getElementById('wave-view').scrollTop
+    };
+    const idx = dw().m_signals.findIndex((s) => s && s.__simWatchPath === 'tb.dut.q');
+    if (idx >= 0) { dw().removeSignal(idx); window.drawWaveform && window.drawWaveform(); window.updateSidePanels && window.updateSidePanels(); }
+    const afterDel = mlen();
+    clickRow('tb.dut.q');
+    await sleep(300);
+    const reAdded = findW('tb.dut.q');
+    const res3 = {
+      countDeltaAfterReadd: mlen() - afterDel,
+      reAdded: !!reAdded,
+      watch: reAdded && reAdded.__simWatchPath,
+      status: status().slice(0, 60)
+    };
+    return JSON.stringify({ res1, res2, res3 });
+  })()`);
+  const D = JSON.parse(watchRow || '{}');
+  const R1 = D.res1 || {};
+  check('D1: 点 VCD 行 → 画布增加 1 行观察行（name=完整路径）',
+    R1.countDelta === 1 && R1.name === 'tb.dut.q' && R1.watch === 'tb.dut.q', watchRow);
+  check('D2: 观察行为注入行且位宽/类型与 VCD 一致（q[3:0] vector）',
+    R1.injected === true && R1.width === 4 && R1.kind === 'vector' && R1.type === 1, watchRow);
+  check('D3: 观察行 values 长度=主步×(子步+1) 且与同源输出行 q 数据一致',
+    R1.vlen > 0 && R1.sameAsQ === true, watchRow);
+  const R2 = D.res2 || {};
+  check('D4: 重复点同一行不重复加入（提示已在画布并定位）',
+    R2.countDeltaAfterDup === 0 && /已在波形中/.test(R2.status || ''), watchRow);
+  const R3 = D.res3 || {};
+  check('D5: 删除画布观察行后再次点击可重新加入',
+    R3.countDeltaAfterReadd === 1 && R3.reAdded === true && R3.watch === 'tb.dut.q', watchRow);
+
+  // ---- D6. 重新仿真 → 观察行自动刷新且不重复（#85 核心声明）----
+  const rerunState = await ev(`(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const dw = () => window.document_wave;
+    const findW = (path) => dw().m_signals.filter((s) => s && s.__simWatchPath === path);
+    const qRow = dw().m_signals.find((s) => s && s.name === 'q' && !s.__simWatchPath);
+    const qValues = qRow && Array.isArray(qRow.values) ? qRow.values : null;
+    const before = findW('tb.dut.q').length;
+    const b = document.getElementById('sim-run');
+    if (b) b.click();
+    let statusText = '';
+    for (let i = 0; i < 80; i++) {
+      await sleep(400);
+      statusText = String(document.getElementById('sim-status').textContent || '');
+      if (/仿真完成/.test(statusText) || /ERROR|失败/.test(statusText)) break;
+    }
+    const afterRows = findW('tb.dut.q');
+    const watch = afterRows[0] || null;
+    const qRow2 = dw().m_signals.find((s) => s && s.name === 'q' && !s.__simWatchPath);
+    return JSON.stringify({
+      done: /仿真完成/.test(statusText),
+      before,
+      after: afterRows.length,
+      stillInjected: !!(watch && watch.__simInjected),
+      stillWatch: !!(watch && watch.__simWatchPath === 'tb.dut.q'),
+      sameAsQ: !!(watch && qRow2 && JSON.stringify(watch.values) === JSON.stringify(qRow2.values)),
+      vlen: watch && Array.isArray(watch.values) ? watch.values.length : -1,
+      status: statusText.slice(0, 80)
+    });
+  })()`);
+  const D6 = JSON.parse(rerunState || '{}');
+  check('D6: 重新仿真后观察行保留、不重复且数据随新结果刷新',
+    D6.done === true && D6.before === 1 && D6.after === 1
+    && D6.stillInjected === true && D6.stillWatch === true && D6.sameAsQ === true && D6.vlen > 0,
+    rerunState);
 }
 
 console.log('\n资源加载失败(404等)：' + netFails);

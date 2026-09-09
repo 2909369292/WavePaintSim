@@ -12,14 +12,14 @@
 | 当前版本 | `v0.4.0 build <自动时间> <git短哈希>` |
 | 代码状态 | 主线可用，`main` 分支 |
 | 构建产物 | `D:\Files\Code\波形\WavePaintClean.exe` |
-| 最近完成需求 | 第六轮 5 项存量功能**全部完成**：#90/#88/#92/#91 + 收官项 **#89 信号名位宽显示**（2026-09-09 第九轮落地，见 §4.6）；exe 已按 C1 统一重建（17:35:49）。此前插队清理 #93 混淆残留（第七轮死代码清理 + 第八轮标识符重命名）也已收尾 |
+| 最近完成需求 | Verdi 先行批第一步 **#85：VCD 树点信号 → 画布「观察行」**（2026-09-09 第十轮落地，见 §4.8）；此前第六轮 5 项 #90/#88/#92/#91/#89 与 #93 混淆残留清理均已收尾 |
 | 最近完成文档 | #80 记忆体系重构（已完成，旧目录已删除） |
-| 最近一轮（第九轮，#89 收官） | 信号名位宽显示：clean.js 新增 `[PATCH-A6]` helper `displaySignalName`（L5741）仅显示层拼 `name[msb:lsb]`（不改 `sig.name`），`calculateDynamicNameWidth` 测宽/缓存键与 `drawSignalName` fillText 两处消费；regression 新增 4 断言 → 62/62 + e2e-ui 73/73 全绿，exe 已重建（17:35:49） |
+| 最近一轮（第十轮，#85） | VCD 点信号→观察行：ui-bridge.js 新增 `state.simWatches` 登记 + `pickVcdSignalIntoWave`（已在画布→提示+滚动；不在→登记+push 行+render+滚动；无 VCD/未 dump→中文提示），观察行 `__simInjected:true` 不进激励、重仿真按 VCD 路径自动刷新去重；e2e-rtl 新增 D1~D6 → 15/15 + e2e-ui 73/73 + exe 已重建（19:31:28） |
 | 当前阻塞 | 无 |
-| 下一步主线 | 回 Verdi 先行批 **#85 → #86 → #84**（点信号加波形 / 实例→模块定义源码跳转 / 波形查看增强，见 03 表 H / §4.5）；其后收 #76 P1 剩余项 |
+| 下一步主线 | 继续 Verdi 先行批 **#86 → #84**（实例→模块定义源码跳转 + 源码文件导入 / 波形查看增强，见 03 表 H / §4.5）；其后收 #76 P1 剩余项 |
 | 测试基线 | regression 62/62（含 #89 新增 4 断言）、e2e-sim 0 失败、probe-param 全过 |
-| UI 基线 | e2e-rtl 9/9（#75 浏览器冒烟）；e2e-ui 73/73（真实 Edge，含 #90/#88/#92/#91/#89 的 D2/F/G/H 段）；probe-tutorial / probe-addbtn / probe-simfail 全过；真 exe 冒烟通过（#82：收窗 5→1 + 端到端仿真 + UIA 真实点击 RUN→RESULT） |
-| 交付提醒 | 重启应用、从唯一路径启动、面板版本号自查（应显示 `v0.4.0 build 2026-09-09 17:35:49`）；本次 exe 内置第六轮收官（含 #89 显示位宽）的 clean.js（13.1K 行，正文无 `_0x`） |
+| UI 基线 | e2e-rtl 15/15（含 #85 新增 D1~D6）；e2e-ui 73/73（真实 Edge，含 D2/F/G/H 段）；probe-tutorial / probe-addbtn / probe-simfail 全过；真 exe 冒烟通过（#82：收窗 5→1 + 端到端仿真 + UIA 真实点击 RUN→RESULT） |
+| 交付提醒 | 重启应用、从唯一路径启动、面板版本号自查（应显示 `v0.4.0 build 2026-09-09 19:31:28`）；本次 exe 内置 #85（ui-bridge.js `simWatches`/`pickVcdSignalIntoWave`）与第六轮收官 clean.js（13.1K 行，正文无 `_0x`） |
 
 ---
 
@@ -42,6 +42,7 @@
 | 2026-09-09 | 插队清理 #93 混淆残留（第七轮） | clean.js 死代码清理 33,110→17,164 行（删 1732 别名/824 数值映射/解码器与反调试脚手架）；删除混淆源 `wavepaint.63e6dade.js`、`index.obf.html`、`tools/deobfuscate.mjs`、`tools/probe-core.mjs`（git 可恢复）；regression 58/58、exe 已重建 |
 | 2026-09-09 | 插队清理 #93 收尾：第 7 pass 标识符重命名（第八轮） | 17,164→13,115 行（557,914 B）；19,132 处 `_0x…` 局部标识符 / 4,291 变量按 ESLint-scope 绑定图改名可读名，正文 `_0x` 清零；绑定一致性验证 BINDINGS OK；regression 58/58 + e2e-ui 73/73 + exe 已重建 |
 | 2026-09-09 | 第六轮收官：#89 信号名位宽显示（第九轮） | clean.js `[PATCH-A6]` `displaySignalName` 显示层拼 `name[msb:lsb]`（不改 `sig.name`），测宽/宽度缓存键/`drawSignalName` fillText 三处消费；regression 62/62 + e2e-ui 73/73 + exe 重建（17:35:49） |
+| 2026-09-09 | Verdi 先行批 #85：VCD 树点信号→画布观察行（第十轮） | ui-bridge.js `state.simWatches` + `pickVcdSignalIntoWave`：观察行 `__simInjected:true` 不进激励，重仿真按 VCD 路径刷新去重，删行不复活可重加；e2e-rtl 新增 D1~D6 → 15/15 + regression 62/62 + e2e-ui 73/73 + exe 重建（19:31:28） |
 
 ---
 
@@ -130,30 +131,37 @@ regression 58/58；e2e-sim 0 失败；exe 已重建并核验特征串。
 > “#75 P1”，2026-09-09 第三轮已纠正。
 
 **目标**
-- 点变量 → 加波形（复用 `toNativeSignal` 注入链路）。
+- 点变量 → 加波形（复用 `toNativeSignal` 注入链路）——✅ VCD 树部分已于第十轮 #85 完成。
 - 树 ↔ 代码双向跳转。
 - 信号组入 `.wp` 工程。
 
 **已有地基**
 - P0 的 RTL 树 / VCD 层次树已能点击跳源码（跨文件）。
 - `engine.js` 已解析模块、端口、参数、实例；VCD 带层次路径。
-- P1 需处理：多实例歧义选择器、未 dump 信号提示、点信号加波形回调。
+- ✅ #85（第十轮）已把「VCD 树信号行 → 加波形」闭环：观察行 `__simInjected:true` 不进激励、
+  重仿真按 VCD 路径自动刷新去重、删行不复活可重加（详见 §4.8 / 当日日志第十轮）。
+- P1 剩余：RTL 树侧点行加波形、多实例歧义选择器、树 ↔ 代码双向跳转、信号组入 `.wp`。
 
 **建议顺序**
-1. 先把「VCD/结构树信号行 → 加波形」的回调接到仿真面板。
-2. 再做树 ↔ 代码双向跳转（代码行 → 反向高亮树节点）。
-3. 最后做信号组写入 `.wp` 工程并回归存档。
+1. ✅（第十轮 #85 完成）「VCD 树信号行 → 加波形」回调。
+2. 再做 #86 实例→模块定义源码跳转 + 源码文件导入、#84 波形查看增强。
+3. 最后收：RTL 树点行加波形 / 树 ↔ 代码双向跳转 / 信号组写入 `.wp` 工程并回归存档。
 
 ### 4.5 【规划登记】#83~#87 Verdi 功能拆解（2026-09-09 第五轮，纯规划未动代码）
 
 用户要求「详细研究 Verdi：①查看波形 ②添加信号 ③打开一个 top 时自动查找所有例化的模块的源码文件，以及其它好用功能，规划到本项目」。已完成研究并对照 WavePaint 现状拆解登记（台账 03 表 H）：
 
 - **#85 点信号 → 加波形**（= #76 第一步，先行）：VCD/结构树信号行 → 画布注入。数据源与 `toNativeSignal` 链路已就绪，`onSignalPick` 现在只 `setStatus`，缺「加入画布」回调。
+  ✅ **第十轮（2026-09-09）已完成**：VCD 树点信号 → 画布「观察行」闭环（详见 §4.8 与当日日志
+  第十轮），e2e-rtl 15/15 + regression 62/62 + e2e-ui 73/73，exe 已重建（19:31:28）。RTL 结构树
+  点行加波形仍属 #76 P1 后续项。
 - **#86 实例 → 模块定义源码跳转 + 源码文件导入**：实例节点按 `moduleName` 跨文件定位同名 module 定义行；新增磁盘 `.sv/.v` 导入入口（Verdi filelist 语义的本地等价）。
 - **#84 波形查看增强**：reload 重载 / 完整层次路径显示开关 / 游标快速移首末等（与已有 zoom/fit/measure/radix 互补）。
 - **#87 其它好用功能**：Ctrl+W 源码选中加波形、Ctrl+4 模块全接口入波形、信号组管理（与 #76 信号组入 `.wp` 合流）、Active Annotation（与 P2=#77 合流）。
 
-**建议落地顺序**：#85 → #86 → #84（先让“加信号”闭环，再补“找定义源码”，最后波形查看增强）；随后主线收 #76 的双向跳转与信号组入 `.wp`，再进 P2=#77。本轮只规划登记，用户尚未拍板实现范围，**未动任何代码**。
+**建议落地顺序**：#85 → #86 → #84（先让“加信号”闭环，再补“找定义源码”，最后波形查看增强）——
+✅ #85 已于第十轮完成（见 §4.8）；随后主线收 #76 的双向跳转与信号组入 `.wp`，再进 P2=#77。
+第五轮登记时**纯规划未动代码**，后续各 ID 落地状态以 03 表 H 状态栏为准。
 
 ### 4.6 ✅ 【已完成】#88~#92 存量功能完善（2026-09-09 第六轮，用户点名 5 项）
 
@@ -251,6 +259,35 @@ exe 已按 C1 重建（SHA256 `A096EE5D…F99D`，version `v0.4.0 build 2026-09-
 > 注释注明维护背景与 C1/C17 义务。**勿**重新引入混淆源或 deobfuscate 脚本；改 clean.js
 > 只准动头部注释（前 9 行）与补丁段（`[PATCH-A*]`），改完必须重建 exe。
 
+### 4.8 ✅ 已完成：#85 VCD 点信号 → 画布「观察行」（2026-09-09 第十轮，Verdi 先行批第一步）
+
+主线 03 表 H #85 = #76 P1 先行批（#85 → #86 → #84）第一步：VCD 树点信号 → 画布加行。改动
+集中在 `js/sim/ui-bridge.js`（+139 行），测试在 `tools/e2e-rtl.mjs`（+80 行，新增 D1~D6）。
+
+- **登记与采样**：新增 `state.simWatches`（`{path,name,width,reference}`，path = 点分全路径，
+  口径同 vcd-index：scope path + '.' + name）；`vcdSignalByFullPath` 精确查 `state.vcd.signals`；
+  `sampleVcdMainValues` 按主步采样（格子 i ↔ `round(i*tmax/timeSteps)`，复制 engine 内部
+  buildOutputs 口径，vector 用 `normalizeVectorValue` 补位宽）。
+- **点行行为**：`refreshVcdTree` 回调由 `setStatus` 改为 `pickVcdSignalIntoWave`——已在画布 →
+  提示「已在波形中」+ 滚动定位（`scrollTop = i*40`）；不在 → 登记 + push 行 + render + 滚动；
+  无 VCD / 未 dump → 中文提示不静默。
+- **注入语义**：观察行 `__simInjected:true`（不进 `readWaveDocument`、绝不参与生成 TB/激励）；
+  `replaceInjectedOutputs` 在 strip 前先按现存行存活同步登记（删行不复活，可重新点行加入）；
+  重建 `m_signals = [...baseSignals, ...watchRows, ...injected]` —— 新一轮仿真后观察行按 VCD
+  路径自动刷新且同名去重。
+- **边界**：只读复用 engine 采样口径，未改 `sim/engine.js` 的 stride/端口匹配/VCD 回填；
+  未动 clean.js / HTML，无需重跑 esbuild / 第 7 pass。
+- **验证**：`node tools/regression.mjs` **62/62**；`node tools/e2e-rtl.mjs` **15/15**（D1 加行 /
+  D2 位宽类型与 VCD 一致（q[3:0] vector type=1）/ D3 values 与同源输出行 q 全等 / D4 重复点
+  不重复加 / D5 删行重加 / D6 重仿真后保留 1 条且数据随新结果刷新）；e2e-ui 73/73；
+  e2e-sim 0 失败。
+- **exe**：已按 C1 重建（21,857,280 B、时间戳 19:31:28、SHA256 `298B06AA…92E`、
+  `version.txt` = `v0.4.0 build 2026-09-09 19:31:28 25525f0`）；特征串 `rg -a -c`：
+  pickVcdSignalIntoWave=2 / __simWatchPath=6 / simWatches=9。
+
+> 完整过程见 `memory/logs/2026-09-09.md` 第十轮。#85 只做 VCD 侧；RTL 结构树点行加波形、#86
+> （实例→模块定义源码跳转 + 源码文件导入）、#84（波形查看增强）仍为 ⬜，见 03 表 H / §4.5。
+
 ---
 
 ## 5. 已知未排期方向
@@ -275,6 +312,9 @@ exe 已按 C1 重建（SHA256 `A096EE5D…F99D`，version `v0.4.0 build 2026-09-
 - **CM6 降级策略**：textarea 永远保留为数据镜像；CM 不可用只隐藏宿主，不影响任何旧逻辑。
 - **行号真相源**：RTL/代码跳转行号一律按原始文件文本计算（注释抹成等长空格），不能从渲染后的 DOM 反推。
 - **VCD 完整路径**：信号全路径 = 作用域点分 path + `.` + signal.name（`vcd-index.buildVcdHierarchy` 口径），P1/P2 直接复用。
+- **VCD 观察行（#85）**：点 VCD 信号行加入的观察行走 `state.simWatches` + `__simWatchPath`，
+  `__simInjected:true` 不进 `readWaveDocument`（绝不生成激励）；重仿真时 `replaceInjectedOutputs`
+  按路径重建 = 自动刷新 + 去重；删行即摘登记不复活（可重新点行加入）。
 - **教程 = 只留副作用**：汉化版隐藏教程 UI 后，教程重跑只剩“挂高亮 + 拦键盘”两类副作用；随机端口下 localStorage 每会话全新，必须在 `clean.js` 前预置 `wavepaint_tutorial_done`，并拦截「帮助→教程」菜单。
 - **sim 失败先分死因**：`/api/sim` 失败必须探活区分「进程死 / 自愈窗口 / 在线但请求超时」；进程死才提示重启，自愈窗口自动重试一次，超时给准确文案。
 - **自动化探测注意**：核心模态 Enter=Escape 会自行关闭；探测按键拦截必须先把弹窗关掉。`wpModalState` 是词法全局，`window.wpModalState` 取不到。

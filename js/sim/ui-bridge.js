@@ -29,7 +29,8 @@ const state = {
   lastBindings: [],
   readyTimer: null,
   ready: false,
-  vcd: null // #75 P0：最近一次成功仿真解析出的 VCD（parseVcd 产物），供 VCD 层次树使用
+  vcd: null, // #75 P0：最近一次成功仿真解析出的 VCD（parseVcd 产物），供 VCD 层次树使用
+  simWatches: [] // #85：VCD 树点信号加入画布的「观察行」登记（{path,name,width,reference}）
 };
 
 const refs = {};
@@ -290,15 +291,94 @@ function toNativeSignal(output, index, template, effectiveCount, options = {}) {
   return base;
 }
 
+// #85：观察行（VCD 树点信号 → 加入画布）------------------------------------
+// 全路径键与 VCD 树/层次索引口径一致：scope 点分 path + '.' + signal.name
+// （state.vcd = parseVcd 产物，每条含 scope/name/reference/width/steps）。
+function vcdSignalByFullPath(path) {
+  const signals = state.vcd?.signals || [];
+  return signals.find((signal) => {
+    const scope = String(signal?.scope || "");
+    const full = scope ? `${scope}.${signal.name}` : String(signal?.name || "");
+    return full === path;
+  }) || null;
+}
+
+// 按主步采样 VCD steps → values[]（口径复制 engine.vcdToProjectOutputs 内部
+// buildOutputs：格子 i ↔ VCD 时间 round(i * tmax / timeSteps)，游标推进到
+// 最后一个 ≤ 采样点的变化，vector 用 normalizeVectorValue 补位宽）。
+function sampleVcdMainValues(vcdSignal, timeSteps) {
+  const totalTime = Math.max(1, Number(state.vcd?.tmax) || 0);
+  const steps = Array.isArray(vcdSignal?.steps) ? vcdSignal.steps : [];
+  const width = Math.max(1, Number(vcdSignal?.width) || 1);
+  const values = [];
+  let cursor = 0;
+  for (let index = 0; index < timeSteps; index += 1) {
+    const sampleTime = Math.round((index * totalTime) / timeSteps);
+    while (cursor + 1 < steps.length && steps[cursor + 1][0] <= sampleTime) cursor += 1;
+    const current = steps[cursor]?.[1] || "0";
+    values.push(normalizeVectorValue(current, width));
+  }
+  return values;
+}
+
+// 构建观察行（__simInjected:true + __simWatchPath），replaceInjectedOutputs 与
+// 点击加入共用同一口径。state.vcd 无该路径数据时返回 null（调用方跳过）。
+function buildWatchSignal(watch, index, template, effectiveCount) {
+  const vcdSignal = vcdSignalByFullPath(watch?.path);
+  if (!vcdSignal) return null;
+  const width = Math.max(1, Number(vcdSignal.width) || 1);
+  const output = {
+    id: `watch_${index}`,
+    name: watch?.path || vcdSignal.name,
+    role: "result",
+    kind: width > 1 ? "vector" : "logic",
+    width,
+    msb: width > 1 ? String(width - 1) : "",
+    lsb: width > 1 ? "0" : "",
+    radix: "hexadecimal",
+    values: sampleVcdMainValues(vcdSignal, canvasTimeSteps())
+  };
+  const row = toNativeSignal(output, index, template, effectiveCount, {
+    kind: width > 1 ? "vector" : "logic",
+    injected: true,
+    groupName: null,
+    groupColor: null,
+    groupPath: null
+  });
+  row.__simWatchPath = watch?.path;
+  return row;
+}
+
+// 滚动 #wave-view 到指定观察行：画布每行高 40、首行起点 y=40（clean.js drawWaveform
+// 的 v5=40/v6=40），行 i 起点 = i*40+40，故 scrollTop = i*40 即把该行顶到可视区。
+function scrollWaveToWatchPath(path) {
+  const dw = window.document_wave;
+  const view = refs.waveView || el("wave-view");
+  if (!dw || !view) return;
+  const index = (Array.isArray(dw.m_signals) ? dw.m_signals : [])
+    .findIndex((signal) => !!signal && signal.__simWatchPath === path);
+  if (index >= 0) view.scrollTop = Math.max(0, index * 40);
+}
+
 function replaceInjectedOutputs(outputs) {
   const dw = window.document_wave;
   if (!dw || !Array.isArray(dw.m_signals)) return;
-  const baseSignals = stripInjectedSignals(dw.m_signals);
+  const currentRows = dw.m_signals;
+  // #85：观察行只保留当前画布仍存在的行（用户删行后不复活；想再要可重新点 VCD 行）。
+  // 注意要在 strip 之前看原数组 —— 观察行/输出行都是 __simInjected，重建后才判断
+  // 会把自己误判成“已删除”。
+  state.simWatches = (Array.isArray(state.simWatches) ? state.simWatches : []).filter((watch) =>
+    !!watch?.path && currentRows.some((signal) => !!signal && signal.__simWatchPath === watch.path)
+  );
+  const baseSignals = stripInjectedSignals(currentRows);
   // 输出信号 values 长度对齐数据模型：主步数 × (子步+1)
   const effectiveCount = Math.max(4, canvasEffectiveCount());
   const template = baseSignals[0] || null;
+  const watchRows = state.simWatches
+    .map((watch, index) => buildWatchSignal(watch, index, template, effectiveCount))
+    .filter((row) => !!row);
   const injected = (Array.isArray(outputs) ? outputs : []).map((output, index) => toNativeSignal(output, index, template, effectiveCount));
-  dw.m_signals = [...baseSignals, ...injected];
+  dw.m_signals = [...baseSignals, ...watchRows, ...injected];
   // m_sampleCount 语义是主步数，不能被有效长度污染
   dw.m_sampleCount = Math.max(dw.m_sampleCount || 0, canvasTimeSteps());
 }
@@ -419,12 +499,59 @@ function scheduleRtlTreeRefresh() {
   }, 350);
 }
 
+// #85：VCD 树信号行 → 加入画布「观察行」。
+// - 已在画布（存在同 path 的 __simWatchPath 行）→ 提示 + 滚动定位，不重复加入；
+// - 不在画布 → 登记 state.simWatches 并把行立即挂进 m_signals（否则随后
+//   render→replaceInjectedOutputs 的“存活同步”会把它当已删除摘掉），render 会按
+//   登记统一重放；新一轮仿真后按 VCD 路径自动刷新；用户手动删行会被同步摘除，
+//   再次点击可重新加入。
+// 观察行带 __simInjected:true：不进 readWaveDocument，绝不参与生成 TB/激励。
+function pickVcdSignalIntoWave(path) {
+  onWavepaintReady();
+  const dw = window.document_wave;
+  if (!dw || !Array.isArray(dw.m_signals)) {
+    setStatus("画布尚未就绪，请稍后再试。");
+    return;
+  }
+  const vcdSignal = vcdSignalByFullPath(path);
+  if (!vcdSignal) {
+    setStatus(state.vcd
+      ? `未找到 ${path} 的 VCD 数据（该信号可能未 dump，请检查 TB）。`
+      : "暂无 VCD 数据，请先点「运行仿真」再添加信号。");
+    return;
+  }
+  const liveIndex = dw.m_signals.findIndex((signal) => !!signal && signal.__simWatchPath === path);
+  if (liveIndex >= 0) {
+    setStatus(`信号 ${path} 已在波形中，已滚动定位。`);
+    scrollWaveToWatchPath(path);
+    return;
+  }
+  state.simWatches = Array.isArray(state.simWatches) ? state.simWatches : [];
+  if (!state.simWatches.some((watch) => watch.path === path)) {
+    state.simWatches.push({
+      path,
+      name: vcdSignal.name,
+      width: Math.max(1, Number(vcdSignal.width) || 1),
+      reference: vcdSignal.reference || ""
+    });
+  }
+  const watch = state.simWatches.find((entry) => entry.path === path);
+  const effectiveCount = Math.max(4, canvasEffectiveCount());
+  const template = dw.m_signals[0] || null;
+  const row = buildWatchSignal(watch, state.simWatches.length - 1, template, effectiveCount);
+  if (row) {
+    dw.m_signals.push(row);
+    dw.m_sampleCount = Math.max(dw.m_sampleCount || 0, canvasTimeSteps());
+  }
+  render();
+  scrollWaveToWatchPath(path);
+  setStatus(`已将 ${path} 加入波形。`);
+}
+
 function refreshVcdTree() {
   if (!refs.vcdTree) return;
   const index = state.vcd ? buildVcdHierarchy(state.vcd) : null;
-  renderVcdTree(refs.vcdTree, index, (path) => {
-    setStatus(`VCD 信号完整路径：${path}`);
-  });
+  renderVcdTree(refs.vcdTree, index, (path) => pickVcdSignalIntoWave(path));
 }
 
 // 重建 RTL 结构树（纯数据 buildRtlNav 从 state.files 现算，不依赖 state.design）。
