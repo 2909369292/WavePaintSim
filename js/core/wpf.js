@@ -161,7 +161,9 @@
   // 使扩展模块做的批量修改可以通过核心 Ctrl+Z 撤销。
   //
   // 优先委托给解混淆核心自带的 WaveDocument.prototype.pushUndoSnapshot（P2-3）。
-  // 已静态确证其核心实现（早期混淆版 wavepaint.63e6dade.js 偏移 162831 处的等价逻辑）：
+  // 已静态确证其核心实现（源自 2026-09-01 解混淆时在混淆源 wavepaint.63e6dade.js
+  // 偏移 162831 处定位的等价逻辑；混淆源已随 2026-09-09 清理删除，逻辑仍在
+  // js/wavepaint.clean.js 的 WaveDocument.prototype.pushUndoSnapshot 中，见 git 历史）：
   //   push(signals/markers/timeJumps/timeSpanMarkers/arrows/textAnnotations/
   //        sampleCount/subStepCount 的 JSON 深拷贝)
   //   → if (m_undoStack.length > 100) m_undoStack.shift()

@@ -763,10 +763,15 @@ test("编辑粒度读写与 localStorage 持久化", () => {
 // （历史上正是因为替身与核心两套口径，才出现「切了进制显示不变」）。
 function loadCoreValueToLabel() {
   const src = readFileSync(join(root, "js/wavepaint.clean.js"), "utf8");
-  const marker = "['valueToLab' + 'el'](";
-  const at = src.indexOf(marker);
+  // 2026-09-09 第 7 pass 后 clean.js 已是最终解混淆版：方法声明为普通
+  // valueToLabel(num, n)，不再有 ['valueToLab' + 'el']( 拼接形态；用 [PATCH-A3]
+  // 维护注释锚定方法声明，避免误匹配到其他调用点。
+  const anchor = "// [PATCH-A3]";
+  const at = src.indexOf(anchor);
   assert.ok(at > 0, "核心中应存在 valueToLabel 实现（[PATCH-A3]）");
-  const open = src.indexOf("{", at);
+  const decl = src.indexOf("valueToLabel(", at);
+  assert.ok(decl > at, "PATCH-A3 注释之后应有 valueToLabel 方法声明");
+  const open = src.indexOf("{", decl);
   let depth = 0;
   let end = -1;
   for (let i = open; i < src.length; i += 1) {
@@ -777,9 +782,9 @@ function loadCoreValueToLabel() {
     }
   }
   assert.ok(end > open, "valueToLabel 实现应有完整方法体");
-  const params = src.slice(at + marker.length - 1, open); // "(_0x178009, _0x44e224) "
+  const params = src.slice(decl, open); // "valueToLabel(num, n) "
   const body = src.slice(open, end);
-  return new Function("Radix", "return function" + params + body + ";")(globalThis.window.Radix);
+  return new Function("Radix", "return function " + params + body + ";")(globalThis.window.Radix);
 }
 
 test("核心 valueToLabel：位串与数字都按 radix 换算且无 0x/0b 前缀（[PATCH-A3]）", () => {
@@ -867,6 +872,123 @@ test("总线进制映射到核心 Radix 枚举并作用于全部矢量信号", (
   globalThis.window.document_wave = null;
   assert.equal(wpf.valueLabel("1010", 0), "1010", "无核心时退化显示，不抛错");
   globalThis.window.document_wave = saved;
+});
+
+// ---------------------------------------------------------------------------
+// #89 信号名位宽显示（[PATCH-A6]）：从解混淆核心抽取真实的 displaySignalName /
+// calculateDynamicNameWidth / drawSignalName，断言后缀参与「宽度测量 + 缓存键 +
+// fillText」，且不改 sig.name（显示层拼接，无真实位宽不硬画）。
+// ---------------------------------------------------------------------------
+function loadCoreFunction(fnName, anchor) {
+  const src = readFileSync(join(root, "js/wavepaint.clean.js"), "utf8");
+  const at = anchor ? src.indexOf(anchor) : 0;
+  assert.ok(anchor ? at > 0 : true, "核心中应存在维护锚 " + anchor);
+  const decl = src.indexOf("function " + fnName + "(", at);
+  assert.ok(decl >= 0, "核心中应存在 " + fnName + " 函数声明");
+  const open = src.indexOf("{", decl);
+  let depth = 0;
+  let end = -1;
+  for (let i = open; i < src.length; i += 1) {
+    if (src[i] === "{") depth += 1;
+    else if (src[i] === "}") {
+      depth -= 1;
+      if (depth === 0) { end = i + 1; break; }
+    }
+  }
+  assert.ok(end > open, fnName + " 实现应有完整函数体");
+  return src.slice(decl, end);
+}
+function compileCoreFunction(fnName, free, anchor) {
+  const src = loadCoreFunction(fnName, anchor);
+  const names = Object.keys(free);
+  const outer = new Function(...names, "return " + src + ";");
+  return outer(...names.map((k) => free[k]));
+}
+
+const displaySignalName = compileCoreFunction("displaySignalName", {}, "// [PATCH-A6]");
+
+test("displaySignalName：有真实位宽的 Vector 拼 name[msb:lsb]（[PATCH-A6]）", () => {
+  assert.equal(displaySignalName({ name: "data", width: 8, msb: "7", lsb: "0" }), "data[7:0]");
+  assert.equal(displaySignalName({ name: "q", width: 32, msb: "31", lsb: "0" }), "q[31:0]");
+  assert.equal(displaySignalName({ name: "dout", width: 16, msb: 15, lsb: 0 }), "dout[15:0]", "msb/lsb 为数字也应正常拼接");
+  assert.equal(displaySignalName({ name: "part", width: 4, msb: "6", lsb: "3" }), "part[6:3]", "非 0 起点位域按 msb:lsb 原样");
+});
+
+test("displaySignalName：无真实位宽 / 位宽 1 / 名字已带位域 → 原样（[PATCH-A6]）", () => {
+  assert.equal(displaySignalName({ name: "clk", width: 1, msb: "", lsb: "" }), "clk", "1 位信号不加后缀");
+  assert.equal(displaySignalName({ name: "rst_n", type: 0 }), "rst_n", "无 width 字段（手绘/核心 Signal）不加后缀");
+  assert.equal(displaySignalName({ name: "x", width: 8 }), "x[7:0]", "msb/lsb 缺失时按 width-1/0 兜底");
+  assert.equal(displaySignalName({ name: "bus[7:0]", width: 8, msb: "7", lsb: "0" }), "bus[7:0]", "名字已带位域不重复追加");
+  assert.equal(displaySignalName(null), "", "空对象安全");
+  assert.equal(displaySignalName({}), "", "无 name 安全");
+  assert.equal(displaySignalName({ name: "", width: 8 }), "", "空名不加后缀");
+});
+
+test("calculateDynamicNameWidth：测宽与缓存键纳入 [msb:lsb] 显示名（[PATCH-A6]）", () => {
+  const measured = [];
+  const mkCtx = () => ({
+    font: "",
+    save() {},
+    restore() {},
+    measureText(text) {
+      measured.push(String(text));
+      return { width: String(text).length * 10 };
+    }
+  });
+  // 同一实例 = 共享模块级缓存（_cachedDynamicNameWidth/_cachedSignalNamesHash）
+  const calc = compileCoreFunction("calculateDynamicNameWidth", {
+    document_wave: null,
+    GroupManager: undefined,
+    _cachedDynamicNameWidth: null,
+    _cachedSignalNamesHash: null,
+    displaySignalName
+  });
+  const ctx1 = mkCtx();
+  const wBit = calc(ctx1, [{ name: "q", width: 1, msb: "", lsb: "" }]);
+  assert.ok(measured.includes("q"), "1 位信号只测基名");
+  const ctx2 = mkCtx();
+  const wVec = calc(ctx2, [{ name: "q", width: 32, msb: "31", lsb: "0" }]);
+  assert.ok(measured.includes("q[31:0]"), "位宽变化后应测到带后缀显示名（缓存键含 [msb:lsb]）");
+  assert.ok(wVec > wBit, "q[31:0] 应比 q 撑出更宽名字列（wBit=" + wBit + ", wVec=" + wVec + "）");
+  // 同名单第三次（与第二次相同）应命中缓存、不再重复测量
+  const before = measured.length;
+  const wHit = calc(mkCtx(), [{ name: "q", width: 32, msb: "31", lsb: "0" }]);
+  assert.equal(wHit, wVec, "相同列表命中缓存返回同宽");
+  assert.equal(measured.length, before, "缓存命中不再 measureText");
+});
+
+test("drawSignalName：画布名字列按显示名 fillText（[PATCH-A6]）", () => {
+  const draw = compileCoreFunction("drawSignalName", {
+    GroupManager: undefined,
+    document_wave: null,
+    getComputedStyle: () => ({ getPropertyValue: () => "" }),
+    document: { body: {} },
+    displaySignalName,
+    isObjectSelected: undefined,
+    SelectableType: undefined
+  });
+  const drawn = [];
+  const ctx = {
+    font: "",
+    textAlign: "",
+    textBaseline: "",
+    fillStyle: "",
+    save() {},
+    restore() {},
+    measureText(text) { return { width: String(text).length * 8 }; },
+    fillText(text) { drawn.push(String(text)); },
+    fillRect() {},
+    strokeRect() {}
+  };
+  draw(ctx, { name: "data", type: 1, width: 8, msb: "7", lsb: "0" }, 0, null, 40, 40, 400);
+  assert.equal(drawn.length, 1, "画一次名字");
+  assert.equal(drawn[0], "data[7:0]", "多比特信号名字列显示 name[msb:lsb]");
+  drawn.length = 0;
+  draw(ctx, { name: "clk", type: 0, width: 1, msb: "", lsb: "" }, 1, null, 40, 40, 400);
+  assert.equal(drawn[0], "clk", "1 位信号不加后缀");
+  drawn.length = 0;
+  draw(ctx, { name: "hand", type: 1 }, 2, null, 40, 40, 400);
+  assert.equal(drawn[0], "hand", "无 width 的 Vector（手绘）不加后缀、不崩");
 });
 
 // ---------------------------------------------------------------------------

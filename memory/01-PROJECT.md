@@ -23,7 +23,7 @@ VCD 结果回填画布，实现“画波形即可仿真 RTL”。
 | 项目根 | `D:\Files\Code\波形\` |
 | 交付物 | `D:\Files\Code\波形\WavePaintClean.exe` |
 | 运行形态 | 本地 HTTP 服务 + Edge App 窗口 + 内嵌 iverilog |
-| 核心引擎 | `js/wavepaint.clean.js`（解混淆还原，约 33K 行） |
+| 核心引擎 | `js/wavepaint.clean.js`（解混淆 + 2026-09-09 解混淆收尾【死代码清理+标识符重命名】后直接维护，约 13K 行，正文无 `_0x` 残留） |
 | 后端 | C# 启动器 `WavePaintLauncher.cs` + iverilog/vvp |
 | 构建脚本 | `build.ps1` + `tools/gen-resources.mjs` |
 | 当前版本 | `v0.4.0 build <时间> <git短哈希>` |
@@ -37,11 +37,13 @@ VCD 结果回填画布，实现“画波形即可仿真 RTL”。
 | 阶段 | 时间 | 关键决策 |
 |---|---|---|
 | 1. 混淆核心 + 外挂 | 2026-08-30 前 | 原产品为混淆 JS，扩展靠 `feature-*.js` 外挂与 6 类 hack |
-| 2. 解混淆 | 2026-09-01 | `tools/deobfuscate.mjs` 还原 19090 处字符串，得到 33K 行可维护核心 |
+| 2. 解混淆 | 2026-09-01 | `tools/deobfuscate.mjs` 还原 19090 处字符串，得到 33K 行可维护核心（混淆源与脚本已于 2026-09-09 清理删除，git 可查） |
 | 3. 重构收编 | 2026-09-02 | 建立 `__core` 桥接、`core/editor/sim` 分层，清除全部历史 hack |
 | 4. 正确性收口 | 2026-09-03~04 | 私有 divisor 模型、`wpf.parseValue` 唯一解析、launcher 自愈、历史回归根治 |
 | 5. 功能增强 | 2026-09-04~08 | 工程存取、实时预览、DUT 回显、顶层选择、版本显示、参数化位宽 |
 | 6. Verdi 借鉴 P0 | 2026-09-09 | CM6 代码视图 / RTL Tree / VCD 全路径索引完成；下一步 P1 点变量加波形 |
+| 7. 死代码清理 | 2026-09-09 | 剔除 obfuscator.io 遗留解码器别名/数值映射/解码器/反调试闭包等死代码，33,110 → 17,164 行；删除混淆源 `wavepaint.63e6dade.js`、`index.obf.html` 与一次性脚本（git 可恢复） |
+| 8. 解混淆收尾（标识符重命名） | 2026-09-09 | 按 ESLint-scope 绑定图把残留 `_0x…` 局部标识符重命名为可读名（19,132 处 / 4,291 变量，绑定一致性验证通过），17,164 → 13,115 行，正文 `_0x` 残留清零；`wavepaint.clean.js` 为最终唯一维护版 |
 
 ---
 
@@ -99,7 +101,7 @@ VCD 结果回填画布，实现“画波形即可仿真 RTL”。
 | `css/` | 样式 |
 | `img/` | 图标与图片资源 |
 | `lib/` | 第三方库（wavedrom、`codemirror.bundle.js`=esbuild 预打包 CM6，挂 `globalThis.WPCm`） |
-| `js/wavepaint.clean.js` | 解混淆核心引擎，行为=原版 + 补丁段 `[PATCH-A*]` |
+| `js/wavepaint.clean.js` | 解混淆核心引擎（直接维护），行为=原版 + 补丁段 `[PATCH-A*]`；头部含维护说明，改它= C1/C17 |
 | `js/core/__core.js` | 唯一官方核心桥接：state、selection、prompt、ready |
 | `js/core/wpf.js` | 共享层：stride、divisor、parseValue、undo、进制、弹窗 |
 | `js/core/heartbeat.js` | 页面 → launcher 心跳，Web Worker 计时 |
@@ -210,6 +212,9 @@ node tools/dev-server.mjs 8947
 
 ## 9. 当前已知残留与注意事项
 
+- 混淆源 `js/wavepaint.63e6dade.js`、对照页 `index.obf.html`、一次性脚本
+  `tools/deobfuscate.mjs` / `tools/probe-core.mjs` 已于 2026-09-09 删除（git 历史可恢复），
+  **不要**再引入混淆源码或试图重跑解混淆；核心只维护 `js/wavepaint.clean.js`。
 - 空目录 `WavePaintSim/` 曾因句柄占用无法删除，内容已隔离，可手动 `rmdir`。
 - `package.json` 无 `"type": "module"`，Node 会以 ESM 探测加载，出现无害警告。
 - `WavePaintClean.exe` 为 gitignored 构建产物，不提交。

@@ -22,18 +22,17 @@ WavePaint 是一款运行于 Windows 的波形（Waveform）编辑与 Verilog �
 css/  img/  lib/         UI 资产（原样）
 index.html               入口页面（会被内嵌进 exe）
 js/
-  wavepaint.clean.js     核心引擎（由原始混淆代码还原，维护背景见记忆）
+  wavepaint.clean.js     核心引擎（已解混淆 + 死代码清理，现直接维护，见记忆）
   core/                  官方核心桥接与共享层（__core / wpf / heartbeat）
   editor/                画布编辑域（draw / selection / value-input / shortcuts / measure / resize / generator / templates）
   sim/                   仿真（engine 纯逻辑 / project-model 数据模型 / ui-bridge 面板）
   util/                  工具（id 等）
 memory/                  跨 AI 记忆中心（项目 / 工作流 / 需求 / 进展 / 日志 / 坑 / 决策 / 路线图）
-tools/                   构建与验证脚本（deobfuscate / gen-resources / dev-server / regression / e2e-* / exe-smoke / probe-core）
+tools/                   构建与验证脚本（gen-resources / dev-server / regression / e2e-* / exe-smoke / probe-param）
 WavePaintLauncher.cs     启动器（资源解压 + HTTP + sim + Edge）
 build.ps1                构建 exe
 ivl.zip                  iverilog 便携包
 resources.txt            内嵌资源清单（构建时由 gen-resources.mjs 生成）
-index.obf.html           旧版对照页（历史遗留，引用原始混淆核心）
 ```
 
 ## 构建为独立 exe
@@ -49,8 +48,7 @@ exe 运行时：资源解压到 `%TEMP%\WavePaintClean_<用户>\` → 随机端�
 ## 开发 / 验证
 
 ```bash
-npm install                # acorn/escodegen（重跑 deobfuscate 需要）
-node tools/dev-server.mjs 8947     # 开发服务器
+node tools/dev-server.mjs 8947     # 开发服务器（只依赖 Node 内置模块）
 # 浏览器打开 http://127.0.0.1:8947/index.html
 node tools/regression.mjs          # 逻辑/快照回归
 node tools/e2e-sim.mjs             # 真跑 iverilog 的仿真链路 e2e

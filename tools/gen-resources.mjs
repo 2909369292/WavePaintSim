@@ -17,7 +17,6 @@ function walk(dir, prefix) {
     const st = statSync(p);
     if (st.isDirectory()) { walk(join(dir, name), prefix); continue; }
     const rel = join(dir, name).replace(/\\/g, '\\');
-    if (name === 'wavepaint.63e6dade.js') continue; // 源混淆核心不进 exe
     // 逻辑名：前缀 + 去掉首目录段后的路径（分隔符统一 /）
     const strip = rel.indexOf('\\') >= 0 ? rel.slice(rel.indexOf('\\') + 1).replace(/\\/g, '/') : rel;
     out.push(rel + ',' + prefix + strip);

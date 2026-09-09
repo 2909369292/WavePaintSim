@@ -207,7 +207,9 @@
 ## P24 · 核心模态 Enter=Escape 会自行关闭（自动化探测陷阱）
 
 - **症状**：自动化脚本“先派发 Enter 探测键盘 → 再断言弹窗还开着”永远失败；或误判“教程键盘钩子导致按键失灵”。
-- **根因**：核心模态（wavepaint.clean.js `_0x2507bb`）在 Enter=Escape 时 `preventDefault` + 关闭自己；派发合成 Enter 会先把弹窗关掉，后续“检测模态显示”自然拿不到。
+- **根因**：核心模态（wavepaint.clean.js `openWpModal()` 内注册的 keydown 处理器，旧混淆名
+  `_0x2507bb`，2026-09-09 第 7 pass 后为局部 `v8`）在 Enter=Escape 时 `preventDefault` +
+  关闭自己；派发合成 Enter 会先把弹窗关掉，后续“检测模态显示”自然拿不到。
 - **解法**：探测顺序 = 先查 overlay（`#wp-modal-overlay` 不带 `.hidden`）与标题 → 点 OK/确定 关掉弹窗 → 再派发按键断言无拦截。判断“教程钩子是否残留”必须以**弹窗关闭后**的按键探测为准。
 - **预防**：涉及模态的自动化断言先搞清楚模态键位语义；调试用裸 `wpModalState`（核心词法全局），`window.wpModalState` 是 undefined，会误导。
 

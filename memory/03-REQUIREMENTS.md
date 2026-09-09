@@ -61,7 +61,7 @@
 |----|------|------|----------------|
 | #33 | 创建新项目并复制 UI 资产 | ✅ | 从混淆项目抽取 UI 资产到可维护项目 |
 | #34 | 分析字符串数组与解码器结构 | ✅ | 定位 stringArray 解码器与 rotate IIFE |
-| #35 | 编写解混淆脚本还原核心 | ✅ | `tools/deobfuscate.mjs` 三阶段还原 19090 处字符串 |
+| #35 | 编写解混淆脚本还原核心 | ✅ | `tools/deobfuscate.mjs` 三阶段还原 19090 处字符串（该一次性脚本与混淆源已于 2026-09-09 清理删除，git 可恢复，不再重跑） |
 | #36 | 建立可维护项目结构 | ✅ | 形成 `core/editor/sim` 分层 |
 | #37 | 核心 UI 1:1 复刻验证 | ✅ | 像素级对比 + 交互回归 |
 | #38 | feature 外挂全部收编 | ✅ | 全部迁移到分层源码 |
@@ -132,22 +132,42 @@
 > ④ 优化步长改变时 Clock 填充（现可能变成全 0/全 1 非正常时钟）；
 > ⑤ 框选输入值后点击其它地方自动提交（不需点确认/回车）。」
 > 本轮编号 #88~#92；按 #90 → #88 → #92 → #91 → #89 顺序实现，每项一条 commit；
-> 全部完成后统一 C1 重建 exe + 特征串核验 + 全量回归。细节见 `04-PROGRESS.md` §4.6
-> 与 `memory/logs/2026-09-09.md` 第六轮起各小节。
+> ✅ 2026-09-09 收官：5 项全部完成（#89 落地于当日第九轮），exe 已按 C1 统一重建
+> （17:35:49，SHA256 `4B8200C9…C37`，`version.txt` = `v0.4.0 build 2026-09-09 17:35:49 0bae1a4`）。
+> 细节见 `04-PROGRESS.md` §4.6 与 `memory/logs/2026-09-09.md` 第六轮 ~ 第九轮。
 
 | ID | 需求 | 状态 | 实现思路 / 备注 |
 |----|------|------|----------------|
-| #88 | **编辑模式 Bug：点击 bus 类型信号自动变框选** | ✅ | 修 `js/editor/value-input.js` onMouseDown 三分支：Ctrl/⌘（Bit/Vector）→ 保留 native 框选；非 Ctrl Vector → `vector-paint` 会话（不切工具 + `stopImmediatePropagation` 阻断核心 vectorSelecting，mouseup 未拖动时弹「矢量值」弹窗与 Bit 对齐、拖动期间不弹不框选）；Bit → 原样放行 draw.js。验证：e2e-ui 新增 F 段 → 50/50（真实 Edge：单击弹「矢量值」/输入 A→主步格 10/拖动不改值不框选/Ctrl+单击框选+Esc 自动回 paint）；regression 58/58。⚠ exe 重建待本批末尾统一 |
-| #89 | **信号名标记多比特信号位宽**（如 `name[3:0]`） | ⬜ | 仅显示层：绘制时拼接局部显示名，**不改 `sig.name`**；核心 `calculateDynamicNameWidth`/`drawSignalName` 需把 `[msb:lsb]` 纳入宽度缓存失效（04 §4.6 Task2） |
-| #90 | **步数/子步数 ▲/▼ 微调按钮**（±1） | ✅ | `index.html` 两 spin 加 `.step-stepper`（data-target/data-step）；`resize.js` capture pointerdown ±1 → 写 spin → 派发 change → 复用统一 resizeSignals（含撤销快照）；min/max 收敛；点按钮不抢输入框焦点。验证：e2e-ui 新增 D2 段 42/42（真实 Edge）；regression 58/58。⚠ exe 重建待本批末尾统一 |
-| #91 | **优化步长改变时 Clock 自动填充**（防全 0/全 1） | ✅ | 重写 `js/editor/resize.js`：删全量重建，改「主步块」语义——只改步数时重叠区主步块原样保留，时钟按块序列最小周期整体延续（stride 3 的 101/010 交替块与 stride 4 块长整除周期的 p=1 均正确，绝不再把逐格翻转抹成全 0/全 1），数据延续最后值、空行填 -1；改子步数时按主步内分数中点重采样（首格恒取旧主值）；私有 subSteps 行按 `wpf.divisorOf` 换算、不被全局子步变化重采样。验证：e2e-ui 新增 H 段 → 73/73（真实 Edge）；regression 58/58。⚠ exe 重建待 #89 完成后统一 |
-| #92 | **框选输入值后点击画布其它处自动提交** | ✅ | 修 `js/editor/selection.js`：工具条 input 只认「真实键入/粘贴」（`input` 事件 → userTyped），画布 mousedown 与画布外 mousedown 收条前先 `dismissBar({commitIfTyping:true})` —— 有键入先自动提交再继续鼠标会话；空值或程序直改 `input.value` 不误写（保住 E6 语义）；Esc/resize 仍取消；删死代码 hideBarKeepSelection。验证：e2e-ui 新增 G 段（G1 输入后点画布其它格自动提交 / G2 输入后拖新区先提交旧区再延续会话 / G3 空输入点画布外取消 / G4 输入后点画布外提交并关闭）→ 60/60（真实 Edge）；regression 58/58。⚠ e2e 调试教训：G2 首败是测试坐标被工具条遮挡（`parkBarAway` 解决），G4 是级联脏状态；跑 e2e 前须清残留 headless Edge 占 9531。exe 重建待本批末尾统一 |
+| #88 | **编辑模式 Bug：点击 bus 类型信号自动变框选** | ✅ | 修 `js/editor/value-input.js` onMouseDown 三分支：Ctrl/⌘（Bit/Vector）→ 保留 native 框选；非 Ctrl Vector → `vector-paint` 会话（不切工具 + `stopImmediatePropagation` 阻断核心 vectorSelecting，mouseup 未拖动时弹「矢量值」弹窗与 Bit 对齐、拖动期间不弹不框选）；Bit → 原样放行 draw.js。验证：e2e-ui 新增 F 段 → 50/50（真实 Edge：单击弹「矢量值」/输入 A→主步格 10/拖动不改值不框选/Ctrl+单击框选+Esc 自动回 paint）；regression 58/58。exe 已于批末统一重建（2026-09-09 17:35:49） |
+| #89 | **信号名标记多比特信号位宽**（如 `name[3:0]`） | ✅ | 仅显示层（2026-09-09 收官，第九轮）：`js/wavepaint.clean.js` 新增 `[PATCH-A6]` helper `displaySignalName(item)`（L5741~L5752）——有真实位宽（`width>1` 且 name 不含 `[`）拼 `name[msb:lsb]`（`msb` 取 `item.msb` 非空否则 `width-1`；`lsb` 取 `item.lsb` 非空否则 `'0'`）；空名/null/位宽 1/无 width/名字已带位域 → 原样；**不改 `sig.name`**。消费点 ① `calculateDynamicNameWidth` 测宽与宽度缓存 hash（`arr.map(v3=>displaySignalName(v3))`，后缀参与缓存键失效）；② `drawSignalName` L8839 `fillText` 前 `let arr = displaySignalName(item)`。验证：regression 新增 4 条断言（tools/regression.mjs L878~L986，`compileCoreFunction` 抽取真函数）→ 62/62；e2e-ui 73/73。exe 已按 C1 重建（17:35:49） |
+| #90 | **步数/子步数 ▲/▼ 微调按钮**（±1） | ✅ | `index.html` 两 spin 加 `.step-stepper`（data-target/data-step）；`resize.js` capture pointerdown ±1 → 写 spin → 派发 change → 复用统一 resizeSignals（含撤销快照）；min/max 收敛；点按钮不抢输入框焦点。验证：e2e-ui 新增 D2 段 42/42（真实 Edge）；regression 58/58。exe 已于批末统一重建（2026-09-09 17:35:49） |
+| #91 | **优化步长改变时 Clock 自动填充**（防全 0/全 1） | ✅ | 重写 `js/editor/resize.js`：删全量重建，改「主步块」语义——只改步数时重叠区主步块原样保留，时钟按块序列最小周期整体延续（stride 3 的 101/010 交替块与 stride 4 块长整除周期的 p=1 均正确，绝不再把逐格翻转抹成全 0/全 1），数据延续最后值、空行填 -1；改子步数时按主步内分数中点重采样（首格恒取旧主值）；私有 subSteps 行按 `wpf.divisorOf` 换算、不被全局子步变化重采样。验证：e2e-ui 新增 H 段 → 73/73（真实 Edge）；regression 58/58。exe 已于 #89 完成后统一重建（2026-09-09 17:35:49） |
+| #92 | **框选输入值后点击画布其它处自动提交** | ✅ | 修 `js/editor/selection.js`：工具条 input 只认「真实键入/粘贴」（`input` 事件 → userTyped），画布 mousedown 与画布外 mousedown 收条前先 `dismissBar({commitIfTyping:true})` —— 有键入先自动提交再继续鼠标会话；空值或程序直改 `input.value` 不误写（保住 E6 语义）；Esc/resize 仍取消；删死代码 hideBarKeepSelection。验证：e2e-ui 新增 G 段（G1 输入后点画布其它格自动提交 / G2 输入后拖新区先提交旧区再延续会话 / G3 空输入点画布外取消 / G4 输入后点画布外提交并关闭）→ 60/60（真实 Edge）；regression 58/58。⚠ e2e 调试教训：G2 首败是测试坐标被工具条遮挡（`parkBarAway` 解决），G4 是级联脏状态；跑 e2e 前须清残留 headless Edge 占 9531。exe 已于批末统一重建（2026-09-09 17:35:49） |
+
+---
+
+## J. 插队清理（2026-09-09 第七轮，用户插队任务）
+
+> 用户插队要求：混淆代码影响更改效率，检查项目是否还有混淆残留 / 重复、已解码产物；
+> 剔除不需要的混淆部分；如有未解混淆的先解混淆再剔除。
+> 结论：真正的混淆源只有 `js/wavepaint.63e6dade.js`（obfuscator.io），早已解混淆为
+> `js/wavepaint.clean.js`；业务代码/HTML 无混淆残留。但 clean.js 仍带大量 obfuscator.io
+> 死脚手架（顶层 rotate/反调试闭包、字符串解码器、1732 个别名声明、824 个纯数值映射），
+> 全部经 AST 静态证明零调用后删除；随后又做第 7 pass：把正文残留的 `_0x…` 局部标识符按
+> ESLint-scope 绑定图重命名为可读名（19,132 处 / 4,291 变量），正文 `_0x` 清零。至此解混淆
+> 收尾全部完成，`wavepaint.clean.js` 是最终唯一直接维护的核心。细节见
+> `memory/logs/2026-09-09.md` 第七轮 / 第八轮。
+
+| ID | 需求 | 状态 | 实现思路 / 备注 |
+|----|------|------|----------------|
+| #93 | **插队：清理全部混淆残留（解混淆收尾）** | ✅ | ① `wavepaint.clean.js` 死代码清理：删 rotate/反调试闭包、`_0x55bf` 解码器、`_0x3f97` stringArray 工厂、1732 个别名声明、824 个纯数值映射对象（全部 AST 静态证明零调用；严格字符子序列验证未加内容/未改序）；33,110 → 17,164 行，头部改写为正式维护说明。② 删除过时混淆物：`js/wavepaint.63e6dade.js`（混淆源，功能已被 clean.js 替代）、`index.obf.html`（引用已删除脚本，双重过时）、`tools/deobfuscate.mjs` / `tools/probe-core.mjs`（一次性脚本，只引用已删混淆源）。③ 第 7 pass 标识符重命名：按 ESLint-scope 绑定图把残留 `_0x…` 局部标识符重命名为可读名，19,132 处 / 4,291 变量、绑定一致性验证通过；17,164 → 13,115 行，正文 `_0x` 残留清零（仅保留头部注释与人工补丁段 `_0x_wpf*` 变量）。④ 同步 README / gen-resources / wpf.js 注释与全部 memory。验证：`node --check` 通过、regression 58/58、e2e-ui 73/73、绑定一致性验证全过、exe 已重建（C1）。⚠ C6 放宽说明：用户明确要求剔除，且均为 git tracked 文件，`git` 历史可完整恢复 |
 
 ---
 
 ## 待办 / 可延续方向（未排期）
 
-- 核心内文案/行为修正走“补丁段”（`[PATCH-A*]`），保持 deobfuscate 可重跑不丢。
+- 核心内文案/行为修正走“补丁段”（`[PATCH-A*]`），直接在 `wavepaint.clean.js` 中维护
+  （deobfuscate 管线与混淆源已删除，**勿**再引入混淆源或重跑解混淆；git 历史可回溯）。
 - 每次改动代码 → 重建 exe + 提交 git 的铁律，任何 AI 照此执行。
 - Verdi 规划拆解 #83~#87 已登记（见上表 H）；落地第一批建议 #85 → #86 → #84，完成后主线收 #76 剩余项。
 - （用户前几轮提到的远期需求，已明确「目前不着急做」）：复刻“中追”式代码内点变量名→加波形（=#85/#87① 语义，见 04 §4.5）；侧栏/整体 UI 框架重新设计方案；「UI 设计交给其它 AI 是否更好」的咨询。均未排期，等用户主动推进。
