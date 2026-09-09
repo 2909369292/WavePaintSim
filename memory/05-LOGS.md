@@ -25,6 +25,7 @@
 | 2026-09-04 | 批次1~10 + 大轮收尾 | 文件菜单、实时预览、DUT 回显、顶层选择、版本显示、launcher 自愈 |
 | 2026-09-08 | 参数化位宽 + 总纲 | 位宽算术交给 iverilog；regression 49/49 |
 | 2026-09-09 | 记忆体系重构 + #75 Verdi P0 + #81 Bug 自研修复 + #82 遗留窗口收拢 + #93 插队混淆清理（第七轮死代码清理 + 第八轮标识符重命名）+ 第六轮收官 #89 信号名位宽显示（第九轮）+ Verdi 先行批 #85 VCD 点信号→观察行（第十轮） | 上午收敛记忆；下午完成 CM6 代码视图 / RTL Tree / VCD 全路径索引（58/58）；晚间完成 sim 瞬时离线自愈重试 / 添加信号按钮消失根治 / 教程隐形重启拦截，探针全过 + exe 重建；深夜完成「旧 Edge 窗口停死端口 → 直接无法仿真」根治（launcher 收窗 5→1，全链路验证 + exe 重建）；随后（第七轮插队）clean.js 死代码清理 33,110→17,164 行 + 删混淆源 / index.obf.html / deobfuscate.mjs / probe-core.mjs，regression 58/58、exe 重建；（第八轮·第 7 pass）把残留 `_0x…` 标识符按 ESLint-scope 绑定图重命名可读名（19,132 处 / 4,291 变量，BINDINGS OK），17,164→13,115 行、正文 `_0x` 清零，regression 58/58 + e2e-ui 73/73 + exe 重建；然后（第九轮）完成第六轮收官 #89 信号名位宽显示：clean.js 新增 `[PATCH-A6]` `displaySignalName` 仅显示层拼 `name[msb:lsb]`（不改 sig.name），测宽/宽度缓存键/`drawSignalName` fillText 两处消费，regression 62/62 + e2e-ui 73/73 + exe 重建（17:35:49）；最后（第十轮）完成 Verdi 先行批 #85：VCD 树点信号 → 画布「观察行」（ui-bridge.js `state.simWatches` + `pickVcdSignalIntoWave`，观察行 `__simInjected:true` 不进激励、重仿真按 VCD 路径自动刷新去重、删行不复活可重加；e2e-rtl 新增 D1~D6），e2e-rtl 15/15 + regression 62/62 + e2e-ui 73/73 + exe 重建（19:31:28） |
+| 2026-09-09 | 第十一轮：优先级重排（纯规划文档） | 用户拍板：推迟 #84 波形查看增强与 #77 Active Annotation 打入远期；近期主线改 #86 → #76（重点：底层支持更多 Verilog 代码互动 + 代码解析能力；交互层仿 Verdi），其后 #87①/②；#87 优先级提高；侧栏/整体 UI 重构设计优先级提高（并行方案线）。更新 03/04/05/08/09 + 当日日志第十一轮；未动代码无需重建 exe | 
 
 ---
 
