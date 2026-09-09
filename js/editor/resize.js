@@ -3,10 +3,11 @@
 // ----------------------------------------------------------------------------
 // 功能说明（对应实施规格 F3，用户点名需求）：
 //   1. 增大步数：
-//      - 时钟类信号（isClockPattern）：按已画内容的周期自动延续（如 0101…）
-//      - 其它信号：延续最后一个确定值；整行未定义则补 x
+//      - 时钟类信号（isClockPattern）：按已画内容的最小周期自动延续（如 0101…）
+//      - 其它信号：延续最后一个值；整行未定义则补 x
 //   2. 减小步数：截断保留前部（可通过核心撤销栈 Ctrl+Z 撤销）。
-//   3. 子步数变化：按"主步 × (子步+1)"重排——主值保留，新增子步填主值。
+//   3. 子步数变化：主步重叠区按「分数时间中点重采样」重排到新 stride——
+//      主值（每步首格）不变，子格跨格翻转保留，绝不把 0101 抹成全 0/全 1
 //      （核心原生在此场景会把 0101 时钟错乱成 0000，本模块修正该行为）
 //   4. 修改前压入核心撤销栈快照，Ctrl+Z 可整体撤销。
 // 实现要点：
@@ -21,6 +22,8 @@
 //   2026-08-30 P2-5 子步数 0 不再被 || 吞掉；currentCounts 子步下限改为 0
 //   2026-09-09 Task3(#90) 步数/子步数输入框右侧新增 ▲/▼ 微调按钮：点击 ±1，
 //     改 spin 值后派发 change，复用下方统一的 capture 监听完成智能 resize（含撤销快照）。
+//   2026-09-09 Task4(#91) 重建语义改为「主步块」：只改步数时重叠区原样保留、
+//     时钟按块序列最小周期延续；改子步数时按主步内分数时间中点重采样。
 // ============================================================================
 (function () {
   'use strict';
@@ -43,45 +46,6 @@
         // 旧写法 Math.max(1, Number(x) || 1) 会把 0 变成 1，导致子步设不回 0（BUG-009）。
         subs: Math.max(0, Number(dw && dw.m_subStepCount) || 0)
       };
-    }
-
-    // 从旧 values 提取各主步的主值（每步第 1 个值）
-    function extractMainValues(oldValues, oldStride, oldSteps) {
-      const mains = [];
-      for (let step = 0; step < oldSteps; step += 1) {
-        const idx = step * oldStride;
-        if (idx < oldValues.length) mains.push(oldValues[idx]);
-        else if (oldValues.length) mains.push(oldValues[oldValues.length - 1]);
-        else mains.push(-1);
-      }
-      return mains;
-    }
-
-    // 时钟信号周期检测：返回最小周期 p（主值序列整体循环），无周期返回 0
-    function detectPeriod(mains) {
-      const n = mains.length;
-      for (let p = 1; p <= Math.floor(n / 2); p += 1) {
-        let ok = true;
-        for (let i = 0; i < n - p; i += 1) {
-          if (mains[i] !== mains[i + p]) { ok = false; break; }
-        }
-        if (ok) return p;
-      }
-      return 0;
-    }
-
-    // 计算第 step 步的延续值（step >= mains.length 时调用）
-    function extendValue(sig, mains, step) {
-      if (sig.isClockPattern && mains.length) {
-        // 时钟：按已画主值序列的最小周期延续（0101…、0011… 均适用）
-        const p = detectPeriod(mains);
-        if (p > 0) return mains[step % p];
-      }
-      // 其它信号：延续最后一个确定值；整行未定义则补 x（Bit=-1）
-      for (let i = mains.length - 1; i >= 0; i -= 1) {
-        if (mains[i] !== null && mains[i] !== undefined) return mains[i];
-      }
-      return -1;
     }
 
     // 附属对象（标记/时间跳转/箭头/时间跨度/文本标注）的锚点都在全局子步空间下标，
@@ -125,6 +89,96 @@
       }
     }
 
+    // =======================================================================
+    // #91 重建语义（替代旧的「主值抽值→铺满」全量重建）
+    // -----------------------------------------------------------------------
+    // 旧逻辑对每个信号一律「每主步抽首格(main) → 主值截断/延拓 → 把主值铺满
+    // 新长度每个格子」。cell 层的真实图案（自动端口时钟/核心时钟每格 1,0,1,0、
+    // 用户在子步格手画的翻转）在重建中会被抹平：自动时钟每个主步的主值恒为 1，
+    // 步长一变整行就变成全 1/全 0（用户实测 #91）。
+    //
+    // 新语义：以「一个完整主步的 cell 块」为最小重建单位，且一律按该行自己的
+    // divisor（wpf.divisorOf 口径：私有 subSteps>0 用 own+1，否则跟随全局 stride）：
+    //   1. 只改步数（dOld===dNew）：重叠区的前 newSteps 个块**原样保留**，绝不
+    //      重写用户已画的子格图案；不足时延拓（见 3）。
+    //   2. 截断（newSteps 更小）：保留前 newSteps 个块，子格图案与相位不丢。
+    //   3. 延拓（缺块）：isClockPattern 行按「块序列最小周期」整体延续（块=整块
+    //      判等，stride=3 时 101/010 交替块也能识别出周期 2，相位不漂）；其它行
+    //      延续整行最后一个值（含 x），不凭空造翻转，与旧「延续最后值」一致。
+    //   4. 改子步数（dOld!==dNew，只可能是跟随全局的非私有行）：重叠主步做
+    //      「主步内分数时间中点重采样」dOld→dNew —— 每步首格永远取旧主值
+    //      （主步边界相位与 readWaveDocument 的主值采样不变），其余子格按新格
+    //      中点在旧格上的位置取值：新格变细则旧值被展宽（hold），变粗则按中点
+    //      压缩，跨格翻转原样保留，任何情况下不把 0101 抹成同值。
+    //   5. 私有 subSteps 行 dOld===dNew 恒成立（divisor 不随全局子步变），因此
+    //      全局子步变化时只走 1-3，绝不被整体抹平或错位。
+    // =======================================================================
+
+    // 按 dOld 把 values 切成完整主步块（不足一块的尾巴丢弃，与旧 oldSteps 口径一致）
+    function cellBlocks(values, dOld) {
+      const blocks = [];
+      const n = Math.floor(values.length / dOld);
+      for (let i = 0; i < n; i += 1) {
+        blocks.push(values.slice(i * dOld, (i + 1) * dOld));
+      }
+      return blocks;
+    }
+
+    // 两块逐格判等（块周期检测用）
+    function sameBlock(a, b) {
+      if (a.length !== b.length) return false;
+      for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i]) return false;
+      return true;
+    }
+
+    // 块序列最小周期（整块判等）；无周期返回 0
+    function detectBlockPeriod(blocks) {
+      const n = blocks.length;
+      for (let p = 1; p <= Math.floor(n / 2); p += 1) {
+        let ok = true;
+        for (let i = 0; i < n - p; i += 1) {
+          if (!sameBlock(blocks[i], blocks[i + p])) { ok = false; break; }
+        }
+        if (ok) return p;
+      }
+      return 0;
+    }
+
+    // 主步内重采样：旧块（dOld 格）→ 新块（dNew 格）。
+    // 首格 = 旧主值；其余子格取「新格中点所在旧格」的值。
+    function resampleBlock(block, dNew) {
+      const dOld = block.length;
+      if (dNew === dOld) return block.slice();
+      if (dNew <= 0) return [block[0]];
+      const out = [block[0]];
+      for (let j = 1; j < dNew; j += 1) {
+        const idx = Math.min(dOld - 1, Math.floor(((j + 0.5) / dNew) * dOld));
+        out.push(block[idx]);
+      }
+      return out;
+    }
+
+    // 生成第 k 个缺失块（k >= blocks.length）：时钟按块周期延续，其它延续最后值
+    function extendBlockAt(sig, blocks, k, dNew) {
+      const n = blocks.length;
+      if (!n) {
+        const blank = [];
+        for (let i = 0; i < dNew; i += 1) blank.push(-1);
+        return blank;
+      }
+      if (sig.isClockPattern) {
+        const p = detectBlockPeriod(blocks);
+        if (p > 0) return blocks[k % p].slice();
+        // 画得不成周期仍标了时钟：重复最后一块的微形态，至少不塌成常量
+        return blocks[n - 1].slice();
+      }
+      // 数据/无法判周期：延续最后一个值（含 x），不产生新翻转
+      const last = blocks[n - 1][blocks[n - 1].length - 1];
+      const out = [];
+      for (let i = 0; i < dNew; i += 1) out.push(last);
+      return out;
+    }
+
     // 核心：按新步数/子步重建每个信号的 values。
     // ⚠ 必须按「每信号 divisor」换算（wpf.divisorOf 口径）：信号可带私有 subSteps
     // （divisor = subSteps+1，不随全局子步变化），用全局 stride 提取/重建会把
@@ -145,22 +199,31 @@
         const dOld = hasOwn ? ownSubs + 1 : oldStride;   // 该行旧 divisor
         const dNew = hasOwn ? ownSubs + 1 : newStride;   // 该行新 divisor（私有行不变）
         const oldValues = Array.isArray(sig.values) ? sig.values : [];
-        const oldSteps = oldValues.length ? Math.max(1, Math.floor(oldValues.length / dOld)) : 0;
-        const mains = extractMainValues(oldValues, dOld, oldSteps);
-
-        // 先按新步数补齐/截断主值序列
-        const extended = mains.slice(0, newSteps);
-        while (extended.length < newSteps) {
-          extended.push(extendValue(sig, mains, extended.length));
+        const newLen = newSteps * dNew;
+        if (!oldValues.length) {
+          // 空行：全 x 铺满新长度
+          sig.values = new Array(newLen).fill(-1);
+          wpf.syncSignalMeta(sig, newLen);
+          continue;
         }
 
-        // 按该行新 divisor 重建：每步的 divisor 个格子都填主值
-        const newLen = newSteps * dNew;
+        // 以旧网格的主步块为原始素材：重叠区保持「块」完整，再统一做
+        // 重采样(dOld→dNew) + 截断 + 延拓，最后展平。
+        const blocks = cellBlocks(oldValues, dOld);
+        const keptCount = Math.min(blocks.length, newSteps);
+        const rebuilt = [];
+        for (let step = 0; step < keptCount; step += 1) {
+          rebuilt.push(resampleBlock(blocks[step], dNew));
+        }
+        // 需要延拓的缺块：在已经落位的新网格块序列上延续（时钟按块周期）
+        for (let step = keptCount; step < newSteps; step += 1) {
+          rebuilt.push(extendBlockAt(sig, rebuilt, step, dNew));
+        }
+
         const next = new Array(newLen);
-        for (let step = 0; step < newSteps; step += 1) {
-          for (let k = 0; k < dNew; k += 1) {
-            next[step * dNew + k] = extended[step];
-          }
+        for (let step = 0; step < rebuilt.length && step < newSteps; step += 1) {
+          const block = rebuilt[step];
+          for (let k = 0; k < dNew; k += 1) next[step * dNew + k] = block[k];
         }
         sig.values = next;
         wpf.syncSignalMeta(sig, newLen);

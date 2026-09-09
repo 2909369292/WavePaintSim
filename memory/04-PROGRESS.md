@@ -156,7 +156,7 @@ regression 58/58；e2e-sim 0 失败；exe 已重建并核验特征串。
 
 > 用户明确「目前不着急做 Verdi 远期（#83~#87）」，优先完善 5 项存量功能。编号见台账 03 表 I。
 > 实现顺序：#90 → #88 → #92 → #91 → #89；每项一条 commit + 定向验证；
-> 五项全部完成后再统一 C1 重建 exe + C8 特征串核验 + 全量工具链 + 交付提醒。
+> 四项已完成（#90/#88/#92/#91），剩 #89 一项；全部完成后统一 C1 重建 exe + C8 特征串核验 + 全量工具链 + 交付提醒。
 
 - **✅ #90 步数/子步数 ▲/▼ 微调按钮（Task3，2026-09-09 已提交）**
   - 改动：`index.html` 两个 `.step-input-wrapper` 内各加一对 `.step-arrow`（`data-target`/`data-step=±1`）；CSS 末尾追加 `.step-stepper/.step-arrow`；`js/editor/resize.js` 新增 `wireStepSteppers()` —— document capture `pointerdown` 命中 `.step-arrow` 时 `preventDefault`（不抢输入框焦点）+ `stopPropagation`，在 min/max 内取 `input.value` ±1，写回 spin 后派发 `change(bubbles)`，**复用**既有 capture change → `resizeSignals`（含撤销快照），与手输/回车同通道，不另起第二套 resize。
@@ -172,9 +172,12 @@ regression 58/58；e2e-sim 0 失败；exe 已重建并核验特征串。
   - 验证：e2e-ui 新增 G 段（真实 Edge，gbit/gvec，S=3）：G1 单击框 1 主步→输入 1→点画布其它格自动提交且清旧选区、工具仍 select；G2 输入 A 后拖新区域 → 旧 gvec 区自动提交 10/标签 A 且新选区在 gbit、bar 重开聚焦（会话延续）；G3 空输入点画布外 → 值不变/条关/选区清；G4 输入 1 后点画布外（inert div）→ 自动提交并关闭。→ **60/60 全绿**；`node tools/regression.mjs` 58/58。
   - ⚠ e2e 调试教训（防后人误判为产品 bug）：G2 首败 = 第二段拖拽起点落在浮动工具条矩形内（mousedown 命中工具条按钮 → suppressCommit），测试侧新增 `parkBarAway()`（把工具条挪到离拖拽点最远的角落）解决；G4 首败 = G2 失败的级联脏状态，G2 修复后自动转绿。另有环境坑：e2e 依赖固定端口 9531/8949，残留 headless Edge / dev-server 占端口会让新 e2e 连到上次调试的脏页面 → 大面积与改动无关的假失败（本次 37/60 的根因），跑前必须查端口并清理。
   - ⚠ exe 尚未重建：本批 5 项全部完成后再统一重建（见 03 表 I 备注）。
-- **⬜ #91 步长/子步变化时 Clock 自动填充防全 0/全 1（Task4，下一项）**
-  - 疑因：仅步数变化（dOld===dNew）也走「cell→主值→每格铺主值」重建；用户 0101 若画在子步/跨格 cell 层 → 主值=每步首个 cell 恒值 → 抹平。仅 `isClockPattern` 走周期延续。
-  - 修法方向：dOld===dNew 时保留原 cell 数组，按原有 stride 块重复/截断；dOld!==dNew 时仍重排但保留跨格翻转语义；一律走 `wpf.divisorOf`，不引入第二套步数语义。
+- **✅ #91 步长/子步变化时 Clock 自动填充防全 0/全 1（Task4，2026-09-09 已提交）**
+  - 改动：`js/editor/resize.js` 重写重建核心 —— 删旧 `extractMainValues/detectPeriod/extendValue` 全量重建，改「主步块」语义：`cellBlocks` 按每信号 divisor（`wpf.divisorOf`，私有 subSteps 行=own+1）把旧 values 切成完整主步块；只改步数（dOld===dNew）时重叠区主步块**原样保留**，缺块用 `extendBlockAt` 按「已落位块序列」延续 —— `isClockPattern` 行 `detectBlockPeriod` 找整块最小周期（stride 3 的 101/010 交替块 p=2、stride 4 块长整除时钟周期的 p=1 均正确；不成周期兜底重复末块微形态，绝不塌常量），数据/未知行延续最后值、空行填 -1；改子步数时每个重叠主步 `resampleBlock`（首格恒取旧主值，子格按「新格中点」映射旧格，保留跨格翻转）；末尾 `remapAnchors/syncSignalMeta/pushUndoSnapshot/scheduleRedraw` 保留。
+  - 关键实证：clock 行实际以「逐格 1,0,1,0…」存储（ui-bridge `clockCells` 口径，每主步必须内含翻转才有上升沿）；divisor=4 时块长是时钟周期(2)的整数倍 → 所有块两两相同（p=1），仅看主值序列（全 1）会误判为常量 → 旧代码把新块铺成同值 = 用户实测「变全 1/全 0」根因。
+  - 验证：e2e-ui 新增 H 段（真实 Edge，hclk stride3 时钟/hdata Vector 阶梯/hpriv 私有 subSteps=3 时钟，`#sample-spin/#substep-spin` 真实 change 通道）：H1 步数 8→10 重叠 24 格原样+时钟主值 1/0 交替延续 10 步+数据尾 7 延续+hpriv 32 格原样尾 8 格继续 `1,0,1,0`；H2 截断回 8 三行与原始快照全等；H3 子步 2→0 主值 `1,0…` 不塌 + 私有行不被全局子步重采样；H4/H5 子步 0→1/1→2 往返主值相位保持 → **73/73 全绿**；`node tools/regression.mjs` 58/58。
+  - ⚠ H1 初跑 72/73 失败归因：hpriv 尾部期望值写错（误以为 stride4 块会 `[1,0,1,0]/[0,1,0,1]` 交替），实证块序列同相（p=1）→ 期望修为 `1,0,1,0,1,0,1,0`，产品代码无需改。
+  - ⚠ exe 尚未重建：等 #89 完成后统一重建（见 03 表 I 备注）。
 - **⬜ #89 信号名显示位宽 `[msb:lsb]`（Task2，仅显示层）**
   - 位置：`wavepaint.clean.js` `calculateDynamicNameWidth`（~L17299，含 `_cachedSignalNamesHash`）/ `drawSignalName`（~L23116）；`Signal` 构造器无 width/msb/lsb，由 `ui-bridge.js` `toNativeSignal` 注入（`msb=width>1?String(width-1):''; lsb='0'`），Vector 位宽信息并非必然存在 → 无真实位宽信息不硬画。
   - 预期：绘制时拼**局部显示名**（不改 `sig.name`，避免影响改名/去重/hitTest/保存）；宽度缓存 hash 需纳入 `[msb:lsb]` 后缀。

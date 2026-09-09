@@ -15,6 +15,9 @@
 //   E. 框选（editor/selection.js，2026-09-03 重写）：单击粒度 / 反向拖动 /
 //      私有子步行与普通行跨行写值不错位 / Vector 输入 'A' → 10 / 工具条带焦点时
 //      连续第二次/第三次拖动不再抛 NotFoundError、不再误提交半输入的值
+//   H. 步数/子步变化时 Clock/数据行重建语义（Task4 #91）：步数增减重叠区原样保留、
+//      时钟按「块序列最小周期」延续 / 数据延续最后值 / 子步数变化按主步内分数时间
+//      中点重采样，绝不把 cell 层 0101 抹成全 0/全 1；私有 subSteps 行 divisor 恒定
 // 用法：node tools/e2e-ui.mjs   （自带 dev-server；需本机 Edge；退出码非 0 表示有失败）
 // ⚠ Edge profile / 组件更新 / 系统 TEMP 全部指到 D:/Files/Code/波形/.e2e-tmp（已 git 本地排除）。
 //   即使 --user-data-dir 在 D 盘，headless Edge 的组件更新器仍会往 C 盘 %TEMP% 写
@@ -1015,6 +1018,128 @@ else {
     }
     const errN = await ev(`window.__errCount ? window.__errCount() : -1`);
     check('G: 期间无页面运行时错误', errN === 0, String(errN));
+  }
+}
+
+// ---------------------------------------------------------------- H. 步数/子步变化重建语义（Task4 #91）
+// 覆盖 resize.js #91 新语义（真实 DOM：#sample-spin/#substep-spin change 通道，与 D/D2 同通道）：
+//   只改步数：重叠区主步块**原样保留**；时钟按「块序列最小周期」延续、数据延续最后值；
+//   改子步数：主步重叠区按分数时间中点重采样 —— cell 层 0101 不抹成全 0/全 1（用户实测 #91）；
+//   私有 subSteps=3 行 divisor 恒为 4，全局子步变化绝不重采样/抹平该行。
+// 断言只针对本段新建的 hclk/hdata/hpriv 三行，不依赖其它行的历史值。
+{
+  const h0 = await ev(`(() => {
+    const dw = document_wave;
+    const s = document.getElementById('sample-spin');
+    const b = document.getElementById('substep-spin');
+    if (!s || !b || typeof dw.addBitSignal !== 'function' || typeof window.__wpf.syncSignalMeta !== 'function') return null;
+    const addRow = (fn, name, cells, fill) => {
+      dw[fn](name);
+      const sig = dw.signalList()[dw.signalList().length - 1];
+      sig.values = new Array(cells).fill(-1);
+      for (let i = 0; i < cells; i += 1) sig.values[i] = fill(i);
+      window.__wpf.syncSignalMeta(sig, cells);
+      return sig;
+    };
+    // hclk = 自动时钟预填形态：逐格 1,0,1,0…（readWaveDocument clockCells 口径）
+    const hclk = addRow('addBitSignal', 'hclk', 24, (i) => (i % 2 === 0 ? 1 : 0));
+    hclk.isClockPattern = true;
+    // hdata = 非时钟 Vector 阶梯 0..7（每主步 3 格同值），只应延续最后值 7
+    const hdata = addRow('addVectorSignal', 'hdata', 24, (i) => Math.floor(i / 3));
+    // hpriv = 私有 subSteps=3 的时钟行：divisor=4，逐格 1,0,1,0… 铺 8 个主步。
+    // 时钟底层周期=2 格，整除块长 4 → 8 个块两两相同（块序列最小周期 p=1）。
+    const hpriv = addRow('addBitSignal', 'hpriv', 32, (i) => (i % 2 === 0 ? 1 : 0));
+    hpriv.isClockPattern = true;
+    hpriv.subSteps = 3;
+    const rows = dw.signalList();
+    window.__Hfire = function (steps, subs) {
+      const stCh = document_wave.m_sampleCount !== steps;
+      const sbCh = document_wave.m_subStepCount !== subs;
+      s.value = String(steps);
+      b.value = String(subs);
+      if (stCh) s.dispatchEvent(new Event('change', { bubbles: true }));
+      if (sbCh) b.dispatchEvent(new Event('change', { bubbles: true }));
+      return document_wave.m_sampleCount + ',' + document_wave.m_subStepCount;
+    };
+    window.__Hsnap = function (row) {
+      const sig = document_wave.signalList()[row];
+      if (!sig || !Array.isArray(sig.values)) return null;
+      const d = window.__wpf.divisorOf(sig);
+      const v = sig.values;
+      const n = Math.floor(v.length / d);
+      const mains = [];
+      for (let i = 0; i < n; i += 1) mains.push(v[i * d]);
+      return JSON.stringify({
+        len: v.length, d: d, v: v.join(','), mains: mains.join(','),
+        st: document_wave.m_sampleCount, sb: document_wave.m_subStepCount
+      });
+    };
+    return JSON.stringify({ hclk: rows.indexOf(hclk), hdata: rows.indexOf(hdata), hpriv: rows.indexOf(hpriv),
+      st: dw.m_sampleCount, sb: dw.m_subStepCount });
+  })()`);
+  const H = h0 && JSON.parse(h0);
+  check('H: 建立 hclk/hdata/hpriv + 基线 8 步/2 子步', !!H && H.hclk >= 0 && H.hdata >= 0 && H.hpriv >= 0
+    && H.hclk !== H.hdata && H.hdata !== H.hpriv && H.st === 8 && H.sb === 2, h0 || 'null');
+  if (H) {
+    const snap = async (row) => JSON.parse(await ev(`window.__Hsnap(${row})`));
+    const hclk0 = await snap(H.hclk);
+    const hdata0 = await snap(H.hdata);
+    const hpriv0 = await snap(H.hpriv);
+    const head = (csv, n) => csv.split(',').slice(0, n).join(',');
+    const tail = (csv, n) => csv.split(',').slice(-n).join(',');
+    const expectMains = (len, pattern) => Array.from({ length: len }, (_, i) => pattern[i % pattern.length]).join(',');
+    const hasBoth = (mains) => { const p = mains.split(','); return p.includes('0') && p.includes('1'); };
+
+    // ---- H1. 只增步数 8→10：重叠块原样保留；时钟按块周期延续；数据延续最后值 ----
+    const fire1 = await ev(`window.__Hfire(10, 2)`);
+    const a = await snap(H.hclk), da = await snap(H.hdata), pa = await snap(H.hpriv);
+    check('H1: 步数 8→10 模型生效（10 步 / 2 子步）', fire1 === '10,2' && a.st === 10, fire1 + ' / st=' + a.st);
+    check('H1: 自动时钟重叠 24 格原样保留 + 步长相位 1/0 交替延续 10 步',
+      a.len === 30 && head(a.v, 24) === hclk0.v && a.mains === expectMains(10, [1, 0]),
+      JSON.stringify({ len: a.len, m: a.mains }));
+    check('H1: 数据行（Vector）只延续最后值 7、不凭空振荡',
+      da.len === 30 && head(da.v, 24) === hdata0.v && tail(da.v, 6) === '7,7,7,7,7,7',
+      JSON.stringify({ len: da.len, tail: tail(da.v, 6) }));
+    // 期望：新 8 格 = 2 个完整块（延续块 [1,0,1,0]），逐格继续翻转而非塌成全 1/全 0
+    check('H1: 私有 subSteps=3 时钟行 32 格原样保留 + 块周期延续到 40 格',
+      pa.len === 40 && head(pa.v, 32) === hpriv0.v && tail(pa.v, 8) === '1,0,1,0,1,0,1,0',
+      JSON.stringify({ len: pa.len, tail: tail(pa.v, 8) }));
+
+    // ---- H2. 步数减回 8：只截断不重排，三行全部回到原始形态 ----
+    const fire2 = await ev(`window.__Hfire(8, 2)`);
+    const b2 = await snap(H.hclk), db2 = await snap(H.hdata), pb2 = await snap(H.hpriv);
+    check('H2: 步数 10→8 截断保留，hclk 完整回到原始 0101',
+      fire2 === '8,2' && b2.len === 24 && b2.v === hclk0.v && b2.mains === hclk0.mains,
+      JSON.stringify({ len: b2.len, m: b2.mains }));
+    check('H2: hdata / hpriv 截断后与原始完全一致',
+      db2.len === 24 && db2.v === hdata0.v && pb2.len === 32 && pb2.v === hpriv0.v,
+      JSON.stringify({ dl: db2.len, pl: pb2.len }));
+
+    // ---- H3. 改子步数 2→0（步数不变）：主值（每步首格）交替相位保留、不塌成全 0/全 1 ----
+    const fire3 = await ev(`window.__Hfire(8, 0)`);
+    const c = await snap(H.hclk), pc = await snap(H.hpriv);
+    check('H3: 子步 2→0 模型生效（8 步 / 0 子步）', fire3 === '8,0' && c.st === 8 && c.sb === 0, fire3);
+    check('H3: 自动时钟 d:3→1 后主值 1/0 交替、不塌成全 1/全 0',
+      c.len === 8 && c.mains === '1,0,1,0,1,0,1,0' && hasBoth(c.v), JSON.stringify({ len: c.len, v: c.v }));
+    check('H3: 私有 subSteps=3 行不被全局子步变化重采样（32 格原样）',
+      pc.len === 32 && pc.v === hpriv0.v, JSON.stringify({ len: pc.len }));
+
+    // ---- H4. 子步 0→1（步数不变）：再次中点重采样，主值相位仍 1/0 交替 ----
+    const fire4 = await ev(`window.__Hfire(8, 1)`);
+    const d4 = await snap(H.hclk);
+    check('H4: 子步 0→1 后时钟主值相位仍 1/0 交替（未塌缩）',
+      fire4 === '8,1' && d4.len === 16 && d4.mains === '1,0,1,0,1,0,1,0' && hasBoth(d4.v),
+      JSON.stringify({ len: d4.len, m: d4.mains }));
+
+    // ---- H5. 子步 1→2 还原：主值仍 1/0 交替、长度回 24 ----
+    const fire5 = await ev(`window.__Hfire(8, 2)`);
+    const e5 = await snap(H.hclk);
+    check('H5: 子步 1→2 还原后时钟主值相位仍 1/0 交替',
+      fire5 === '8,2' && e5.len === 24 && e5.mains === '1,0,1,0,1,0,1,0' && hasBoth(e5.v),
+      JSON.stringify({ len: e5.len, m: e5.mains }));
+
+    const errH = await ev(`window.__errCount ? window.__errCount() : -1`);
+    check('H: 期间无页面运行时错误', errH === 0, String(errH));
   }
 }
 
