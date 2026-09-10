@@ -349,3 +349,64 @@
   - 改 `js/` → 按 **C1** 重建 exe 并核验 C8 特征串；e2e-rtl 增 I1~I6（**46 → 52**）；
   - 以后新增「代码侧上下文入 `.wp`」（如 #87② 的模块接口快照）**沿用本桥**：泛化
     `injectArchiveFields` + 「只存元数据 + 恢复时补核心丢的字段」的写法，**不要再造第二套**。
+
+## D19 · #87② 交互三口径：键位 `Ctrl+Alt+4` + 「全部接口」= 端口 + 多候选复用代码区旁轻量浮层（2026-09-10）
+
+> 背景：#87② 的目标是复刻 nWave 的「模块全部接口一键入波形」（nWave 里是 `Ctrl+4`）。
+> 本节把三个**必须统一的口径**钉死，后任 AI 不要自行改动其中任何一个。
+
+- **决策**：
+  1. **触发键 = `Ctrl/Cmd+Alt+4`，刻意不是 `Ctrl+4`**。原因：Chromium/Edge 把 **`Ctrl+数字` 当浏览器
+     级「切换标签页」加速键**，页面**根本收不到 `keydown`**（与 `Ctrl+W` 被 `--app` 吞掉同源，
+     见 06 P33/P36）。判定同时认 `key === "4" || code === "Digit4" || code === "Numpad4"`
+     且要求 `(ctrlKey||metaKey) && altKey`，挂 **keydown 捕获阶段**，命中后
+     `preventDefault()+stopPropagation()`。
+  2. **「全部接口」= 模块端口（`kind === "port"`）**，**不含体内 `wire/reg`**。`modulePorts(index, name)`
+     收集「模块头 ANSI 端口 + 体内 `input/output/inout`」并**按名去重**（同一个端口可能在头与体声明两次）；
+     体内 `wire/reg` 这类**内部信号**仍走 #76 B4 的**单点加入**（代码里点/选中变量），**不批量灌**。
+     这与用户「仿 Verdi Get Signals」的原意一致：Get Signals 一键下的是**接口/层次节点**，不是模块
+     体内全部信号。
+  3. **目标作用域 = 例化路径**（`index.instancePaths[].path`，如 `tb.dut` / `tb.dut.u_sub`），
+     与 VCD 全路径同口径。**顶层模块自动映射到其实例路径**（`counter` → `tb.dut`）—— 用户是在**代码里**
+     下信号，落点必须是**能在 VCD 里找到数据的作用域**，而不是模块定义名。
+  4. **多候选复用「代码区旁轻量浮层」，弹 `mode="scope"`**：同一模块/实例名有多个例化路径时
+     （如 `sub` 被例化为 `u_a`/`u_b`），浮层列出**作用域路径**（`scope.path`）让用户选，
+     **不要**另造「信号层次选择框」（用户明确不要那种 UI，见 04 §4.10 / 03 表 F/H）。
+     实现上是把 B4 的 `showSymbolPicker` **泛化**为通用 `openPicker(title, items, anchor, mode)`
+     （`items = [{label, title, onPick}]`、`box.dataset.pickerMode = mode`），再薄封装出
+     `showSymbolPicker`（mode `"symbol"`，**选项文本仍是 VCD 全路径、B4 探针口径不变**）与
+     `showScopePicker`（mode `"scope"`）。
+  5. **批量加入的返回口径 = 三桶**：`addVcdPathsToWave(paths)` 返回
+     `{ready, added[], existed[], missing[]}`，**批量、只 `render()` 一次**、末尾
+     `scrollWaveToWatchPath(...)` 定位，**不设状态栏**（状态栏由调用方 `modulePortsStatus(scopePath,
+     portCount, result)` **唯一汇总**，避免逐条覆盖）。重复触发天然幂等（已登记路径进 `existed`）。
+  6. **`Ctrl+Alt+W`（B4）与 `Ctrl+Alt+4`（B4②）走同一 `request(via, event, handler)` 分派**：
+     handler **未接线时静默放过、不吞事件**；`Ctrl+Alt+4` 未接线 `addScopeFn` 时直接 return。
+- **理由**：
+  - 键位必须避开浏览器保留键（硬约束，不是偏好）；`Alt` 是最小侵入的修饰键，且与 B4 的
+    `Ctrl+Alt+W` 形成「单个符号 / 整个 scope」的成对记忆。
+  - 「接口 = 端口」把 action 的**语义边界**划清：一次性灌入的应该是**模块对外的门**；
+    模块内部信号由用户按需单点添加，避免画布被无关内部线网淹没。
+  - 作用域必须落到**例化路径**才能在 VCD 中找到波形数据；用定义名会得到「找不到数据」的死路。
+  - 复用 B4 浮层 = 少一套一次性 UI，且天然满足「不加信号层次选择框」的约束。
+- **否决方案**：
+  1. **严格照抄 `Ctrl+4`** —— 页面收不到事件，功能等于没有（见 06 P36）。
+  2. **把体内 `wire/reg` 也一起批量下** —— 用户明确不要「仿真后把所有可看变量全加上去」那套
+     （04 §4.14），批量入口只给**端口**。
+  3. **多候选时把同一模块的所有例化路径全部加入** —— 会在画布上产生多份同名不同 scope 的信号，
+     用户无法区分；必须让用户选（浮层）。
+  4. **另做一个「信号层次选择框」** —— 用户明确否决（03 表 F/H、04 §4.10）。
+  5. **用 `findSymbols` 命中项的 `moduleName` 反查被例化模块** —— 见 06 P36 坑 2：该字段是
+     「定义所在模块」，不是被例化模块；必须查 `index.instancePaths`。
+- **影响**：
+  - `js/sim/rtl-panel.js`：`installCodeEditor` 增第 7 参 `onAddScope`；触发块重构为
+    `request(via, event, handler)`；keydown 捕获阶段新增 `Ctrl+Alt+4` 分支。
+  - `js/sim/ui-bridge.js`：`openPicker`（泛化）/`showSymbolPicker`（薄封装，mode `"symbol"`）/
+    `showScopePicker`（mode `"scope"`）/`moduleScopes`/`modulePorts`/`addVcdPathsToWave`/
+    `modulePortsStatus`/`addModulePortsToWave`/`addModulePortsFromCode`；接线 `onAddScope`；
+    `__wpsim` 增探针；三处提示追加 `Ctrl+Alt+4`。
+  - `tools/e2e-rtl.mjs` 增 **J0~J7（+9 条 → 61/61）**：一次加 4 端口 / 幂等 / 同名两例化弹
+    `mode="scope"` 选择器并点选 / 光标在实例名上唯一作用域直加（**真 bug 修复点**）/
+    `Ctrl+Alt+4` 与 `Ctrl+Alt+W` 同链路 / **只按 `Ctrl+4`（无 Alt）不触发** / 探针 + RTL 树
+    仍无端口行 / `addVcdPathsToWave` 三桶分类。
+  - **`js/wavepaint.clean.js` 与 `sim/engine.js` 一行未改**（C9 守住）。

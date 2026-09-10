@@ -12,6 +12,11 @@
 //      （点击信号 → onSignalPick(完整点分路径)）。
 //   4. #76 B3：highlightRtlRow / highlightVcdSignal —— 代码光标 → 树节点高亮定位
 //      （只加视觉标记 + 滚动，不新增任何点击/加信号交互；RTL 树仍只做层级浏览）。
+//   5. #87②：installCodeEditor 增第 7 参 onAddScope —— 代码区内 `Ctrl+Alt+4`
+//      触发「把光标所在模块/实例的全部接口批量加入波形」（仿 Verdi nWave Ctrl+4；
+//      **不用 Ctrl+4**：Chromium/Edge 把 `Ctrl+数字` 当浏览器级「切换标签页」加速键，
+//      页面收不到 keydown —— 与 `Ctrl+W` 同理，见 06 P33）。此处仍只负责「取词 + 触发」，
+//      作用域解析与批量入波形在 ui-bridge。
 // 约束：纯 DOM 渲染 + 持有 CodeMirror 实例，不 import ui-bridge（避免循环依赖）；
 //      结构数据来自 js/sim/rtl-nav.js 与 js/sim/vcd-index.js（已可单测）。
 
@@ -233,9 +238,14 @@ export function highlightVcdSignal(container, path) {
 // ---------------------------------------------------------------------------
 // onAddSymbol({name,line,selection,exact,via,anchor})：#76 B4 的代码侧入口，
 // 由 ui-bridge 负责「符号 → VCD 路径 → 画布观察行」；rtl-panel 只负责取词与触发。
-export function installCodeEditor({ host, textarea, doc = "", onChange, onAddSymbol, onCursorMove }) {
+// onAddScope(同形 context)：#87② 入口 —— 同一份取词结果，但语义是
+// 「光标所在模块/实例的全部接口」（Ctrl+Alt+4）。
+export function installCodeEditor({ host, textarea, doc = "", onChange, onAddSymbol, onCursorMove, onAddScope }) {
   const cm = globalThis.WPCm;
   const canUseCm = !!(host && textarea && cm && typeof cm.createVerilogEditor === "function");
+  // 归一成「函数或 null」，让两个入口可以共用一套监听（缺哪个就忽略哪个手势）。
+  const addSymbolFn = typeof onAddSymbol === "function" ? onAddSymbol : null;
+  const addScopeFn = typeof onAddScope === "function" ? onAddScope : null;
   let view = null;
   let lastText = String(doc || "");
   let emitCursor = null; // #76 B3：光标/选区变化通知（setText 重建编辑器后也要补发一次）
@@ -283,17 +293,22 @@ export function installCodeEditor({ host, textarea, doc = "", onChange, onAddSym
   }
 
   // #76 B4 触发面：双击变量名 / 右键菜单 / Ctrl+Alt+W（Verdi「中追」的等价手势）。
-  // ⚠ 不用 Ctrl+W：浏览器（Edge --app 窗口）把它保留为「关闭窗口」，页面无法拦截。
+  // #87② 触发面：Ctrl+Alt+4（「加入所在模块/实例的全部接口」，nWave Ctrl+4 的等价手势）。
+  // ⚠ 不用 Ctrl+W / Ctrl+4：浏览器（Edge --app 窗口）把它们保留为「关闭窗口 / 切换标签页」
+  //    这类浏览器级加速键，页面收不到 keydown（见 06 P33）。
   // ⚠ 监听挂在宿主上（捕获 keydown + 冒泡 dblclick/contextmenu）：CM6 自己会处理
   //    双击选词，冒泡阶段读选区即可拿到完整词；不需要改 CM6 bundle（免重建 lib/）。
-  if (typeof onAddSymbol === "function" && host) {
-    const request = (via, event) => {
+  if ((addSymbolFn || addScopeFn) && host) {
+    // handler 缺省 = B4 单符号入口；Ctrl+Alt+4 显式传 addScopeFn。
+    const request = (via, event, handler) => {
+      const target = handler || addSymbolFn;
+      if (!target) return;                       // 该手势没接线 → 静默（不吞事件）
       const ctx = readContext();
       if (via === "dblclick" && !ctx.exact) return; // 双击空白/运算符不触发
       const anchor = event
         ? { x: Number(event.clientX) || 0, y: Number(event.clientY) || 0 }
         : null;
-      onAddSymbol({ ...ctx, via, anchor });
+      target({ ...ctx, via, anchor });
     };
     host.addEventListener("dblclick", (event) => request("dblclick", event));
     host.addEventListener("contextmenu", (event) => {
@@ -302,7 +317,19 @@ export function installCodeEditor({ host, textarea, doc = "", onChange, onAddSym
     });
     host.addEventListener("keydown", (event) => {
       const key = String(event.key || "").toLowerCase();
-      if (!(event.ctrlKey || event.metaKey) || !event.altKey || key !== "w") return;
+      if (!(event.ctrlKey || event.metaKey) || !event.altKey) return;
+      // 数字 4：主键区/小键盘都认（event.key 在部分键盘布局下会被 Alt 改写，故看 code）
+      const code = String(event.code || "");
+      const isFour = key === "4" || code === "Digit4" || code === "Numpad4";
+      if (isFour) {
+        if (!addScopeFn) return;                 // 未接线 → 让事件照常冒泡，不做半截拦截
+        event.preventDefault();
+        event.stopPropagation();
+        request("hotkey4", event, addScopeFn);
+        return;
+      }
+      if (key !== "w") return;
+      if (!addSymbolFn) return;
       event.preventDefault();
       event.stopPropagation();
       request("hotkey", event);

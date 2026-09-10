@@ -491,3 +491,61 @@
     是两件事，不能混。
   - 向后兼容要显式：旧工程**无该字段 → 观察行清空**（口径 = 观察行以工程为准），**不沿用内存旧登记**；
     用 e2e-rtl I5 钉死（旧工程载入后 `legacyWatches:0` / `legacyInjected:0` 且不报错）。
+
+---
+
+## P36 · #87② 三坑：`Ctrl+数字` 被浏览器吞 / 实例符号的 `moduleName` 被索引覆盖 / 「只 splice 不清登记 → render 复活行」（2026-09-10 第十九轮）
+
+> 背景：#87②「模块/实例全部接口一键入波形（仿 nWave `Ctrl+4`）」实现过程中踩到三个坑。前两个
+> **必须写进后续任何键盘交互 / 符号映射的实现准则**，第三个是**测试自身的设计错误**（首跑 J 段
+> 58/61 的三条失败里有两条由它造成）。
+
+### 坑 1：`Ctrl+数字` 被 Chromium/Edge 当**浏览器级加速键**吞掉，页面收不到 `keydown`
+
+- **现象**：把触发键按「照抄 nWave `Ctrl+4`」实现（监听 `keydown` 判 `ctrlKey && key === "4"`）后，
+  真人按 `Ctrl+4` **毫无反应**，而 `Ctrl+Alt+4` 立刻生效。
+- **根因**：Chromium/Edge 把 **`Ctrl+数字` 注册为「切换到第 N 个标签页」的浏览器级加速键**，
+  在**页面看到 `keydown` 之前**就被浏览器截走（与 `Ctrl+W` 被 `--app` 吞掉同理，见 **P33**）。
+  页面侧无论挂**捕获阶段**还是 `preventDefault` 都收不到 —— 这不是「冒泡被谁停了」，是**根本没派发**。
+- **解法**：触发键取 **`Ctrl/Cmd+Alt+4`**（加 `Alt` 让浏览器不再认作标签页切换）。判定要同时认三种
+  输入源，避免键盘布局/小键盘差异：`key === "4" || code === "Digit4" || code === "Numpad4"`，
+  并要求 `ctrlKey || metaKey` **且** `altKey`；命中后 `preventDefault() + stopPropagation()`。
+- **预防（通用，务必遵守）**：
+  - 给「跑在浏览器 / `--app` 窗口里的界面」设计快捷键时，**先假设浏览器会吞**：`Ctrl+W`（关窗）、
+    `Ctrl+T`（新标签）、`Ctrl+N`（新窗口）、**`Ctrl+数字`（切标签页）**、`Ctrl+Shift+数字` 全部默认
+    不可用；要么加修饰键（`Alt`/`Shift` 组合），要么换非冲突键位。
+  - **「页面收不到事件」≠「事件被谁拦了」**：先分辨是**浏览器保留键**还是**页面级拦截**。前者
+    在 `document` 捕获阶段也测不到，只能换键位；后者才谈得上去 `preventDefault`。
+  - **未接线的手势必须静默放过、不吞事件**：本轮把触发块重构成 `request(via, event, handler)`，
+    handler 缺省时**不调用 `preventDefault`/`stopPropagation`**（否则会把宿主里别处的同名按键一起废掉）。
+
+### 坑 2：实例符号的 `moduleName` **被符号索引覆盖成「定义所在模块」**，被例化模块名丢失
+
+- **现象**：`Ctrl+Alt+4` 在**实例名**上触发时（如光标停在 `u_a`），要查「这个实例是哪个模块 →
+  取其全部端口」，但用 `findSymbols(index, name)` 命中项里的 `moduleName` 去查作用域，**查不到 / 查错**。
+- **根因**：`buildSymbolIndex` 把每个模块体内的符号统一塞进展平表时写的是
+  `entry.symbols.push({ ...symbol, moduleName: entry.name })` —— 这里的 `moduleName` 是**符号定义
+  所在的模块**（实例名 `u_a` 定义在父模块 `tb` 里 → `moduleName = "tb"`），而**被例化的模块名**
+  （`sub`）**只存在于 `index.instancePaths`**（`buildInstancePaths` 的 `{ path, moduleName, ... }`，
+  那里的 `moduleName` 才是被例化模块）。**一个字段名，两处语义**，极易误用。
+- **解法**：实例名 → 作用域**一律查 `index.instancePaths`**，按「**实例名后缀**」匹配
+  （`path === name` 或 `path.endsWith("." + name)`）；多候选 → 弹 `mode="scope"` 浮层让用户选。
+  **不要**用 `findSymbols` 命中项的 `moduleName` 去推被例化模块。
+- **预防**：**同名不同义的字段是索引层最危险的物种**。给符号/节点造索引时，凡是可能被下游按名
+  取用的字段，都要在注释里写清「这是**定义所在**模块」还是「这是**被例化**模块」；跨层查询（实例
+  → 模块、符号 → scope）优先查**语义唯一**的那张表，而不是顺手复用刚命中的对象。
+
+### 坑 3（测试陷阱）：`clearWatches()` **只 `splice` 信号数组、没清 `state.simWatches` 登记** → `render()`/`syncSimRows()` 按登记把行**重建回来**
+
+- **现象**：下一条测试想「先清空观察行，再断言 `addVcdPathsToWave` 新加了 N 条」，于是调
+  `clearWatches()`，结果断言数量时**总有残留**（被删的行又回来了），误判为「批量加入没去重 / 加了重复行」。
+- **根因**：观察行是**双份状态** —— 画布上的**行**（核心 `m_signals`）和桥的**登记**
+  （`state.simWatches`）。`clearWatches()` 只把行 `splice` 掉；而 `render()` / `syncSimRows()` 会**按
+  登记重建行**（这正是 B5「重开工程回到画布」的机制）。只删一份 = 下次渲染复活。
+- **解法 / 预防（写测试与被测试代码都适用）**：
+  - 清空观察行必须**同时**清「行」与「登记」两份状态；给测试提供**唯一的清空入口**（如
+    `clearAllWatches()` = `m_signals.splice` + `state.simWatches = []` + `render()`）。
+  - **断言别依赖「全局清空」的副作用**：本轮该断言改为用 `addVcdPathsToWave` 返回的
+    三桶 `{ added, existed, missing }` 与「新增行数」对照（e2e J7），**不再靠“先清空再数总量”**。
+  - 通用规律：**凡是「派生渲染」的状态（画布行 / 高亮 / 树节点），源头与产物都要能各自清、各自
+    验**；只清产物会在下一次派生时打回原形。

@@ -11,6 +11,7 @@
 //   F. #76 B1：模块体内符号索引 → 真实 VCD 全路径映射（点代码变量 → 波形路径的底座）
 //   G. #76 B4：代码内点/选中变量 → 加波形（唯一加信号主路径；且仿真后不再全量灌信号）
 //   I. #76 B5：画布观察行随 .wp 工程往返（存档 → 载入 → 恢复注入语义 / 向后兼容）
+//   J. #87②：模块/实例全部接口一键入波形（仿 Verdi nWave Ctrl+4 → 本项目 Ctrl+Alt+4）
 // 用法：node tools/e2e-rtl.mjs   （自带 dev-server；需本机 Edge；退出码非 0 表示有失败）
 // 与 e2e-ui.mjs 相同的防 C 盘爆盘策略：profile/TEMP 全部指到 D 盘 .e2e-tmp。
 // ============================================================================
@@ -880,6 +881,167 @@ if (ready === 'ready') {
     I.reentryWatches === 1 && I.legacyOk === true && I.legacyWatches === 0 && I.legacyInjected === 0, iState);
   check('I6: 非法载荷（坏 JSON / 压缩串）→ 桥静默跳过，不抛异常',
     I.badJsonThrew === false, iState);
+}
+
+// ---------------------------------------------------------------------------
+// J. #87②：模块/实例全部接口一键入波形（仿 Verdi nWave Ctrl+4 → 本项目 Ctrl+Alt+4）
+// ---------------------------------------------------------------------------
+// 口径：① 只从**代码**发起（光标决定目标），不弹信号层次框、不动 RTL 树、不恢复
+//          「仿真后全量灌信号」；② 「全部接口」= 模块**端口**（kind==="port"），体内
+//          wire/reg 仍走 B4 单点加入；③ 目标作用域 = 该模块的例化路径（顶层 → tb.dut，
+//          与 VCD 全路径同口径）；同名模块多次例化 → 复用代码区旁**轻量选择器**选作用域；
+//          ④ 批量入波形**一次 render + 一条汇总状态**（不是逐条 setStatus），且**幂等**。
+// 触发键为什么是 Ctrl+Alt+4 而不是 Ctrl+4：Chromium/Edge 把 Ctrl+数字 当浏览器级
+// 「切换标签页」加速键，页面收不到 keydown（与 Ctrl+W 同理，见 06 P33）。
+{
+  const jState = await ev(`(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const dw = () => window.document_wave;
+    const wpsim = window.__wpsim;
+    const status = () => String(document.getElementById('sim-status').textContent || '');
+    const watchPaths = () => dw().m_signals.filter((s) => s && s.__simWatchPath).map((s) => s.__simWatchPath);
+    const clearWatches = () => {
+      for (const s of dw().m_signals.filter((x) => x && x.__simWatchPath)) {
+        const i = dw().m_signals.indexOf(s);
+        if (i >= 0) dw().removeSignal(i);
+      }
+    };
+    const COUNTER_PORTS = ['tb.dut.clk', 'tb.dut.rst_n', 'tb.dut.en', 'tb.dut.q'];
+    const sorted = (arr) => (Array.isArray(arr) ? arr.slice().sort() : []);
+    const out = {};
+    // 0) 造工程（G_FILES：counter 例化 sub 两次 u_a/u_b）并跑一次真实仿真
+    wpsim.setSourceFiles(${G_FILES_JSON});
+    await sleep(500);
+    document.getElementById('sim-run')?.click();
+    for (let i = 0; i < 100; i++) { await sleep(400); if (/仿真完成|失败|ERROR/.test(status())) break; }
+    await sleep(300);
+    out.runDone = /仿真完成/.test(status());
+    clearWatches();
+    wpsim.closeSymbolPicker();
+    await sleep(120);
+    out.vcdSignals = document.querySelectorAll('#vcd-tree .vcd-signal-row').length;
+
+    // 1) 光标在 counter 模块体内（行 8 的 always 行，不在任何信号名上）
+    //    → 该模块唯一作用域 tb.dut → 一次加入 clk/rst_n/en/q 四条端口
+    const rowsBefore1 = dw().m_signals.length;
+    wpsim.addModulePortsFromCode({ name: '', fileIndex: 0, line: 8 });
+    await sleep(300);
+    out.afterModule = watchPaths();
+    out.moduleStatus = status().slice(0, 90);
+    out.moduleRowsDelta = dw().m_signals.length - rowsBefore1;
+    out.modulePicker = wpsim.pickerMode;
+
+    // 2) 再来一次 → 幂等：不重复加、行数不变、状态说清「已在波形中」
+    const rowsBefore2 = dw().m_signals.length;
+    wpsim.addModulePortsFromCode({ name: '', fileIndex: 0, line: 8 });
+    await sleep(250);
+    out.repeatPaths = watchPaths();
+    out.repeatStatus = status().slice(0, 90);
+    out.repeatRowsDelta = dw().m_signals.length - rowsBefore2;
+    // 批量 API 的返回分类：4 条全部判为 existed（证明「已在波形」不是靠猜）
+    out.repeatBatch = wpsim.addVcdPathsToWave(COUNTER_PORTS.slice());
+
+    // 3) 光标在 sub.v 模块体内（同名模块被例化两次）→ 弹「作用域」选择器（不得先斩后奏）
+    wpsim.addModulePortsFromCode({ name: '', fileIndex: 1, line: 2 });
+    await sleep(250);
+    out.subPickerMode = wpsim.pickerMode;
+    out.subOptions = wpsim.symbolPickerOptions;
+    out.subBeforePick = watchPaths();
+    out.subStatus = status().slice(0, 90);
+    out.subClicked = wpsim.clickSymbolPickerOption('tb.dut.u_b');
+    await sleep(300);
+    out.subAfterPick = watchPaths();
+    out.subPickerClosed = wpsim.symbolPickerOptions === null;
+    out.subPickStatus = status().slice(0, 90);
+
+    // 4) 光标停在实例名 u_a 上（counter.sv:12 的例化点）→ 直接定位该实例作用域
+    wpsim.addModulePortsFromCode({ name: 'u_a', fileIndex: 0, line: 12 });
+    await sleep(300);
+    out.instPaths = watchPaths();
+    out.instPickerMode = wpsim.pickerMode;
+    out.instStatus = status().slice(0, 90);
+
+    // 5) UI 触发面接线：Ctrl+Alt+4（挂在代码区宿主上）→ 必须走同一条 #87② 链路；
+    //    Ctrl+Alt+W 行为不变（仍是 B4 单信号口径，不出现「个接口」）。
+    const host = document.getElementById('verilog-cm-host');
+    host.dispatchEvent(new KeyboardEvent('keydown', { key: '4', ctrlKey: true, altKey: true, bubbles: true, cancelable: true }));
+    await sleep(300);
+    out.hotkey4Status = status().slice(0, 90);
+    wpsim.closeSymbolPicker();
+    host.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', ctrlKey: true, altKey: true, bubbles: true, cancelable: true }));
+    await sleep(300);
+    out.hotkeyWStatus = status().slice(0, 90);
+    wpsim.closeSymbolPicker();
+
+    // 5b) 只给 Ctrl（不带 Alt）→ 不得触发（Ctrl+数字属于浏览器加速键/编辑器常规操作）
+    const beforePlain = status();
+    host.dispatchEvent(new KeyboardEvent('keydown', { key: '4', ctrlKey: true, bubbles: true, cancelable: true }));
+    await sleep(200);
+    out.plainCtrl4Changed = status() !== beforePlain;
+
+    // 6) 探针 + RTL 树口径：端口索引 4/1 条、sub 两条作用域、树内仍无端口/信号行
+    out.portsOf = wpsim.modulePortsOf('counter');
+    out.portsOfSub = wpsim.modulePortsOf('sub');
+    out.scopesOf = wpsim.moduleScopesOf('sub').map((entry) => entry.path);
+    out.rtlTreeRows = [...document.querySelectorAll('#rtl-tree [data-rtl-kind]')].map((el) => el.dataset.rtlKind);
+    out.rtlPortRows = document.querySelectorAll('#rtl-tree .rtl-port, #rtl-tree .rtl-port-row, #rtl-tree .vcd-signal-row').length;
+    out.sortedCounter = sorted(COUNTER_PORTS);
+
+    // 7) 批量 API 的返回分类：一次调用里同时出现 added / existed / missing 三桶
+    //    （tb.en 是 TB 侧连接线，尚未入波形；tb.dut.clk 已入；no_such 不存在）
+    out.classifyBatch = wpsim.addVcdPathsToWave(['tb.dut.clk', 'tb.en', 'tb.no_such_signal_xyz']);
+    await sleep(150);
+    out.afterClassify = watchPaths();
+
+    // 收尾：清空观察行，保持幂等（本文件末尾无其它断言）
+    clearWatches();
+    window.drawWaveform && window.drawWaveform();
+    window.updateSidePanels && window.updateSidePanels();
+    return JSON.stringify(out);
+  })()`);
+  const J = JSON.parse(jState || '{}');
+  const jSorted = (arr) => JSON.stringify(Array.isArray(arr) ? arr.slice().sort() : arr);
+  check('J0: 前置 —— 真实仿真完成且 VCD 层次树有信号行', J.runDone === true && J.vcdSignals > 0, jState);
+  check('J1: 光标在 counter 模块体内 + Ctrl+Alt+4 → 一次加入该模块全部 4 个接口（clk/rst_n/en/q），不弹选择器',
+    jSorted(J.afterModule) === jSorted(J.sortedCounter) && J.moduleRowsDelta === 4
+    && J.modulePicker === null && /已将 tb\.dut 的 4 个接口加入波形/.test(J.moduleStatus || ''), jState);
+  check('J2: 重复触发 → 幂等（不重复入波形、画布行数不变、状态说明「已在波形中」），批量 API 把 4 条都判为 existed',
+    jSorted(J.repeatPaths) === jSorted(J.sortedCounter) && J.repeatRowsDelta === 0
+    && /已在波形中/.test(J.repeatStatus || '')
+    && J.repeatBatch && J.repeatBatch.ready === true
+    && J.repeatBatch.added.length === 0 && J.repeatBatch.existed.length === 4 && J.repeatBatch.missing.length === 0, jState);
+  check('J3: sub.v 模块体（同名模块例化两次）→ 弹作用域选择器（scope 模式，u_a/u_b 候选），点 tb.dut.u_b → 加入其全部接口',
+    J.subPickerMode === 'scope'
+    && jSorted(J.subOptions) === jSorted(['tb.dut.u_a', 'tb.dut.u_b'])
+    && jSorted(J.subBeforePick) === jSorted(J.sortedCounter)
+    && J.subClicked === true && J.subPickerClosed === true
+    && (J.subAfterPick || []).indexOf('tb.dut.u_b.clk') >= 0 && J.subAfterPick.length === 5
+    && /已将 tb\.dut\.u_b 的 1 个接口加入波形/.test(J.subPickStatus || ''), jState);
+  check('J4: 光标停在实例名 u_a 上 → 直接定位该实例作用域（唯一）加入 tb.dut.u_a.clk，不弹选择器',
+    (J.instPaths || []).indexOf('tb.dut.u_a.clk') >= 0 && J.instPaths.length === 6
+    && J.instPickerMode === null
+    && /已将 tb\.dut\.u_a 的 1 个接口加入波形/.test(J.instStatus || ''), jState);
+  check('J5: 代码区触发面接线 —— Ctrl+Alt+4 走 #87② 链路（状态栏出现「个接口」），Ctrl+Alt+W 仍是 B4 单信号口径',
+    /个接口/.test(J.hotkey4Status || '')
+    && /未在 VCD 中找到|已将|未选中变量名/.test(J.hotkeyWStatus || '')
+    && !/个接口/.test(J.hotkeyWStatus || ''), jState);
+  check('J5b: 只按 Ctrl+4（不带 Alt）→ 不触发加接口（不吞浏览器/编辑器常规手势）',
+    J.plainCtrl4Changed === false, jState);
+  check('J6: 探针与 RTL 树口径 —— 端口索引 counter 4 条 / sub 1 条、sub 两条作用域、树内仍无端口/信号行（纯层级浏览）',
+    (J.portsOf || []).length === 4
+    && jSorted((J.portsOf || []).map((p) => p.name + ':' + p.direction))
+      === jSorted(['clk:input', 'en:input', 'q:output', 'rst_n:input'])
+    && (J.portsOfSub || []).length === 1 && J.portsOfSub[0].name === 'clk'
+    && jSorted(J.scopesOf) === jSorted(['tb.dut.u_a', 'tb.dut.u_b'])
+    && J.rtlPortRows === 0
+    && (J.rtlTreeRows || []).length > 0
+    && (J.rtlTreeRows || []).every((kind) => kind === 'module' || kind === 'instance'), jState);
+  check('J7: 批量 API addVcdPathsToWave 返回 {ready,added,existed,missing} 三桶分类（一次调用混合 added/existed/missing）',
+    J.classifyBatch && J.classifyBatch.ready === true
+    && jSorted(J.classifyBatch.added) === jSorted(['tb.en'])
+    && jSorted(J.classifyBatch.existed) === jSorted(['tb.dut.clk'])
+    && jSorted(J.classifyBatch.missing) === jSorted(['tb.no_such_signal_xyz'])
+    && (J.afterClassify || []).indexOf('tb.en') >= 0, jState);
 }
 
 console.log('\n资源加载失败(404等)：' + netFails);

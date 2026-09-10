@@ -12,14 +12,14 @@
 | 当前版本 | `v0.4.0 build <自动时间> <git短哈希>` |
 | 代码状态 | 主线可用，`main` 分支 |
 | 构建产物 | `D:\Files\Code\波形\WavePaintClean.exe` |
-| 最近完成需求 | **#76 B5：画布观察行随 `.wp` 工程存档与恢复（2026-09-10 第十八轮落地，见 §4.16）**——代码里加进来的观察行（`state.simWatches` / `__simInjected`）随工程存档，重开 `.wp` 后**原样回到画布**（连名字列 `[3:0]` 位宽都在）且**仍然只是观察行**（不会被当成你画的激励去生成 TB）；点「新建」把观察行 / 上一次仿真结果 / 源码集合**一并清空**。**未改 `wavepaint.clean.js` 与 `sim/engine.js` 一行**（C9 守住）。此前 **#76 B3**（第十七轮，见 §4.15，代码 → 树反向高亮 = 仿 nTrace「光标即高亮」，**纯视觉零副作用**）、**#76 B4**（第十六轮，见 §4.14，代码内点/选中变量 → 加波形 = **唯一加信号主路径**，仿 nWave「中追」）、**#76 B1**（第十五轮，见 §4.13）、**#86 A1~A4**（第十四轮，见 §4.12）、**#86 服务在线性**（第十三轮，见 §4.11）、**#85：VCD 树点信号 → 画布「观察行」**（第十轮，见 §4.8）、第六轮 5 项 #90/#88/#92/#91/#89 与 #93 混淆残留清理均已收尾 |
-| 最近完成文档 | **第十八轮记忆同步**（2026-09-10）：新增 §4.16、06 P35（观察行随工程存档三坑）、07 D18（B5 存档口径：复用 A4 文本拼接桥 + 只存找回元数据 + 无 VCD 以工程为准）、03 表 F/H #76 状态（**B1~B5 全部完成**，后续 #87②）、08 文件头/§1/§1.2（B5 ✅ + #87② 开工点）、09 全篇切第十九轮/#87②、当日日志「第十八轮」、`05-LOGS.md` 索引、`INDEX.md` 页脚。叠加生效的仍是**第十二轮澄清**：加信号主路径 = 代码内点/选中变量（“中追”式 = #87①/#76 B4，**已落地**）；RTL 结构树为纯代码层级浏览（文件→模块→实例），不显示接口信号、不承载加信号交互（原 #76 B2 撤销）。见 §4.10 / 03 表 F/H / 08 §1.2/§2 |
-| 最近一轮（第十八轮，2026-09-10） | **#76 B5 落地：画布观察行随 `.wp` 工程存档与恢复（详见 §4.16）**。① `js/sim/ui-bridge.js`：存档桥由「源码桥」泛化为 `injectArchiveFields(json, fields)`（**文本拼接、不二次 parse**；旧函数名 `injectArchiveSourceFiles`/`applyArchivedSourceFiles` 已不存在）+ `archiveSimWatches`（`state.simWatches` → `{path,name,width,reference}`，**只存找回元数据**）+ `applyArchivedExtras`（坏载荷静默跳过 → **先清 `vcd`/`outputs`/`simWatches`**（画布换人）→ 恢复源码 → 恢复观察行 → 面板就绪则 `refreshVcdTree`/`syncSimRows`/`render` + 状态栏合并文案）+ `applySourceFilesFromArchive`/`applySimWatchesFromArchive`/`adoptArchivedWatchRows`（按「行名 == 观察路径」认领 + 补回 `width`/`kind`/`msb`/`lsb`，幂等）；`syncSimRows` 增「**无 VCD 时回退工程带回来的行**」（有 VCD 仍以 VCD 为准）；`resetSourceFiles` 扩为「新工程全复位」；`__wpsim` 增 `designSignalNames` 探针。② `tools/e2e-rtl.mjs` +6 条 I 段（I1~I6，真实 Edge + 真实 VCD）→ **52/52**。exe 已重建（22:23:52） |
+| 最近完成需求 | **#87②：模块/实例全部接口一键入波形（2026-09-10 第十九轮落地，见 §4.17）** —— 代码区按 **`Ctrl+Alt+4`** 即可把光标所在**模块（或实例）的全部接口（端口）**一次加为观察行（唯一作用域直加；同名模块/实例多作用域 → **代码区旁轻量浮层**选作用域；重复触发幂等；无 VCD 数据 / 未 dump 给中文说明）。**刻意不用 `Ctrl+4`** —— Chromium/Edge 把 `Ctrl+数字` 当浏览器级「切换标签页」加速键，页面收不到 keydown（与 `Ctrl+W` 同源，见 06 P33/P36）。**「全部接口」= 模块端口（`kind === "port"`）**，体内 `wire/reg` 仍走 B4 单点加入。**未改 `js/wavepaint.clean.js` 与 `sim/engine.js` 一行**（C9 守住）。此前 **#76 已收口**：B5（第十八轮，§4.16）、B3（第十七轮）、B4（第十六轮）、B1（第十五轮）、**#86 A1~A4**（第十四轮）、**#86 服务在线性**（第十三轮）、**#85**（第十轮）、第十二轮 RTL 树瘦身、第六轮 5 项 + #93 收官 |
+| 最近完成文档 | **第十九轮记忆同步**（2026-09-10）：新增 §4.17（#87② 落地全记录）、06 P36（`Ctrl+4` 被浏览器吞 + **实例符号 `moduleName` 被索引覆盖** + 「只 splice 不清登记 → render 会复活行」的测试陷阱）、07 D19（`Ctrl+Alt+4` 选型 + 「全部接口 = 端口」口径 + 多候选复用代码区旁轻量浮层 `mode="scope"`）、03 表 F/H #87 状态（**①②③ 全部落地**）、08 文件头/§1/§1.2 + **新增 §1.3**（#87② ✅ + 主线下移）、本文件 §1 快照 / §2 时间线 / §4.4 / §6、09 全篇切第二十轮、当日日志「第十九轮」、`05-LOGS.md` 索引、`INDEX.md` 页脚。叠加生效的仍是**第十二轮澄清**：加信号主路径 = 代码内点/选中变量（“中追”式 = #87①/#76 B4，**已落地**）；RTL 结构树为纯代码层级浏览（文件→模块→实例），不显示接口信号、不承载加信号交互（原 #76 B2 撤销）。见 §4.10 / 03 表 F/H / 08 §1.2/§2 |
+| 最近一轮（第十九轮，2026-09-10） | **#87② 落地：模块/实例全部接口一键入波形（详见 §4.17）**。① `js/sim/rtl-panel.js`：`installCodeEditor` 增第 7 参 `onAddScope`；触发块重构为 `request(via, event, handler)`（handler 缺省回落 B4 单符号入口；**未接线的手势静默放过、不吞事件**）；keydown 捕获阶段识别 **`Ctrl/Cmd+Alt+4`**（`key==="4" || code==="Digit4" || code==="Numpad4"`）→ `preventDefault()+stopPropagation()` → `onAddScope`；`Ctrl+Alt+W`（B4）行为不变。② `js/sim/ui-bridge.js`：浮层泛化 `openPicker(title, items, anchor, mode)`（`items=[{label,title,onPick}]`、`box.dataset.pickerMode`）+ 薄封装 `showSymbolPicker`（mode `"symbol"`，**B4 选项文本仍是 VCD 全路径、探针口径不变**）/ `showScopePicker`（mode `"scope"`）；新增 `moduleScopes` / `modulePorts`（`kind==="port"` 按名去重）/ **`addVcdPathsToWave`**（**批量、只 render 一次**、末尾滚动定位、**不设状态栏**，返回 `{ready,added[],existed[],missing[]}`）/ `modulePortsStatus`（唯一汇总文案入口）/ `addModulePortsToWave` / `addModulePortsFromCode`；接线 `onAddScope`；三处提示追加 `Ctrl+Alt+4`；`__wpsim` 增探针（`addModulePortsFromCode`/`moduleScopesOf`/`modulePortsOf`/`addVcdPathsToWave`/`get pickerMode`）。③ `tools/e2e-rtl.mjs` +9 条 J 段（J0~J7）。**修掉一个真 bug**：分支①（光标在实例名上）若用 `findSymbols` 命中项的 `moduleName` 查作用域是**错的** —— 符号索引把实例符号的 `moduleName` 覆盖成**定义所在模块** → 改为按「**实例名后缀**」直接查 `index.instancePaths`。exe 已重建（22:49:32） |
 | 当前阻塞 | 无 |
-| 下一步主线 | **#76 已收口：B1 ✅（第十五轮）+ B4 ✅（第十六轮）+ B3 ✅（第十七轮）+ B5 ✅（第十八轮）全部完成**（B2 已按第十二轮口径撤销）。**下一项 = #87②（模块全接口一键入波形 Ctrl+4）**：沿用 B4 的 `getContext()` + `symbolNameAt` 取词口径与 B1 的 `resolveSymbolVcdPaths` 映射，批量加入模块/实例全部接口（拆解见 08 §1.2）。其后为侧栏 / 整体 UI 重构（08 §2，**先出方案给用户 review，不直接开工**）；#84/#77 已推迟远期（08 §3）。RTL 树仍只做代码层级浏览（不承载端口/参数/加信号，见 §4.10）；服务自愈（§4.11）是**独立专项**，不改变上述顺序 |
-| 测试基线 | regression **79/79**（第十五轮 75 + 第十六轮 B4 新增 2 条 + 第十七轮 B3 新增 2 条；第十八轮 B5 为纯 DOM/VCD 链路，按判断未加单元用例，交给 e2e 覆盖）；e2e-rtl **52/52**（**第十八轮新增 I1~I6**）；e2e-sim 0 失败；e2e-ui 73/73；probe-param 全过；**2026-09-10 第十八轮实测复跑（全部实测）：regression 79/79、e2e-rtl 52/52、e2e-ui 73/73、e2e-sim 0 失败、probe-param 全过、真 exe 冒烟通过** |
-| UI 基线 | e2e-rtl **52/52**（含 #85 D1~D6 + 第十二轮 B3 RTL 树纯层级浏览 + 第十四轮 E1~E6 + 第十五轮 F1~F9 + 第十六轮 G1~G7 + 第十七轮 H1/H2/H3/H4/H4b/H5/H6 + **第十八轮 I1~I6：观察行随 `.wp` 往返（存档含 `simWatches`、载入回注入语义 + 位宽补回、观察行不进激励、新建全复位、反复往返 + 旧工程兼容、坏 JSON 不抛）**）；e2e-ui 73/73（真实 Edge，含 D2/F/G/H 段）；probe-tutorial / probe-addbtn / probe-simfail 全过；真 exe 冒烟通过（端口 17817、core/wpf/doc/canvas/汉化全在、无异常）；第十三轮自愈专测 `verify-recovery2.mjs` 17/17 + 真实 Edge 协议探针 `probe-protocol.mjs`（iframe 可拉起 exe、顶层跳转被拦） |
-| 交付提醒 | 重启应用、从唯一路径启动、面板版本号自查（应显示 `v0.4.0 build 2026-09-10 22:23:51 5ec07e7`；⚠ `5ec07e7` = **构建时 HEAD**（第十七轮 B3 的 commit），承载 B5 代码的 commit 是它的**下一个** —— **别误判 exe 落后**，口径见 05/09 第十六轮补记）；本次 exe 内置第十八轮 **#76 B5（观察行随 `.wp` 工程存档/恢复）**、第十七轮 #76 B3（代码光标 → RTL/VCD 树反向高亮）、第十六轮 #76 B4（代码里双击/右键/`Ctrl+Alt+W` 加波形 + 不再仿真后全量灌信号）、第十五轮 #76 B1、第十四轮 #86 A1~A4、第十三轮服务自愈（固定端口 17817 + `WPServiceGuard` + `#sim-recover` 按钮）、第十二轮 RTL 树瘦身、#85 与第六轮收官 clean.js。**首次**自愈时浏览器会弹一次「是否允许打开 wavepaint:」，勾选「始终允许」后无感（浏览器安全策略，无法绕过） |
+| 下一步主线 | **#87② 已完成（第十九轮）→ #76 + #87①②③ 全部收口**。**下一项 = 侧栏 / 整体 UI 重构设计方案**（08 §2）：侧栏现状已超规划（按钮 + 代码 + RTL 树 + VCD 树 + 仿真控制 + 状态区挤在一起），**先出一版「UI 重构设计方案」给用户 review，确认后再实施，不直接开工**；可评估「把 UI 设计交给其它 AI 出稿 + 人类 review」的可行性与输入素材要求。**#84 波形查看增强 / #77 Active Annotation 已推迟远期**（08 §3，除非用户再拍板）。RTL 树仍只做代码层级浏览；服务自愈（§4.11）是独立专项 |
+| 测试基线 | regression **79/79**；e2e-rtl **61/61**（第十九轮新增 **J0~J7 共 9 条**）；e2e-ui 73/73；e2e-sim 0 失败；probe-param 全过；**2026-09-10 第十九轮实测复跑（全部实测）：regression 79/79、e2e-rtl 61/61、e2e-ui 73/73、e2e-sim 0 失败、probe-param 全过、真 exe 冒烟通过**（B4 起「仿真后不全量灌信号」的 e2e-sim 断言仍在守） |
+| UI 基线 | e2e-rtl **61/61**（含 #85 D1~D6 + 第十二轮 B3 RTL 树纯层级浏览 + 第十四轮 E1~E6 + 第十五轮 F1~F9 + 第十六轮 G1~G7 + 第十七轮 H1/H2/H3/H4/H4b/H5/H6 + 第十八轮 I1~I6 + **第十九轮 J0~J7：模块体一次加 4 端口 / 重复触发幂等 / 同名两例化弹 `mode="scope"` 选择器且点选后加对作用域 / 光标在实例名上唯一作用域直加（真 bug 修复点）/ `Ctrl+Alt+4` 与 `Ctrl+Alt+W` 同链路 / 只按 `Ctrl+4` 不触发 / 探针 `modulePortsOf`+`moduleScopesOf`+RTL 树仍无端口行 / `addVcdPathsToWave` 三桶分类**）；e2e-ui 73/73（真实 Edge）；probe-tutorial / probe-addbtn / probe-simfail 全过；真 exe 冒烟通过（端口 17817、core/wpf/doc/canvas/汉化全在、无异常）；第十三轮自愈专测 `verify-recovery2.mjs` 17/17 + 真实 Edge 协议探针 `probe-protocol.mjs` |
+| 交付提醒 | 重启应用、从唯一路径启动、面板版本号自查（应显示 `v0.4.0 build 2026-09-10 22:49:32 a201338`；⚠ `a201338` = **构建时 HEAD**（第十八轮 B5 的 commit），承载第十九轮 #87② 代码的 commit 是它的**下一个** —— **别误判 exe 落后**，口径见 05/09 第十六轮补记）；本次 exe 内置第十九轮 **#87②（模块/实例全部接口一键入波形 `Ctrl+Alt+4`）**、第十八轮 #76 B5、第十七轮 #76 B3、第十六轮 #76 B4（+ 不再仿真后全量灌信号）、第十五轮 #76 B1、第十四轮 #86 A1~A4、第十三轮服务自愈（固定端口 17817 + `WPServiceGuard` + `#sim-recover` 按钮）、第十二轮 RTL 树瘦身、#85 与第六轮收官 clean.js。**首次**自愈时浏览器会弹一次「是否允许打开 wavepaint:」，勾选「始终允许」后无感（浏览器安全策略，无法绕过） |
 
 ---
 
@@ -51,6 +51,7 @@
 | 2026-09-10 | 第十六轮：#76 B4 交互落地（代码内点/选中变量 → 加波形 = 唯一加信号主路径） | `rtl-panel.js` 新增导出纯函数 `symbolNameAt(text, from, to)`（Verilog 标识符扫描 + `baseSymbolName` 剥位选 + `firstSymbolIn` 取末段 + ~110 个关键字排除），`installCodeEditor` 增第 5 参 `onAddSymbol` 与 `getContext()`/`focus()`，触发面 = 双击变量 / 右键菜单 / **捕获阶段 Ctrl+Alt+W**（**不用 Ctrl+W**：Edge `--app` 会吞它当关窗）；`ui-bridge.js` 新增 `addSymbolFromCode`（`currentSymbolIndex` → `moduleAtLine` 收窄 → `resolveSymbolVcdPaths`，**仅当候选为空**才 `findVcdPathsByName` 兜底）→ 唯一候选直加、多候选弹代码区旁轻量选择器 `.sim-symbol-picker`；`syncSimRows()`（原 `replaceInjectedOutputs` 改名）**不再灌 outputs** = 收敛「仿真后全量自动加信号」。regression 75→**77/77**、e2e-rtl 32→**39/39**（G1~G7）、e2e-ui 73/73、真 exe 冒烟通过；exe 重建（21:33:05）。**未改 `sim/engine.js` 一行** |
 | 2026-09-10 | 第十七轮：#76 B3 落地（代码 ↔ 树双向跳转 = 代码光标 → RTL/VCD 树反向高亮，仿 nTrace「光标即高亮」） | `rtl-panel.js` 新增导出纯函数 `rowMatchScore`/`pickRtlRowIndex`/`datasetToRtlRow`（**目标带 kind 时同类是硬条件 + 必须位置证据**，同分取先出现者，无命中 -1）与 `clearRtlHighlight`/`clearVcdHighlight`/`highlightRtlRow`/`highlightVcdSignal`（清旧 → 加 `.rtl-active`/`.vcd-active` → **展开祖先 `<details>`** → `scrollIntoView`）；`installCodeEditor` 增第 6 参 `onCursorMove`（`selectionchange`(ownerDocument) + 宿主 `mouseup`/`keyup`，位置签名去重、仅焦点在内时发、`setText()` 重建后强制补发；**未改 CM bundle，免跑 esbuild**）；RTL 树行补 `data-rtl-*`、VCD 信号行补 `data-vcd-path`。`ui-bridge.js` 新增 `syncActiveFromCode`（`moduleAtLine` 模块行 / 实例名 → 实例行 / `resolveSymbolVcdPaths` **唯一才亮** VCD、歧义不猜、无目标清空）+ `scheduleActiveSync`（180ms 防抖）+ `applyActiveHighlight`/`clearActiveHighlight`（**树重建后重放**），`gotoSource()` 末尾闭环、`refreshStructureTrees()` 末尾重放。`index.html` 只加两条高亮 CSS（无新面板）。首跑 e2e-rtl H4 失败 → 判定**断言才是错的 spec**（模块 scope 高亮是刻意设计），改断言 + 新增 H4b。regression **79/79**、e2e-rtl **46/46**（H1/H2/H3/H4/H4b/H5/H6）、e2e-ui 73/73、e2e-sim 0 失败、probe-param 全过、真 exe 冒烟通过；exe 重建（22:06:08） |
 | 2026-09-10 | 第十八轮：**#76 B5 落地**（画布观察行随 `.wp` 工程存档与恢复） | 先做范围勘察（读核心 `js/wavepaint.clean.js`，**一行未改**）：① **信号组无需另存** —— `buildDocumentJson`（L1449~1451）逐字段存 `groupName`/`groupColor`/`groupPath`、`loadFromFileContent`（L1642~1644）逐字段还原，`GroupManager`（L1163~1404）纯函数派生无独立状态 → 天然闭环；② **观察行必须桥兜底** —— 核心把它当普通信号写进 `signals`，载入后丢 `__simInjected`/`__simWatchPath`/`width`/`msb`/`lsb`（脏激励 + 名字列丢 `[3:0]`）。`ui-bridge.js`：`injectArchiveSourceFiles` → **`injectArchiveFields(json, fields)`** 泛化；新增 `archiveSimWatches`（只存 `{path,name,width,reference}`）/ `applyArchivedExtras`（**先清 `vcd`/`outputs`/`simWatches`** 再恢复，坏载荷静默跳过）/ `applySourceFilesFromArchive` / `applySimWatchesFromArchive` / `adoptArchivedWatchRows`（「行名 == 观察路径」认领 + 补回位宽字段，幂等）；`syncSimRows` 增「无 VCD 时回退工程带回来的行」；`resetSourceFiles` 扩为「新工程全复位」；`__wpsim` 增 `designSignalNames` 探针。`tools/e2e-rtl.mjs` 新增 I1~I6（7 条落点 6 条断言，真实 Edge + 真实 VCD）。**首跑即 52/52 全 PASS**。regression 79/79、e2e-rtl **52/52**、e2e-ui 73/73、e2e-sim 0 失败、probe-param 全过、真 exe 冒烟通过；exe 重建（22:23:52、21,969,408 B、`v0.4.0 build 2026-09-10 22:23:51 5ec07e7`）。踩坑记入 06 P35、决策 07 D18；下一项 = **#87②**（模块全接口 Ctrl+4） |
+| 2026-09-10 | 第十九轮：**#87② 落地**（模块/实例全部接口一键入波形，仿 nWave `Ctrl+4`；实际触发键 `Ctrl+Alt+4`） | 两条硬口径：① **触发键 = `Ctrl+Alt+4`**（**不用 `Ctrl+4`** —— Chromium/Edge 把 `Ctrl+数字` 当浏览器级「切换标签页」加速键，页面收不到 keydown，与 `Ctrl+W` 同源，见 06 P36）；② **「全部接口」= 模块端口**（`kind === "port"`，`modulePorts` 按名去重），体内 `wire/reg` 仍走 B4 单点加入、不批量灌；目标作用域 = **例化路径**（顶层模块 → `tb.dut`）。`rtl-panel.js`：`installCodeEditor` 第 7 参 `onAddScope`，触发块统一 `request(via,event,handler)`（未接线手势静默放过、不吞事件），捕获阶段识别 `key==="4"||code==="Digit4"||code==="Numpad4"`；`ui-bridge.js`：浮层泛化 `openPicker(title,items,anchor,mode)` + `showScopePicker`（`mode="scope"`）+ `moduleScopes`/`modulePorts`/**`addVcdPathsToWave`**（批量、只 render 一次、三桶返回、不设状态栏）/`modulePortsStatus`/`addModulePortsToWave`/`addModulePortsFromCode`；三处提示追加 `Ctrl+Alt+4`；`__wpsim` 增探针。**修掉一个真 bug**：光标在实例名上不能用 `findSymbols` 命中项的 `moduleName` 查作用域（`buildSymbolIndex` 把它覆盖成「定义所在模块」）→ 按实例名后缀查 `instancePaths`。`tools/e2e-rtl.mjs` +J0~J7（9 条）→ **61/61**（首跑 58/61：2 条测试自身设计错误 + 1 条真 bug）。regression 79/79、e2e-ui 73/73、e2e-sim 0 失败、probe-param 全过、真 exe 冒烟通过；exe 重建（22:49:32）。**未改 `wavepaint.clean.js` 与 `sim/engine.js` 一行**（C9） |
 
 ---
 
@@ -133,7 +134,7 @@ regression 58/58；e2e-sim 0 失败；exe 已重建并核验特征串。
 - **VCD 全路径索引**：`js/sim/vcd-index.js` 纯函数把 `parseVcd` 产物转点分作用域树，信号 title = 完整路径（如 `tb.q`）；`state.vcd` 存最近一次成功解析结果，仿真失败时清空防过期展示。
 - 接入点全部在 `ui-bridge.js`：`initSourceCodeView` / `setEditorText` / `jumpToEditorLine` / `refreshStructureTrees` / `refreshVcdTree`。
 
-### 4.4 ✅ 已完成：#76 Verdi 借鉴 P1（B1~B5 全部完成 2026-09-10；总纲/拆解见 08 §1.2）
+### 4.4 ✅ 已完成：#76 Verdi 借鉴 P1（B1~B5 全部完成 2026-09-10）+ #87②（第十九轮，见 §4.17；总纲/拆解见 08 §1.2/§1.3）
 
 > 编号口径：台账中 P1 = #76（#75 是已完成的 P0）；此前 04/09 文档把 P1 误写成
 > “#75 P1”，2026-09-09 第三轮已纠正。
@@ -148,16 +149,16 @@ regression 58/58；e2e-sim 0 失败；exe 已重建并核验特征串。
 - `engine.js` 已解析模块、端口、参数、实例；VCD 带层次路径。
 - ✅ #85（第十轮）已把「VCD 树信号行 → 加波形」闭环：观察行 `__simInjected:true` 不进激励、
   重仿真按 VCD 路径自动刷新去重、删行不复活可重加（详见 §4.8 / 当日日志第十轮）。
-- P1 进度（2026-09-10 第十八轮更新，**#76 已收口**）：RTL 树侧点行加波形 **已撤销**（B2，用户口径：不要求；
+- P1 进度（2026-09-10 第十九轮更新，**#76 + #87①②③ 全部收口**）：RTL 树侧点行加波形 **已撤销**（B2，用户口径：不要求；
   RTL 树只做代码层级浏览，见 §4.10）；多实例歧义选择器 **✅ B4 已落地**（代码区旁轻量浮层）；
   代码点变量加波形 **✅ B4 已落地**（唯一加信号主路径）；树 ↔ 代码双向跳转 **✅ B3 已落地**
-  （树→代码 #86 A2 + 代码→树反向高亮，#76 B3，见 §4.15）；信号组/观察行入 `.wp` **✅ B5 已落地**（观察行随工程往返，见 §4.16）。**#76 B1~B5 全部完成，无剩余**。
+  （树→代码 #86 A2 + 代码→树反向高亮，#76 B3，见 §4.15）；信号组/观察行入 `.wp` **✅ B5 已落地**（观察行随工程往返，见 §4.16）；**#87②（模块/实例全部接口一键入波形，触发键 `Ctrl+Alt+4`）✅ 第十九轮落地**（见 §4.17）。**#76 B1~B5 全部完成，无剩余；#87①②③ 亦全部落地**。
 
 **建议顺序**
 1. ✅（第十轮 #85 完成）「VCD 树信号行 → 加波形」回调。
 2. （第十一轮重排后）近期主线：**#86**（实例→模块定义跳转 + 源码文件导入 + 例化解析增强）
    → 本 #76 收尾（RTL 树点行加波形 / 代码点变量加波形 / 树↔代码双向跳转 / 信号组入 `.wp`）。
-3. 之后 #87①/②（Ctrl+W 语义并入 #76 B4、Ctrl+4 紧随）；#84/#77 已推迟远期（见 08 §3）。
+3. 之后 #87①/② —— **均已落地**（① = #76 B4 第十六轮；② = 第十九轮，触发键 `Ctrl+Alt+4`，见 §4.17）；#84/#77 已推迟远期（见 08 §3）。
 
 ### 4.5 【规划登记】#83~#87 Verdi 功能拆解（2026-09-09 第五轮，纯规划未动代码）
 
@@ -920,8 +921,73 @@ A4 的存档桥，不要另造格式）→ **#87②**（模块全接口 Ctrl+4�
 
 **范围与后续**：#76 B5 闭环（本轮无阻塞）。**未改 `sim/engine.js` 一行**（C9 守住），
 **未改 `js/wavepaint.clean.js` 一行**（信号组存档由核心天然闭环，桥只补观察行）。
-RTL 树口径未变（仍纯层级浏览，见 §4.10）。下一步 = **#87②（模块全接口 Ctrl+4）**，
-沿用 B4 的 `getContext()` + `symbolNameAt` 取词口径（拆解见 08 §1.2）。
+RTL 树口径未变（仍纯层级浏览，见 §4.10）。下一步 = **#87②（模块全部接口 Ctrl+4）**，
+沿用 B4 的 `getContext()` + `symbolNameAt` 取词口径（拆解见 08 §1.2）—— **已于第十九轮落地
+（实际触发键 `Ctrl+Alt+4`，见 §4.17）**。
+
+### 4.17 ✅ 已完成：#87② 模块/实例全部接口一键入波形（仿 nWave `Ctrl+4`，第十九轮 2026-09-10）
+
+> 用户指令：「按照规划继续」（承接第十八轮，其当时的下一项 = #87②）。#87② = 在**代码区**把光标所在
+> **模块（或实例）的全部接口（端口）**一次加为观察行，对齐 Verdi nWave `Ctrl+4`（Get Signals 语义）。
+> **零核心改动**：`js/wavepaint.clean.js` 与 `js/sim/engine.js` **一行未改**（C9 守住）。
+
+**两条硬口径（先看这个，别踩）**
+- **触发键 = `Ctrl+Alt+4`，不是 `Ctrl+4`**：Chromium/Edge 把 `Ctrl+数字` 当**浏览器级「切换标签页」
+  加速键**，页面根本收不到 keydown（与 `Ctrl+W` 同源，见 06 P33/P36）。实现认
+  `key==="4" || code==="Digit4" || code==="Numpad4"` + `(ctrlKey||metaKey) && altKey`，并挂在
+  keydown **捕获阶段**（`preventDefault()+stopPropagation()`）。
+- **「全部接口」= 模块端口（`kind === "port"`）**：含模块头 ANSI 端口 + 体内 `input/output/inout`
+  声明，`modulePorts` 按名去重；体内 `wire/reg` **不批量灌**（仍走 B4 单点加入）。目标作用域 =
+  **例化路径**（顶层模块自动映射到 `tb.dut`），与 VCD 全路径同口径。
+
+**实现落点**
+- `js/sim/rtl-panel.js`：文件头补第 5 条职责；`installCodeEditor` 增第 7 参 `onAddScope`；
+  触发块重构为统一的 `request(via, event, handler)`（handler 缺省回落 B4 单符号入口；**未接线的手势
+  静默 return、不吞事件**）；`Ctrl+Alt+4` → `onAddScope(context)`；`Ctrl+Alt+W`（B4）行为不变。
+- `js/sim/ui-bridge.js`：浮层**泛化** —— `showSymbolPicker` 拆出通用 `openPicker(titleText, items,
+  anchor, mode)`（`items=[{label,title,onPick}]`、`box.dataset.pickerMode=mode`），薄封装
+  `showSymbolPicker`（`mode="symbol"`，**选项文本仍是 VCD 全路径、B4 探针口径不变**）与 `showScopePicker`
+  （`mode="scope"`，选项 = `scope.path`）。新增 `moduleScopes(index, moduleName)` / `modulePorts(index,
+  moduleName)` / `addVcdPathsToWave(paths)`（**批量、只 render 一次**、末尾 `scrollWaveToWatchPath`、
+  **不设状态栏**，返回 `{ready,added[],existed[],missing[]}`）/ `modulePortsStatus(scopePath, portCount,
+  result)`（唯一汇总文案入口）/ `addModulePortsToWave(scope)` / `addModulePortsFromCode(context)`。
+  三处提示追加 `Ctrl+Alt+4`（**G1 断言的 `/双击变量名/` 仍在**）；`__wpsim` 增探针
+  `addModulePortsFromCode`/`moduleScopesOf`/`modulePortsOf`/`addVcdPathsToWave`/`get pickerMode`。
+- `tools/e2e-rtl.mjs` 新增 **J 段（J0~J7，9 条）**，见下。
+
+**兼容口径**
+- 光标在**模块体内**（非实例）→ 取该模块端口，作用域按「模块名 → 例化路径」解析；顶层模块映射到
+  `tb.dut`。光标在**实例名**上 → 取**被例化模块**的端口，作用域 = 该实例的例化路径。多候选（同名模块
+  多处例化 / 同名实例名）→ 弹 `mode="scope"` 浮层让用户选，**不猜**。
+- 重复触发**幂等**（已在画布的行进 `existed` 桶，不重复加）。无 VCD 数据 / 目标未 dump → 给中文说明。
+
+**本轮修掉的真 bug**
+`addModulePortsFromCode` 分支①（光标在实例名上）原想用 `findSymbols` 命中项的 `moduleName` 查作用域
+——**错的**：`buildSymbolIndex` 里 `entry.symbols.push({...symbol, moduleName: entry.name})` 会把**实例
+符号**的 `moduleName` 覆盖成**定义所在模块**（被例化模块名在符号上已丢）。改为按「**实例名后缀**」直接查
+`index.instancePaths`（那里的 `moduleName` 才是被例化模块）。e2e-rtl J4 守着这条（见 06 P36）。
+
+**验证（2026-09-10 第十九轮实测）**
+- regression **79/79**；e2e-rtl **61/61**（新增 J0~J7 共 9 条：一次加 4 端口 `tb.dut.clk|rst_n|en|q`
+  （`moduleRowsDelta===4`、`pickerMode===null`）/ 重复触发幂等 / `sub.v` 同名两例化 → `pickerMode==='scope'`
+  候选 `['tb.dut.u_a','tb.dut.u_b']`、点 `tb.dut.u_b` 加 `tb.dut.u_b.clk` / 光标在实例名 `u_a` → 唯一作用域
+  直加（真 bug 修复点）/ `Ctrl+Alt+4` 与 `Ctrl+Alt+W` 同链路 / **只按 `Ctrl+4`（无 Alt）不触发** /
+  探针 `modulePortsOf('counter')`=4、`modulePortsOf('sub')`=1、`moduleScopesOf('sub')`=2、RTL 树仍无端口行 /
+  `addVcdPathsToWave` 三桶分类）；e2e-ui 73/73；e2e-sim 0 失败；probe-param 全过；真 exe 冒烟通过。
+- **J 段首跑踩坑（测试自身设计错误，已写 06 P36）**：首跑 58/61，3 条失败 → J2b/J3 用
+  `clearWatches()` 清理观察行，但它只 `m_signals.splice`、未清 `state.simWatches` →
+  `render()`/`syncSimRows()` 按登记把行**重建回来** → 删除该断言，改用 J7 三桶分类覆盖 `added` 桶；
+  J4 是**真 bug**（见上），改实现不改断言。
+- exe 重建：`WavePaintClean.exe` **21,982,720 B**、时间戳 **2026-09-10 22:49:32**、
+  `version.txt` = `v0.4.0 build 2026-09-10 22:49:32 a201338`（`a201338` = **构建时 HEAD**，
+  承载 #87② 的 commit 是它的**下一个**）；C8 特征串 `openPicker`=3、`showScopePicker`=3、
+  `addModulePortsFromCode`=4、`modulePortsStatus`=2、`addVcdPathsToWave`=4、`pickerMode`=4、
+  `hotkey4`=1、`Ctrl+Alt+4`=12（全 >0）。
+
+**范围与后续**：#87② 闭环（本轮无阻塞）。**#76（B1~B5）+ #87①②③ 至此全部收口**。
+下一项 = **侧栏 / 整体 UI 重构设计方案**（08 §2，**先出方案给用户 review，不直接开工**）；
+#84/#77 已推迟远期（08 §3）。RTL 树口径未变（仍纯层级浏览，见 §4.10）。详见 07 D19 / 06 P36 /
+08 §1.3 / 日志 2026-09-10 第十九轮。
 
 ---
 ## 5. 已知未排期方向
@@ -1022,6 +1088,22 @@ RTL 树口径未变（仍纯层级浏览，见 §4.10）。下一步 = **#87②�
 - **光标联动的事件源**：**只挂 `keyup`/`mouseup` 覆盖不到纯光标移动**，必须同时订阅
   `ownerDocument` 的 `selectionchange`；再配合位置签名去重 + 「焦点在编辑器内」判定，
   以及 `setText()` 重建后**强制补发**（见 06 P34）。
+- **全部接口批量加波形（#87②，已落地）**：唯一入口 = `ui-bridge.addModulePortsFromCode(context)`，
+  批量落库 = **`addVcdPathsToWave(paths)`**（**只 render 一次**、三桶 `added/existed/missing`、
+  **不设状态栏**、末尾滚动定位）—— 「全部接口」**只指模块端口**（`kind === "port"`，`modulePorts`
+  按名去重），体内 `wire/reg` 仍走 B4 单点加；**不要**为了「顺手」把 `wire/reg` 也批量灌。作用域一律
+  按**例化路径**（顶层模块 → `tb.dut`）。多候选只复用**代码区旁轻量浮层** `openPicker` `mode="scope"`，
+  **不得**另建“信号层次选择框”，也不放到 RTL 树上。改前读 07 D19 / 06 P36 / e2e-rtl J0~J7。
+- **`Ctrl+数字` 一律别用作应用快捷键**：Chromium/Edge 把 `Ctrl+数字` 当**浏览器级「切换标签页」**
+  加速键，页面收不到 keydown（与 `Ctrl+W` 同源）。所以 B4 用 `Ctrl+Alt+W`、#87② 用 `Ctrl+Alt+4`。
+  以后给 exe 内 Web 界面配快捷键，**先假设浏览器会吞**（见 06 P33/P36）。
+- **实例符号的 `moduleName` 会被索引覆盖**：`buildSymbolIndex` 里
+  `entry.symbols.push({...symbol, moduleName: entry.name})` → 实例符号的 `moduleName` = **定义所在模块**，
+  不是**被例化模块**。要拿被例化模块名，走 `index.instancePaths[...]` 的 `moduleName`（按实例名后缀查）。
+  见 06 P36。
+- **e2e 观察行清理陷阱**：`clearWatches()` 只 `m_signals.splice`、**不清 `state.simWatches`** →
+  `render()`/`syncSimRows()` 会按登记把行**重建回来**。写观察行相关断言时，要么同时清登记，
+  要么改用「桶分类」口径（e2e-rtl J7 即此）。
 ---
 
 ## 7. 维护规则

@@ -489,7 +489,10 @@ function initSourceCodeView() {
     // rtl-panel 只负责取词与触发，映射与画布落点在这里（见 addSymbolFromCode）。
     onAddSymbol: (context) => addSymbolFromCode(context),
     // #76 B3：光标/选区变化 → 「代码 → 树」反向高亮（仿 Verdi nTrace 的 Active Annotation）
-    onCursorMove: (context) => scheduleActiveSync(context)
+    onCursorMove: (context) => scheduleActiveSync(context),
+    // #87②：代码区 Ctrl+Alt+4 → 把光标所在模块/实例的全部接口批量加入波形
+    // （rtl-panel 仍只负责取词与触发，作用域解析与落点在 addModulePortsFromCode）。
+    onAddScope: (context) => addModulePortsFromCode(context)
   });
   const usingCm = !!sourceCodeView.active;
   refs.cmHost.style.display = usingCm ? "block" : "none";
@@ -601,8 +604,12 @@ function currentSymbolIndex() {
 //      （不是侧栏面板、不显示 RTL 层级树 —— 用户明确要求）；无候选 → 中文提示。
 // 观察行走 state.simWatches（#85 链路）：不进 readWaveDocument、不生成激励。
 
-// 轻量候选选择器（单例）。挂在 document.body 上绝对定位，点击项 = 加入波形，
+// 轻量候选选择器（单例）。挂在 document.body 上绝对定位，点击项 = 执行该项动作，
 // 点击别处 / Esc = 关闭。
+// 两种用法共用同一个浮层（#76 B4 的「同名多候选」与 #87② 的「同名模块多实例」）：
+//   mode="symbol" —— 点了加入该 **信号**（B4）；
+//   mode="scope"  —— 点了加入该 **作用域的全部接口**（#87②）。
+// 探针用 pickerMode 区分，避免自动化把两种情况混为一谈。
 let symbolPicker = null;
 
 function closeSymbolPicker() {
@@ -612,26 +619,28 @@ function closeSymbolPicker() {
   symbolPicker = null;
 }
 
-function showSymbolPicker(name, paths, anchor) {
+// 通用浮层：items = [{ label, title, onPick }]，anchor = 触发点（鼠标/光标）坐标。
+function openPicker(titleText, items, anchor, mode) {
   closeSymbolPicker();
   const box = document.createElement("div");
   box.className = "sim-symbol-picker";
   box.setAttribute("role", "listbox");
+  box.dataset.pickerMode = String(mode || "symbol");
   const title = document.createElement("div");
   title.className = "sim-symbol-picker-title";
-  title.textContent = `${name} 匹配到 ${paths.length} 个信号，点一个加入波形：`;
+  title.textContent = titleText;
   box.appendChild(title);
-  for (const path of paths) {
+  for (const option of items) {
     const item = document.createElement("button");
     item.type = "button";
     item.className = "sim-symbol-picker-item";
-    item.textContent = path;
-    item.title = `加入波形：${path}`;
+    item.textContent = option.label;
+    if (option.title) item.title = option.title;
     item.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
       closeSymbolPicker();
-      pickVcdSignalIntoWave(path);
+      option.onPick();
     });
     box.appendChild(item);
   }
@@ -657,6 +666,34 @@ function showSymbolPicker(name, paths, anchor) {
     }
   };
   box.querySelector(".sim-symbol-picker-item")?.focus?.();
+}
+
+// B4：同名多候选 → 点一个**信号**加入波形（探针口径不变：选项文本 = VCD 全路径）。
+function showSymbolPicker(name, paths, anchor) {
+  openPicker(
+    `${name} 匹配到 ${paths.length} 个信号，点一个加入波形：`,
+    paths.map((path) => ({
+      label: path,
+      title: `加入波形：${path}`,
+      onPick: () => pickVcdSignalIntoWave(path)
+    })),
+    anchor,
+    "symbol"
+  );
+}
+
+// #87②：同名模块被例化多次 → 点一个**作用域**，把该实例的全部接口加入波形。
+function showScopePicker(moduleName, scopes, anchor) {
+  openPicker(
+    `${moduleName} 在层次中出现 ${scopes.length} 次，点一个作用域加入其全部接口：`,
+    scopes.map((scope) => ({
+      label: scope.path,
+      title: `加入 ${scope.path} 的全部接口`,
+      onPick: () => addModulePortsToWave(scope)
+    })),
+    anchor,
+    "scope"
+  );
 }
 
 // context：{ name, line, fileIndex?, selection?, exact?, via?, anchor? }
@@ -696,6 +733,171 @@ function addSymbolFromCode(context) {
   }
   showSymbolPicker(name, paths, info.anchor);
   setStatus(`${name} 有 ${paths.length} 个候选信号，请在代码区旁的选择器里点选。`);
+}
+
+// ---------------------------------------------------------------------------
+// #87②：模块全部接口一键入波形（仿 Verdi nWave `Ctrl+4` = 「把当前作用域的信号整批加入」）
+// ---------------------------------------------------------------------------
+// 与 B4 的分工：B4 = 光标处**那一个**变量；#87② = 光标所在**作用域的全部接口（端口）**。
+// 触发：代码区 `Ctrl+Alt+4`（**不用 `Ctrl+4`**：Chromium/Edge 把 `Ctrl+数字` 当浏览器级
+// 「切换标签页」加速键，页面收不到 keydown —— 与 `Ctrl+W` 同理，见 06 P33；手势落在
+// installCodeEditor 的第 7 参 onAddScope 上）。
+// 口径（严格遵守用户既定约束）：
+//   · 只从**代码**发起（光标位置决定目标），不弹「信号层次选择框」、不动 RTL 树、
+//     不恢复「仿真后全量灌信号」；
+//   · 「全部接口」= 模块的**端口**（kind==="port"：模块头 ANSI 端口 + 体内 input/output/
+//     inout 声明）。体内 wire/reg 属于内部信号，仍走 B4 单点加入，不在这里批量灌；
+//   · 目标作用域 = 该模块的例化路径（顶层模块自动映射到 `tb.dut`，与 VCD 全路径同口径）。
+//     同名模块被例化多次 → 复用代码区旁**轻量选择器**让人选作用域（不是一棵层级树）。
+// 批量加入走 addVcdPathsToWave()：**一次 render、一条汇总状态**，避免逐条重绘。
+function moduleScopes(index, moduleName) {
+  const name = String(moduleName || "").trim();
+  if (!name) return [];
+  return (Array.isArray(index?.instancePaths) ? index.instancePaths : [])
+    .filter((entry) => entry.moduleName === name);
+}
+
+// 模块的端口符号（按名去重：非 ANSI 写法下模块头与体内可能各出一条同名符号）。
+function modulePorts(index, moduleName) {
+  const name = String(moduleName || "").trim();
+  const mod = (Array.isArray(index?.modules) ? index.modules : []).find((entry) => entry.name === name);
+  if (!mod) return [];
+  const seen = new Set();
+  const out = [];
+  for (const symbol of (Array.isArray(mod.symbols) ? mod.symbols : [])) {
+    if (symbol.kind !== "port") continue;
+    const portName = String(symbol.name || "");
+    if (!portName || seen.has(portName)) continue;
+    seen.add(portName);
+    out.push(symbol);
+  }
+  return out;
+}
+
+// 批量把 VCD 全路径加为观察行（B4 的 pickVcdSignalIntoWave 是单条版，语义保持不动）。
+// 返回 { ready, added[], existed[], missing[] }；**不设状态栏**（调用方据此拼汇总文案）。
+function addVcdPathsToWave(paths) {
+  const result = { ready: false, added: [], existed: [], missing: [] };
+  const dw = window.document_wave;
+  if (!dw || !Array.isArray(dw.m_signals)) return result;
+  result.ready = true;
+  const wanted = [];
+  for (const path of (Array.isArray(paths) ? paths : [])) {
+    const text = String(path || "");
+    if (text && !wanted.includes(text)) wanted.push(text);
+  }
+  const effectiveCount = Math.max(4, canvasEffectiveCount());
+  // 模板行只借用配色/样式：优先用户自己的信号，避免拿注入行当模板。
+  const template = dw.m_signals.find((signal) => signal && !signal.__simInjected) || dw.m_signals[0] || null;
+  state.simWatches = Array.isArray(state.simWatches) ? state.simWatches : [];
+  for (const path of wanted) {
+    const vcdSignal = vcdSignalByFullPath(path);
+    if (!vcdSignal) { result.missing.push(path); continue; }
+    if (dw.m_signals.some((signal) => signal && signal.__simWatchPath === path)) {
+      result.existed.push(path);
+      continue;
+    }
+    const watch = {
+      path,
+      name: vcdSignal.name,
+      width: Math.max(1, Number(vcdSignal.width) || 1),
+      reference: vcdSignal.reference || ""
+    };
+    const row = buildWatchSignal(watch, state.simWatches.length, template, effectiveCount);
+    if (!row) { result.missing.push(path); continue; }   // 理论不可达：上面已确认有 VCD 数据
+    state.simWatches.push(watch);
+    dw.m_signals.push(row);
+    result.added.push(path);
+  }
+  if (result.added.length) {
+    dw.m_sampleCount = Math.max(dw.m_sampleCount || 0, canvasTimeSteps());
+  }
+  render();
+  if (result.added.length) scrollWaveToWatchPath(result.added[result.added.length - 1]);
+  return result;
+}
+
+// 汇总文案（单一入口，保证「加了几个 / 跳过几个 / 为什么跳过」都说清楚）。
+function modulePortsStatus(scopePath, portCount, result) {
+  if (!portCount) return `${scopePath} 所属模块没有接口（端口）信号。`;
+  if (!result.added.length) {
+    if (result.existed.length && !result.missing.length) {
+      return `${scopePath} 的 ${result.existed.length} 个接口已在波形中。`;
+    }
+    if (result.missing.length && !result.existed.length) {
+      return `未找到 ${scopePath} 的接口 VCD 数据（可能未被 dump，请检查 TB）。`;
+    }
+    return `${scopePath} 的接口已在波形中（${result.existed.length} 个），另有 ${result.missing.length} 个无 VCD 数据。`;
+  }
+  const extras = [];
+  if (result.existed.length) extras.push(`${result.existed.length} 个已在波形`);
+  if (result.missing.length) extras.push(`${result.missing.length} 个无 VCD 数据`);
+  return `已将 ${scopePath} 的 ${result.added.length} 个接口加入波形${extras.length ? `（${extras.join("，")}）` : ""}。`;
+}
+
+// 单个作用域 → 全部接口入波形。
+function addModulePortsToWave(scope) {
+  onWavepaintReady();
+  const scopePath = String(scope?.path || "").trim();
+  const ports = scopePath ? modulePorts(currentSymbolIndex(), scope?.moduleName) : [];
+  const result = addVcdPathsToWave(ports.map((port) => `${scopePath}.${port.name}`));
+  if (!result.ready) {
+    setStatus("画布尚未就绪，请稍后再试。");
+    return result;
+  }
+  result.scope = scopePath;
+  result.status = modulePortsStatus(scopePath, ports.length, result);
+  setStatus(result.status);
+  return result;
+}
+
+// context = 代码取词结果（与 B4 同源）。光标停在实例名上 → 该实例作用域；否则 → 所在模块。
+function addModulePortsFromCode(context) {
+  onWavepaintReady();
+  const info = context || sourceCodeView?.getContext?.() || {};
+  const fileIndex = Number.isFinite(Number(info.fileIndex)) ? Number(info.fileIndex) : state.active;
+  const line = Number(info.line) > 0 ? Number(info.line) : 0;
+  const index = currentSymbolIndex();
+  const name = String(info.name || "").trim();
+
+  // ① 光标正好停在**实例名**上（例化点那一行）→ 目标 = 这个实例的作用域
+  //    （对着 `sub u_a (.clk(clk));` 按 Ctrl+Alt+4 = 把 u_a 的全部接口加进来）。
+  //    ⚠ 不能用 findSymbols 命中项的 moduleName 去查作用域：符号索引给实例符号的
+  //    moduleName 是**定义所在模块**（counter），被例化的模块名（sub）在符号上已丢；
+  //    作用域一律直接按「实例名后缀」在 instancePaths 上定位（那里的 moduleName 才是
+  //    被例化模块）。
+  if (name) {
+    const { hits } = findSymbols(index, name, { fileIndex, line });
+    const inst = hits.find((symbol) => symbol.kind === "instance") || null;
+    if (inst) {
+      const suffix = `.${name}`;
+      const scopes = (Array.isArray(index?.instancePaths) ? index.instancePaths : [])
+        .filter((entry) => entry.path === name || entry.path.endsWith(suffix));
+      if (scopes.length === 1) { addModulePortsToWave(scopes[0]); return; }
+      if (scopes.length > 1) {
+        showScopePicker(scopes[0].moduleName || name, scopes, info.anchor);
+        setStatus(`实例 ${name} 在层次中出现 ${scopes.length} 次，请在代码区旁的选择器里点选作用域。`);
+        return;
+      }
+      setStatus(`未找到实例 ${name} 的例化作用域（无法确定 VCD 层级）。`);
+      return;
+    }
+  }
+
+  // ② 常规：光标所在模块 → 它的全部例化作用域
+  const moduleName = String(moduleAtLine(index, fileIndex, line)?.name || "");
+  if (!moduleName) {
+    setStatus("把光标放到某个模块体内（或实例名上）再按 Ctrl+Alt+4。");
+    return;
+  }
+  const scopes = moduleScopes(index, moduleName);
+  if (!scopes.length) {
+    setStatus(`未找到模块 ${moduleName} 的例化作用域（该模块可能未被例化，无法确定 VCD 层级）。`);
+    return;
+  }
+  if (scopes.length === 1) { addModulePortsToWave(scopes[0]); return; }
+  showScopePicker(moduleName, scopes, info.anchor);
+  setStatus(`模块 ${moduleName} 在层次中出现 ${scopes.length} 次，请在代码区旁的选择器里点选作用域。`);
 }
 
 // ---------------------------------------------------------------------------
@@ -1159,7 +1361,8 @@ async function runSimulation() {
     const notes = diagnoseSimulation(outputs, tbResult.bindings);
     refs.modulePreview.textContent = [
       `仿真完成：${outputs.length} 个输出信号，时长 tmax ${parsed.tmax}`,
-      "加信号：在左侧代码里双击变量名（或选中后按 Ctrl+Alt+W / 右键）即可加入波形。",
+      "加信号：在左侧代码里双击变量名（或选中后按 Ctrl+Alt+W / 右键）即可加入波形；"
+        + "按 Ctrl+Alt+4 可把光标所在模块/实例的全部接口批量加入。",
       `末值：${summarizeOutputs(outputs)}`,
       ...(notes.length ? ["", ...notes] : [])
     ].join("\n");
@@ -1168,7 +1371,7 @@ async function runSimulation() {
     if (refs.recoverBtn) refs.recoverBtn.style.display = "none"; // 仿真成功 → 收起自愈入口
     setStatus(notes.length
       ? `仿真完成：${outputs.length} 个输出信号，但有 ${notes.length} 条提醒，请查看详情。在代码里双击变量名可加入波形。`
-      : `仿真完成：${outputs.length} 个输出信号。在代码里双击变量名（或 Ctrl+Alt+W）即可加入波形。`);
+      : `仿真完成：${outputs.length} 个输出信号。在代码里双击变量名（或 Ctrl+Alt+W）加入波形；Ctrl+Alt+4 加整模块接口。`);
   } catch (error) {
     // Bug1（2026-09-09）：失败要区分「服务进程已死」与「服务瞬时重启/自愈中」。
     // 旧实现任何 fetch 失败都只提示“请重启应用” —— launcher 的 AcceptLoop 异常自愈
@@ -1335,7 +1538,7 @@ function render() {
   setStatus(outputCount
     ? (watchCount
       ? `波形中已有 ${watchCount} 个仿真信号（本次仿真共 ${outputCount} 个输出）。在代码里双击变量名可继续添加。`
-      : `仿真已就绪（${outputCount} 个输出信号）。在代码里双击变量名（或 Ctrl+Alt+W）即可加入波形。`)
+      : `仿真已就绪（${outputCount} 个输出信号）。在代码里双击变量名（或 Ctrl+Alt+W）加入波形；Ctrl+Alt+4 加整模块接口。`)
     : "暂无仿真结果，点「运行仿真」；加信号请在代码里双击变量名。");
   if (refs.toggleBtn) refs.toggleBtn.style.display = refs.panel?.classList.contains("collapsed") ? "block" : "none";
 }
@@ -1821,9 +2024,25 @@ window.__wpsim = {
   // #76 B4：代码内点/选中变量 → 加波形（交互主路径）的自动化入口。
   // 探针可直接造 {name, fileIndex, line}（等价于在代码里双击该变量名）。
   addSymbolFromCode,
+  // #87②：模块/实例全部接口一键入波形（Ctrl+Alt+4 的等价入口）。
+  // 探针可造 {name, fileIndex, line}（名字填实例名则按实例作用域，否则按所在模块）。
+  addModulePortsFromCode,
+  moduleScopesOf(moduleName) {
+    return moduleScopes(currentSymbolIndex(), moduleName).map((entry) => ({ ...entry }));
+  },
+  modulePortsOf(moduleName) {
+    return modulePorts(currentSymbolIndex(), moduleName)
+      .map((port) => ({ name: port.name, direction: port.direction, width: port.width, line: port.line }));
+  },
+  // 直接按 VCD 全路径批量入波形（返回 {ready,added,existed,missing}）；e2e 核验批量语义用。
+  addVcdPathsToWave,
   // 与代码区取词口径一致（光标/选区 → 符号名）；无 CM 时读 textarea。
   get codeContext() {
     return sourceCodeView?.getContext?.() || { name: "", line: 0, selection: "", exact: false, source: "none" };
+  },
+  // 当前候选选择器的用途（"symbol" = B4 选信号 / "scope" = #87② 选作用域）；未弹出为 null。
+  get pickerMode() {
+    return symbolPicker?.node?.dataset?.pickerMode || null;
   },
   // 当前候选选择器里的候选（未弹出时为 null）；探针用它核验"多候选 → 轻量选择器"。
   get symbolPickerOptions() {

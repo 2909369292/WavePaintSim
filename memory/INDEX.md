@@ -63,23 +63,27 @@
 - 禁止重做已完成的解混淆、重构、批次1~10。
 
 ---
-*最后更新：2026-09-10（第十八轮：**#76 B5 落地 —— 画布观察行随 `.wp` 工程存档与恢复**；
-**#76 至此收口：B1 ✅ + B4 ✅ + B3 ✅ + B5 ✅**，B2 已按第十二轮口径撤销）。`ui-bridge.js` 存档桥由
-「源码桥」**泛化**为 `injectArchiveFields(json, fields)`（文本拼接口径不变）+ `archiveSimWatches`
-（**只存找回元数据** `{path,name,width,reference}`）+ `applyArchivedExtras`（坏载荷静默 → **先清
-`vcd`/`outputs`/`simWatches`（画布换人）** → 恢复源码 → 恢复观察行 → 面板就绪则刷新 + 状态栏合并
-文案）+ `applySourceFilesFromArchive`/`applySimWatchesFromArchive`/`adoptArchivedWatchRows`
-（「行名 == 观察路径」认领 + 补回 `width`/`kind`/`msb`/`lsb`，幂等）+ `syncSimRows`「**无 VCD 时
-回退工程带回来的行**」+ `resetSourceFiles` 「新工程全复位」+ `__wpsim.designSignalNames` 探针。
-**信号组无需另存**（核心已逐字段存还原，`GroupManager` 纯函数派生）。验证 regression **79/79** +
-e2e-rtl **52/52**（I1~I6：存档含 `simWatches`、载入回注入语义 + 位宽补回、观察行不进激励、新建全
-复位、反复往返 + 旧工程兼容、坏 JSON 不抛）+ e2e-ui 73/73 + e2e-sim 0 失败 + probe-param 全过 +
-真 exe 冒烟通过，exe 重建 `22:23:52`（`v0.4.0 build 2026-09-10 22:23:51 5ec07e7`，`5ec07e7` = **构建时
-HEAD**，不代表落后）；**未改 `wavepaint.clean.js` 与 `sim/engine.js` 一行**（C9 守住）。新增
-04 §4.16（§1 快照 + §2 时间线补记第十七/十八轮 + §4.4 #76 收口 + §6 补 B5 口径）、06 P35（观察行随
-工程存档三坑）、07 D18（B5 存档口径）、03 表 F/H #76 状态（**B1~B5 全部完成**）、08 文件头/§1/§1.2
-（B5 ✅ + #87② 开工点）、09 全篇切第十九轮、`05-LOGS.md` 索引、本页脚、`memory/logs/2026-09-10.md`
-「第十八轮」。同轮序列：第十七轮 #76 B3、第十六轮 #76 B4、第十五轮 #76 B1、第十四轮 #86 A1~A4、
-第十三轮服务在线性根治。**主线下一项 = #87②**（模块全部接口一键入波形，仿 nWave `Ctrl+4`）；其后
-侧栏/整体 UI 重构为并行方案线（08 §2，**先出方案给用户 review**）；#84/#77 已推迟远期。
-维护者：任何接手的 AI。*
+*最后更新：2026-09-10（第十九轮：**#87② 落地 —— 模块/实例全部接口一键入波形（仿 nWave `Ctrl+4`）**；
+**#76（B1~B5）+ #87①②③ 至此全部收口**）。两条硬口径：**触发键 = `Ctrl+Alt+4`**（**不是 `Ctrl+4`** ——
+Chromium/Edge 把 `Ctrl+数字` 当浏览器级「切换标签页」加速键，页面收不到 keydown，与 `Ctrl+W` 同源，
+见 06 P36）；**「全部接口」= 模块端口**（`kind === "port"`，`modulePorts` 按名去重），体内 `wire/reg`
+仍走 B4 单点加入；目标作用域 = **例化路径**（顶层模块 → `tb.dut`），与 VCD 全路径同口径。
+落点：`rtl-panel.js` `installCodeEditor` 第 7 参 `onAddScope` + 触发块统一 `request(via,event,handler)`
+（未接线的手势**静默放过、不吞事件**）+ 捕获阶段 `Ctrl+Alt+4`
+（`key==="4"||code==="Digit4"||code==="Numpad4"`）；`ui-bridge.js` 浮层泛化
+`openPicker(title,items,anchor,mode)`（B4 `mode="symbol"` 选项文本口径不变）+ `showScopePicker`
+(`mode="scope"`) + `moduleScopes`/`modulePorts`/**`addVcdPathsToWave`**（**批量、只 render 一次**、
+三桶 `added/existed/missing`、**不设状态栏**）/`modulePortsStatus`（唯一文案入口）/`addModulePortsToWave`/
+`addModulePortsFromCode` + 三处提示追加 `Ctrl+Alt+4` + `__wpsim` 探针。**本轮修掉一个真 bug**：光标在
+实例名上时**不能**用 `findSymbols` 命中项的 `moduleName` 查作用域（`buildSymbolIndex` 把实例符号的
+`moduleName` 覆盖成「定义所在模块」，被例化模块名在符号上已丢）→ 改为按「**实例名后缀**」查
+`index.instancePaths`。验证 regression **79/79** + e2e-rtl **61/61**（J0~J7：一次加 4 端口 / 幂等 /
+同名两例化 `mode="scope"` 选择器 / 实例名直加 / `Ctrl+Alt+4` 与 `Ctrl+Alt+W` 同链路 / **只按 `Ctrl+4`
+不触发** / 探针 + RTL 树仍无端口行 / `addVcdPathsToWave` 三桶）+ e2e-ui 73/73 + e2e-sim 0 失败 +
+probe-param 全过 + 真 exe 冒烟通过，exe 重建 `22:49:32`（`v0.4.0 build 2026-09-10 22:49:32 a201338`，
+`a201338` = **构建时 HEAD**，不代表落后）；**未改 `wavepaint.clean.js` 与 `sim/engine.js` 一行**（C9 守住）。
+新增 04 §4.17、06 P36、07 D19、08 §1.3、03 表 F/H #87 状态（①②③ 全部落地）、09 全篇切第二十轮、
+`05-LOGS.md` 索引、`memory/logs/2026-09-10.md`「第十九轮」。同轮序列：第十八轮 #76 B5、第十七轮 #76 B3、
+第十六轮 #76 B4、第十五轮 #76 B1、第十四轮 #86 A1~A4、第十三轮服务在线性根治。
+**下一项 = 侧栏 / 整体 UI 重构设计方案**（08 §2，**先出方案给用户 review，不直接开工**）；
+#84/#77 仍为远期。维护者：任何接手的 AI。*
