@@ -250,3 +250,58 @@
   中文内容经 shell 回显/管道/读改写搬进文件；改完长文档用脚本核对：全文无“0D 后非 0A”、
   无行首意外丢字（如 `efreshVcdTree`/`ode --check` 这类畸形词）。命令输出落盘再读时用
   `cmd /c "... > file 2>&1"`，避免 PowerShell 管道改写目标文件编码。
+
+## P28 · `ivlRoot` 只在 cache 命中分支赋值 → 换版本后首次启动必崩，服务根本没起来
+
+- **症状**：重建 exe 后重启应用，**点击仿真无任何响应 / 服务不在线**，页面像是连不上本地
+  服务；用户感受 = 「直接无法仿真」。而同一份代码在「第二次启动」时却正常——极易被误判成
+  「偶发」「环境问题」。
+- **根因**：`WavePaintLauncher.cs` 资源准备有 cache / extract 两条路径。`ivlRoot` **只在
+  cache 命中分支**被赋值；换版本后 cache 失效 → 走 extract 分支 → 后续 `Path.Combine(ivlRoot, …)`
+  在 `ivlRoot == null` 上抛 `ArgumentNullException` → 资源准备中断 → **HttpListener 从未启动**。
+  日志实证（`%TEMP%\WavePaintClean_sim.log`）：
+  `BOOT resources=extract` → `IVL repair failed: ArgumentNullException path1`；
+  修复后同路径变为 `SERVER start pid=… port=17817` + 首仿正常。
+- **解法**：① extract 分支**末尾统一** `ivlRoot = Path.Combine(root, "ivl")`（不再依赖分支）；
+  ② 新增 `EnsureIvlReady(out string error)` 二次兜底，**并且在每轮 `/api/sim` 之前也调用**
+  —— iverilog 被删/损坏时从内嵌 `ivl.zip` 现补，补不了返回**可读中文错误**而不是静默 500。
+- **预防**：凡是「只在 cache 命中分支初始化」的变量都是定时炸弹；**每次 exe 重建后的第一次
+  启动都必然走 extract 分支**，所以「重建 → 首启」这条路径必须每轮回归验证（本项目的
+  `verify-recovery2.mjs` / exe 冒烟即覆盖它）。看到 `ArgumentNullException` + `path1` 直查此坑。
+
+## P29 · 随机端口 + 只看窗口标题判活 + 固定目录整删重解（服务可用性三连）
+
+- **症状**：三类表现，用户统称「仿真请求无响应」：① 点仿真立刻失败（`ERR_CONNECTION_REFUSED`）；
+  ② 重启应用后**老页面**永远连不上，刷新也没用；③ 请求返回 404/乱码（像是发给了别人）。
+  另有「重建后第一次启动必崩」（见 P28）。
+- **根因**：① exe 每次启动用**随机端口** → 页面 origin（含端口）跨会话变化，已打开页面被
+  钉死在旧端口上；② `HasWindow()` 只看 `msedge` 窗口标题（`MainWindowTitle`），无法证明
+  「窗口指向我这个端口/构建」，残留同名窗口就误判服务在线（#82 已收窗，但判活口径仍脆）；
+  ③ 端口无身份标识 → 端口被第三方程序占用时，页面会把 `/api/sim` 发给**别人的**本地服务。
+- **解法**：① **固定首选端口 `PreferredPort = 17817`**（启动失败才换，并标注
+  `fallback-port`）⇒ 页面 origin 跨会话稳定、可直接重连；② 窗口存活改 `FindWaveWindowHandles()`
+  枚举全部可见顶层窗口（与 `CloseLegacyWindows()` 同源，真值来源唯一），`HasWindow()` 探测
+  失败时返回 `true` **保守**（宁可多活一会儿也不误杀服务）；退出条件收紧为
+  `everSeen && windowProbeOk && gone>24 && idle>90000`；③ `/api/ping` 应答带身份标识
+  `WAVEPAINT-SERVICE\n端口\nbuildStamp\n`（+ `Cache-Control: no-store`），前端
+  `service-guard.pingOrigin` **必须校验首行**才认，第三方占用同端口一律判为离线。
+- **预防**：改端口策略 / 窗口判活 / ping 格式前先读本条。**17817 是设计而非巧合**：
+  origin 稳定还顺带让 localStorage 跨会话保留（缓解 #81 Bug3 教程隐形重跑）。
+  新写「判活」逻辑时永远带身份标识，绝不能只看 `ok/200`。
+
+## P30 · 跨端口整页跳转会丢未保存画布内容（本应用没有自动保存）
+
+- **症状**：本想在服务换端口时「跳过去自动修好」，结果用户画布上未保存的编辑内容**全部消失**
+  —— 比原来的「仿真失败」严重得多。
+- **根因**：本应用**没有自动保存/草稿恢复**：波形数据只活在当前页面内存 + 用户手动导出。
+  任何 `location.href = 别处` / `location.replace` 都会静默销毁当前文档。同理，用
+  `<a target=_blank>` / `window.open` / 顶层跳转去触发 `wavepaint:` 协议也有两个额外风险：
+  ① 被浏览器 `user gesture is required` 策略拦下（实测）；② 协议未注册时顶层跳转会把
+  当前页面顶掉。
+- **解法**：恢复路径一律**不跳转**：① 服务在**另一个回环端口** → 只把 API 基址改过去
+  （`simApiBase`，服务端对回环 origin 放行 CORS，`text/plain` 属简单请求不触发预检）；
+  ② 服务死了 → 用 `wavepaint://start?port=<本页端口>` **把服务拉回当前端口**（同源，无需跳转
+  ⇒ 未保存内容原地保留）；③ 触发协议**只用隐藏 iframe**（`relaunch()`），失败最多静默。
+- **预防**：`service-guard.recover()` 的返回值 `alive|restarted|elsewhere|dead` 是**上报**，
+  不是命令 —— 调用方**禁止**把它翻译成跳转。以后任何「自动修复」设计，先问一句
+  「会不会让用户丢未保存内容」。

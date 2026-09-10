@@ -737,6 +737,11 @@
                 <textarea id="tb-source" spellcheck="false" readonly placeholder="点击「生成 TB」生成 testbench，或点「运行仿真」后自动生成。"></textarea>
             </div>
             <div id="sim-status" class="sim-status"></div>
+            <!-- 服务彻底死亡时的手动自愈入口（默认隐藏，ui-bridge 在自动恢复失败时显示）。
+                 点击后用 wavepaint: 协议拉起 exe；首次浏览器会弹一次「是否允许打开
+                 wavepaint:」确认框，勾选「始终允许」后以后无感。 -->
+            <button id="sim-recover" type="button"
+                    style="display:none;margin:6px 0 0;width:100%;">启动本地仿真服务</button>
             <!-- 收起入口只保留「点击表头」这一个（原底部「收起」按钮冗余，已删）；
                  展开入口 = 收起后贴在右缘的竖排「仿真」标签。 -->
         </div>
@@ -809,6 +814,11 @@
     <script src="js/core/wpf.js"></script>
     <!-- launcher 存活心跳：每 2s 向 api/ping 报活，防「长时间纯编辑后被误判空闲退出 → 仿真服务不在线」 -->
     <script src="js/core/heartbeat.js"></script>
+    <!-- 本地仿真服务守卫（2026-09-10 根治「点运行仿真无响应」）：
+         ping 带身份标识判活（绝不错认占用同端口的第三方服务）→ 同源/固定首选端口
+         跨端口发现 → 服务真死时用 wavepaint: 协议重拉 exe。必须是普通 script
+         且早于 ui-bridge.js（ESM，defer 语义，晚于普通 script 执行）。 -->
+    <script src="js/core/service-guard.js"></script>
     <!-- v0.3.0：值输入编辑（Bit/Vector 弹窗 + 整步子步粒度 + Ctrl 框选）。
          必须加载在 editor/draw.js 之前，其 document 捕获监听才能先于绘制模块判定接管。 -->
     <script src="js/editor/value-input.js"></script>

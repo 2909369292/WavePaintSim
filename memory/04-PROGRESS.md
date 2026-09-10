@@ -5,21 +5,21 @@
 
 ---
 
-## 1. 当前状态快照（2026-09-09）
+## 1. 当前状态快照（2026-09-10）
 
 | 项 | 状态 |
 |---|---|
 | 当前版本 | `v0.4.0 build <自动时间> <git短哈希>` |
 | 代码状态 | 主线可用，`main` 分支 |
 | 构建产物 | `D:\Files\Code\波形\WavePaintClean.exe` |
-| 最近完成需求 | Verdi 先行批第一步 **#85：VCD 树点信号 → 画布「观察行」**（2026-09-09 第十轮落地，见 §4.8）；此前第六轮 5 项 #90/#88/#92/#91/#89 与 #93 混淆残留清理均已收尾 |
+| 最近完成需求 | **#86 服务在线性根治：本地仿真服务自愈（2026-09-10 第十三轮落地，见 §4.11）**——固定首选端口 17817 + 身份标识判活 + `ivlRoot` 首启崩溃修复 + 页面侧自动重连/重拉并自动重试仿真。此前 **#85：VCD 树点信号 → 画布「观察行」**（2026-09-09 第十轮，见 §4.8）、第六轮 5 项 #90/#88/#92/#91/#89 与 #93 混淆残留清理均已收尾 |
 | 最近完成文档 | **第十二轮澄清**（2026-09-09）：加信号主路径 = 代码内点/选中变量（“中追”式 = #87①/#76 B4）；RTL 结构树降级为纯代码层级浏览（文件→模块→实例），删「端口 Ports / 参数 Parameters」分组、不显示接口信号、不承载加信号交互（原 #76 B2 撤销）。见 §4.10 / 03 表 F/H / 08 §1.2/§2 |
-| 最近一轮（第十二轮，澄清+首批实施） | 用户拍板：通过代码直接下信号，RTL tree 仅用于看代码层级、不需要看到接口信号。先以纯文档 commit 修订记忆口径（详见 §4.10 / 08 §1.2/§2）；随后**同会话首批实施 = RTL 树瘦身已落地并验证**（renderRtlTree 删 ports/params 分组与模块行端口计数，只留 文件→模块→实例 跳转；数据层 `buildRtlNav` 不变供解析/B1 复用；e2e-rtl 新增 B3 断言 → 16/16、regression 62/62、e2e-ui 73/73、真 exe 冒烟通过、exe 已重建 22:19:04） |
+| 最近一轮（第十三轮，2026-09-10） | **插队专项：本地仿真服务自愈根治（详见 §4.11）**。用户报「本地仿真失败 / 请求无响应」，要求「每次点击仿真必须调用仿真服务、必须仿真成功」。查清 **四类并存死因**（进程死 / 换端口 / 端口被占 / **换版本后首次启动必崩 `ivlRoot` null**），并逐条根治：launcher 固定端口 17817 + `PING_TAG` 身份标识 + `ivlRoot` extract 分支修复 + 协议 `wavepaint://start?port=` 同端口重拉；新增 `js/core/service-guard.js` 页面侧守卫；ui-bridge 失败路径改为「发现 → 自动重连/重拉 → 自动重试一次 → 手动按钮兜底」。全部套件复跑全绿，exe 已重建（20:05:06） |
 | 当前阻塞 | 无 |
-| 下一步主线 | 开工 **#86**（实例→模块定义源码跳转 + 源码文件导入 + 例化解析增强，拆解 A1~A4 见 08 §1.1）→ **#76**（B1 模块体内符号索引/scope 映射 → **B4 代码点变量加波形 = 唯一加信号主路径** → B3 双向跳转/B5 信号组入 `.wp`，拆解见 08 §1.2）→ **#87②**；#84/#77 已推迟远期（08 §3）。第十二轮首批实施（RTL 树瘦身）已完成，RTL 树不再承载端口/参数/加信号 |
-| 测试基线 | regression 62/62（含 #89 新增 4 断言）、e2e-sim 0 失败、probe-param 全过 |
-| UI 基线 | e2e-rtl 16/16（含 #85 D1~D6 + 第十二轮 B3 RTL 树纯层级浏览断言）；e2e-ui 73/73（真实 Edge，含 D2/F/G/H 段）；probe-tutorial / probe-addbtn / probe-simfail 全过；真 exe 冒烟通过（#82：收窗 5→1 + 端到端仿真 + UIA 真实点击 RUN→RESULT；本批 exe 冒烟 22:19 也通过） |
-| 交付提醒 | 重启应用、从唯一路径启动、面板版本号自查（应显示 `v0.4.0 build 2026-09-09 22:19:04 31402a0`）；本次 exe 内置第十二轮 RTL 树瘦身（rtl-panel.js `renderRtlTree` 无端口/参数分组）、#85（`simWatches`/`pickVcdSignalIntoWave`）与第六轮收官 clean.js |
+| 下一步主线 | 开工 **#86**（实例→模块定义源码跳转 + 源码文件导入 + 例化解析增强，拆解 A1~A4 见 08 §1.1）→ **#76**（B1 模块体内符号索引/scope 映射 → **B4 代码点变量加波形 = 唯一加信号主路径** → B3 双向跳转/B5 信号组入 `.wp`，拆解见 08 §1.2）→ **#87②**；#84/#77 已推迟远期（08 §3）。第十二轮首批实施（RTL 树瘦身）已完成，RTL 树不再承载端口/参数/加信号；第十三轮的服务自愈是**独立专项**，不改变上述顺序 |
+| 测试基线 | regression 62/62（含 #89 新增 4 断言）、e2e-sim 0 失败、probe-param 全过；**2026-09-10 复跑再确认：regression 62/62、e2e-sim 0 失败、e2e-rtl 16/16、e2e-ui 73/73** |
+| UI 基线 | e2e-rtl 16/16（含 #85 D1~D6 + 第十二轮 B3 RTL 树纯层级浏览断言）；e2e-ui 73/73（真实 Edge，含 D2/F/G/H 段）；probe-tutorial / probe-addbtn / probe-simfail 全过；真 exe 冒烟通过（#82：收窗 5→1 + 端到端仿真 + UIA 真实点击 RUN→RESULT）；**第十三轮新增自愈专测 `verify-recovery2.mjs` 17/17 + 真实 Edge 协议探针 `probe-protocol.mjs`（iframe 可拉起 exe、顶层跳转被拦）** |
+| 交付提醒 | 重启应用、从唯一路径启动、面板版本号自查（应显示 `v0.4.0 build 2026-09-10 20:05:06 72116e0`）；本次 exe 内置第十三轮服务自愈（固定端口 17817 + `WPServiceGuard` + `#sim-recover` 按钮）、第十二轮 RTL 树瘦身、#85（`simWatches`/`pickVcdSignalIntoWave`）与第六轮收官 clean.js。**首次**自愈时浏览器会弹一次「是否允许打开 wavepaint:」，勾选「始终允许」后无感（浏览器安全策略，无法绕过） |
 
 ---
 
@@ -45,6 +45,7 @@
 | 2026-09-09 | Verdi 先行批 #85：VCD 树点信号→画布观察行（第十轮） | ui-bridge.js `state.simWatches` + `pickVcdSignalIntoWave`：观察行 `__simInjected:true` 不进激励，重仿真按 VCD 路径刷新去重，删行不复活可重加；e2e-rtl 新增 D1~D6 → 15/15 + regression 62/62 + e2e-ui 73/73 + exe 重建（19:31:28） |
 | 2026-09-09 | 第十一轮：优先级重排（纯规划文档） | 用户拍板：近期主线改 **#86 → #76**（底层支持更多 Verilog 代码互动 + 解析能力增强；交互层仿 Verdi）；#87 优先级提高（① 并入 #76、② 紧随其后）；侧栏/整体 UI 重构设计优先级提高（方案线）；**#84 波形查看增强、#77 Active Annotation 推迟打入远期**；更新 03/04/05/08/09 与当日日志，未动代码无需重建 exe |
 | 2026-09-09 | 第十二轮首批实施：RTL 树瘦身完成 | 用户拍板「代码内点变量 = 加信号唯一主路径、RTL 树仅层级浏览」后同会话实施：`rtl-panel.js renderRtlTree` 删「端口 Ports / 参数 Parameters」分组与模块行端口计数（模块 meta 只显示实例数+行号），实例/模块跳转保留；`index.html` 注释同步口径；e2e-rtl 新增 B3 断言（无 .rtl-port/.rtl-param、无端口/参数文案）→ 16/16；regression 62/62 + e2e-ui 73/73 + 真 exe 冒烟通过；exe 重建（22:19:04，特征串「纯代码层级浏览」命中） |
+| 2026-09-10 | 第十三轮插队专项：#86 服务在线性根治（本地仿真服务自愈） | 用户报「本地仿真失败/请求无响应」→ 查清四类并存死因（进程死 / 每次随机换端口 / 端口被第三方占 / **换版本后首次启动 `ivlRoot` 为 null 必崩**，日志 `IVL repair failed: ArgumentNullException`）；逐条根治：固定首选端口 **17817** + `/api/ping` 带 `PING_TAG` 身份标识 + extract 分支统一 `ivlRoot` 赋值与 `EnsureIvlReady` 每轮兜底 + `wavepaint://start?port=` 同端口重拉；新增 `js/core/service-guard.js`（192 行，隐藏 iframe 重拉、`recover → alive/restarted/elsewhere/dead`、**绝不自动跳转**）；ui-bridge 失败路径改三段自愈 + `#sim-recover` 手动入口；dev-server `/api/ping` 对齐身份格式。验证：regression 62/62、e2e-sim 0 失败、e2e-rtl 16/16、e2e-ui 73/73、exe 冒烟通过、`verify-recovery2` 17/17、真实 Edge 协议探针证明「隐藏 iframe 可拉起 exe，顶层跳转被浏览器拦」；exe 重建（20:05:06） |
 
 ---
 
@@ -341,6 +342,75 @@ B3 断言（`.rtl-port`/`.rtl-param` 为 0、无端口/参数文案、实例行�
 `version.txt` = `v0.4.0 build 2026-09-09 22:19:04 31402a0`，特征串 `rg -a -c "纯代码层级浏览"`
 = 1）。数据层 `buildRtlNav` 仍产出 ports/params/instances 供解析测试与 #76 B1 scope 映射复用。
 
+### 4.11 ✅ 已完成：#86 服务在线性根治 —— 本地仿真服务自愈（2026-09-10 第十三轮，插队专项）
+
+用户报障（原话）：「本地仿真失败，反正请求无响应的问题，这个要从根本上去解决的。每次点击
+仿真的时候必须调用仿真服务，必须仿真成功」。本批**不是加提示、加重试**，而是把「服务不在线」
+这件事本身消灭掉。完整过程见 `memory/logs/2026-09-10.md`。
+
+**四类并存死因（缺一不可）**：
+
+1. **进程死** — exe 退出/被杀 → 端口无监听 → `fetch` 立刻 `ERR_CONNECTION_REFUSED`；
+   旧实现只弹「请重启应用」。
+2. **换端口** — 旧版每次启动随机端口 → 已打开页面 origin 钉死旧端口，刷新也没用。
+3. **端口被占** — 别的程序占了同端口 → `/api/sim` 发给「别人的」服务，拿到 404/乱码。
+4. **换版本后首次启动必崩（本轮新发现）** — `ivlRoot` 只在 cache 命中分支赋值；
+   换版本后首次启动走 extract 分支 → `Path.Combine(null, …)` → `ArgumentNullException`
+   → **服务根本没起来**。日志实证：`19:57:24 BOOT resources=extract` →
+   `IVL repair failed: ArgumentNullException path1`。**每轮重建 exe 后都会踩到这条路径**，
+   解释了历史上「重建后重启就仿真不了」的反复。
+
+**改动（5 个文件）**：
+
+- **`WavePaintLauncher.cs`（服务侧根治）**：`PreferredPort = 17817` 固定首选端口（页面 origin
+  跨会话稳定）；`PingTag = "WAVEPAINT-SERVICE"`，`/api/ping` 应答 `tag\n端口\nbuildStamp\n`
+  + `Cache-Control: no-store`；**extract 分支末尾统一 `ivlRoot = Path.Combine(root,"ivl")`**
+  + 新增 `EnsureIvlReady` 且在**每轮仿真前**也兜底；`ParsePortArg` 解析
+  `wavepaint://start?port=49234`，`MainCore` 走 `requestedPort>0 ? requestedPort : PreferredPort`
+  （**协议重拉回原端口 ⇒ 同源、无需跳转、不丢未保存内容**）；单实例互斥失败 → 探到活服务则
+  `OpenExistingInstance()`，否则记 `TAKE-OVER` 继续自起；启动失败换端口重试一次；窗口探测改
+  `FindWaveWindowHandles` 真值枚举（与 `CloseLegacyWindows` 同源），`HasWindow` 探测失败返回
+  true 保守；退出条件 `everSeen && windowProbeOk && gone>24 && idle>90000`。
+- **`js/core/service-guard.js`（新增 192 行，普通 script，早于 ui-bridge）**：`pingOrigin` 身份
+  校验判活（绝不错认占端口的第三方）、`ping` 同源、`discover`（同源 + `127.0.0.1:17817`）、
+  `waitForService`、`relaunch`（**隐藏 iframe** 加载 `wavepaint://start?port=<本页端口>`）、
+  `recover → {alive|restarted|elsewhere|dead}`；**`elsewhere` 只上报不跳转**。
+- **`index.html`**：引入 `service-guard.js`；`#sim-status` 后新增 `#sim-recover` 手动自愈按钮
+  （默认 `display:none`）。
+- **`js/sim/ui-bridge.js`（+142 行）**：`simApiBase`/`simApiUrl`（自愈到别的回环端口时改指向）；
+  探活拆 `probePlainPing` + `probeServerAlive`（`tagged || plain || relocated`）；
+  `recoverService` / `showRecoverHint` / **新增 `showRecoverPending`**（自动恢复进行中先亮手动
+  入口但文案不说「失败」，替换旧实现那处误导性提示）；`/api/sim` catch 分支重写为三段自愈
+  （在线 → 只给准确文案；不在线 → 快速发现并自动重试一次；进程真死 → 亮按钮 + 重拉 + 重试，
+  失败才给手动指引）；`#sim-recover` 点击重拉并重试。
+- **`tools/dev-server.mjs`**：`/api/ping` 对齐身份标识格式（否则本地开发时前端把 dev-server
+  判成离线、自愈误触发）。
+
+**验证（全绿）**：regression **62/62**、e2e-sim **0 失败**、e2e-rtl **16/16**、
+e2e-ui **73/73**（真实 Edge）、真 exe 冒烟（core/wpf/doc/canvas/汉化全在、无异常）、
+本轮自建 `verify-recovery2.mjs` **17/17**（含 D1「点运行仿真 + 服务已死 → 自愈 → 仿真完成」、
+D3「重拉回到同一端口 17817」、D6「页面全程未跳转」、C4「relaunch 不顶掉页面」）、
+真实 Edge 协议探针 `probe-protocol.mjs`（**T1 隐藏 iframe ✅ 拉起 exe**；T2/T3/T4
+`<a target=_blank>`/`window.open`/顶层跳转 ❌ 被 `user gesture is required` 拦下）。
+exe 已按 C1 重建：21,881,344 B、20:05:06、`version.txt` = `v0.4.0 build 2026-09-10 20:05:06 72116e0`；
+C8 特征串：`WAVEPAINT-SERVICE`=1 / `wavepaint:`=11 / `WPServiceGuard`=5 / `sim-recover`=2 /
+`showRecoverPending`=2 / `probePlainPing`=2 / `simApiBase`=8。
+
+**两条铁律（后人务必遵守）**：
+
+1. **恢复策略一律「改 `simApiBase` / 同端口重拉」，禁止自动整页跳转** —— 本应用**没有自动
+   保存**，跳转 = 用户画布内容全丢（见 06 P30）。
+2. `relaunch()` **必须用隐藏 iframe** —— 顶层跳转 / `window.open` / `<a target=_blank>`
+   均被浏览器用户手势策略拦下，且顶层跳转在协议未注册时会顶掉当前页面。
+
+**未覆盖项（明确登记，勿误以为已验证）**：浏览器首次弹「是否允许打开 wavepaint:」并勾选
+「始终允许」这一步只有真实用户桌面能走完，headless 无法覆盖；本轮用预置协议允许表 +
+模拟 OS 协议回调等价替代。
+
+**范围说明**：#86 在 03 表 H 的原定义是「实例→模块定义源码跳转 + 源码文件导入」（A1~A4），
+本轮做的是其中**独立子项「服务在线性」**（用户当轮唯一诉求）；**A1~A4 仍为 ⬜ 未开工**，
+仍是近期主线第一项。
+
 ---
 
 ## 5. 已知未排期方向
@@ -375,6 +445,15 @@ B3 断言（`.rtl-port`/`.rtl-param` 为 0、无端口/参数文案、实例行�
 - **死窗口陷阱（#82）**：Edge 同 profile 的 `--app` 窗口合并进一个 msedge 进程、无法按
   命令行区分 URL；`HasWindow()` 只看标题 → 残留窗口会让旧实例永不退出。重启/重建后开
   新窗前必须 `CloseLegacyWindows()` 收掉全部同名窗口，否则死端口页面会持续欺骗用户。
+- **服务可用性（第十三轮·2026-09-10）**：仿真服务端口**固定首选 17817**（页面 origin
+  跨会话稳定）；判活必须用带 `PING_TAG` 的 `/api/ping`（裸 `ok` 会把第三方服务误认成自己）；
+  `/api/ping` 应答格式 = `WAVEPAINT-SERVICE\n端口\nbuildStamp\n`，前端与 dev-server 必须一致。
+- **换版本首启陷阱（2026-09-10）**：extract 分支（每次 exe 重建后首启必走）里 `ivlRoot`
+  曾经只在 cache 分支赋值 → `Path.Combine(null,…)` 崩溃、服务根本没起来。凡是「只在
+  cache 命中分支初始化」的变量都是定时炸弹；`EnsureIvlReady` 现已每轮仿真前兜底。
+- **恢复 = 改 `simApiBase` / 同端口重拉，禁止自动跳转**：本应用没有自动保存，整页跳转会
+  丢用户未保存画布；`relaunch()` 只能用隐藏 iframe（顶层跳转会被手势策略拦、协议未注册时
+  还会顶掉页面）。
 
 ---
 

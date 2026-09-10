@@ -11,11 +11,11 @@
 |---|---|
 | 主线 | `main` |
 | 当前版本 | `v0.4.0 build <自动时间> <git短哈希>` |
-| 最近完成 | Verdi 先行批第一步 **#85：VCD 树点信号 → 画布「观察行」**（2026-09-09 第十轮，ui-bridge.js `state.simWatches` + `pickVcdSignalIntoWave`，观察行 `__simInjected:true` 不进激励、重仿真按 VCD 路径自动刷新去重、删行不复活可重加；e2e-rtl 15/15 含 D1~D6）；第六轮 #90/#88/#92/#91/#89 与 #93 混淆清理已收官；**第十二轮首批实施 RTL 树瘦身**（renderRtlTree 删「端口 Ports / 参数 Parameters」分组与端口计数，RTL 树只做代码层级浏览） |
+| 最近完成 | **#86 服务在线性根治：本地仿真服务自愈（2026-09-10 第十三轮插队专项）** —— 固定首选端口 **17817** + `/api/ping` 带 `PING_TAG` 身份标识 + **`ivlRoot` 换版本首启崩溃修复** + 新增 `js/core/service-guard.js`（自动重连 / 用 `wavepaint://start?port=` 同端口重拉 / **绝不自动跳转**）+ ui-bridge 失败路径三段自愈 + `#sim-recover` 手动入口；自建 `verify-recovery2.mjs` 17/17 + 真实 Edge 协议探针。详见 04 §4.11、07 D15、日志 2026-09-10。此前：**#85：VCD 树点信号 → 画布「观察行」**（第十轮）、第六轮 #90/#88/#92/#91/#89 与 #93 混淆清理收官、**第十二轮 RTL 树瘦身** |
 | 最近完成文档 | **第十二轮澄清**（2026-09-09）：加信号主路径 = 代码内点/选中变量（“中追”式 = #87①/#76 B4），**RTL 结构树降级为纯代码层级浏览**（文件→模块→实例，跳源码），删端口/参数分组、不显示接口信号、不承载加信号交互（原 #76 B2 撤销）——见 04 §4.10 / 03 表 F/H / 08 §1.2/§2；第十一轮规划重排仍生效（#86 → #76 → #87①/②，#84/#77 远期） |
-| 测试基线 | regression 62/62（含 #89 新增 4 断言）；e2e-sim 0 失败；probe-param 全过；e2e-rtl 16/16（含 #85 D1~D6 + 第十二轮 B3）；e2e-ui 73/73（真实 Edge，含 D2/F/G/H 段）；probe-tutorial/addbtn/simfail 全过；#82 真机冒烟（收窗 5→1 + 端到端仿真 + UIA 真实点击 RUN→RESULT）通过；本批真 exe 冒烟 22:19 通过；#93 绑定一致性 BINDINGS OK |
+| 测试基线 | regression 62/62（含 #89 新增 4 断言）；e2e-sim 0 失败；probe-param 全过；e2e-rtl 16/16（含 #85 D1~D6 + 第十二轮 B3）；e2e-ui 73/73（真实 Edge，含 D2/F/G/H 段）；probe-tutorial/addbtn/simfail 全过；#82 真机冒烟（收窗 5→1 + 端到端仿真 + UIA 真实点击 RUN→RESULT）通过；#93 绑定一致性 BINDINGS OK；**2026-09-10 复跑全绿（regression 62/62、e2e-sim 0 失败、e2e-rtl 16/16、e2e-ui 73/73）+ 新增自愈专测 `verify-recovery2.mjs` 17/17 + 真实 Edge 协议探针 `probe-protocol.mjs`（隐藏 iframe 可拉起 exe；顶层跳转/`window.open`/`<a target=_blank>` 被 `user gesture` 拦）** |
 | 当前阻塞 | 无 |
-| 下一步 | 第十二轮澄清后的近期主线 = **#86 → #76 B1/B4 → #87②**；**#76 B4（代码内点/选中变量加波形 = 唯一加信号主路径）是最终目标，RTL 树只做代码层级浏览**。先开工 **#86**（实例→模块定义源码跳转 + 源码文件导入 + 例化解析增强，拆解 A1~A4 见 08 §1.1），随后 #76 B1 符号索引/scope 映射 → B4。开工前先读 `08-ROADMAP.md` §1/§1.2、`03-REQUIREMENTS.md` 表 H、04 §4.9/§4.10 与 `memory/logs/2026-09-09.md` 第十一轮（重排）+ 第十二轮（澄清）+ 第五轮（Verdi 语义）+ 第十轮（#85） |
+| 下一步 | 第十三轮的服务自愈是**插队专项**（用户当轮唯一诉求），**不改变主线**。近期主线仍 = **#86 → #76 B1/B4 → #87②**；**#76 B4（代码内点/选中变量加波形 = 唯一加信号主路径）是最终目标，RTL 树只做代码层级浏览**。下一步开工 **#86 A1~A4**（实例→模块定义源码跳转 + 源码文件导入 + 例化解析增强，拆解见 08 §1.1），随后 #76 B1 符号索引/scope 映射 → B4。开工前先读 `08-ROADMAP.md` §1/§1.2、`03-REQUIREMENTS.md` 表 H、04 §4.9~§4.11 与 `memory/logs/2026-09-09.md` 第十/十一/十二轮 + `memory/logs/2026-09-10.md` |
 
 ---
 
@@ -24,7 +24,8 @@
 1. **读 `01-PROJECT.md`**
    - 理解架构、数据流、模块职责、唯一入口。
 2. **读 `02-WORKFLOW.md`**
-   - 理解 C1~C18 铁律，尤其是改代码后必须重建 exe、更新记忆、commit/push。
+   - 理解 C1~C19 铁律，尤其是改代码后必须重建 exe、更新记忆、commit/push，以及 C19
+     服务在线性不变量（固定端口 / 身份标识判活 / 恢复禁止跳转）。
 3. **读 `04-PROGRESS.md`**
    - 确认当前进度，不要重做已完成工作。
 
@@ -76,6 +77,10 @@
 - 不要绕过 `__core` / `wpf` 直接抓内部标识符。
 - 不要改 `sim/engine.js` 的 stride / 端口匹配 / VCD 回填（最易碎区）。
 - 不要重做 #85 的 VCD 侧（观察行链路已闭环）；RTL 树点行加波形是 #76 B2 新工作。
+- 不要动服务自愈的设计口径（2026-09-10 第十三轮）：端口固定 `17817`、`/api/ping` 必须带
+  `PING_TAG`、**恢复一律不跳转**、外部协议只用隐藏 iframe —— 动之前先读 07 D15 与 06 P28/P29/P30。
+- 不要重做第十三轮的服务在线性根治（已完成且全绿）；若又见「点仿真无响应」，先按
+  06 P28/P29 逐条排查，而不是重写自愈逻辑。
 
 ---
 
@@ -99,6 +104,21 @@ node .e2e-tmp/probe-addbtn.mjs     # Bug2：添加信号按钮/图标可见性�
 node .e2e-tmp/probe-tutorial.mjs   # Bug3：教程不隐形重启、无键盘拦截
 node tools/exe-smoke.mjs           # 先启动真 exe 再跑（读最新端口文件）
 ```
+
+### 4.1.1 服务自愈专项探针（2026-09-10 第十三轮，可复跑回归）
+
+```powershell
+node .e2e-tmp/verify-recovery2.mjs   # 17/17：身份标识判活 / recover 四态 / relaunch URL 带 port
+                                     #   / 「点运行仿真 + 服务死 → 自愈 → 仿真完成」/ 回同一端口 17817
+                                     #   / 「relaunch 不顶掉页面」「页面全程未跳转」
+node .e2e-tmp/probe-protocol.mjs     # 真实 Edge + 预置协议允许表：证明隐藏 iframe 能拉起 exe、
+                                     #   顶层跳转/window.open/<a target=_blank> 被 user gesture 拦
+```
+
+> 这两支探针在 `.e2e-tmp/`（不进 git）。若已随工作区清理丢失，重写要点：
+> 用 CDP 驱动 headless Edge；服务死亡用 `taskkill`，重拉用
+> `powershell Start-Process 'wavepaint://start?port=<port>'` 模拟 OS 协议回调
+> （headless 不会真调外部协议，真实协议拉起由 `probe-protocol.mjs` 单独证明）。
 
 `.e2e-tmp/` 已被 `.gitignore` 覆盖，探针不进 git；需要长期保留时再提炼成正式
 `tools/e2e-*.mjs`（未做，属可选）。

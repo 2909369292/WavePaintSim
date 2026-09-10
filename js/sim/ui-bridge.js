@@ -37,7 +37,12 @@ const refs = {};
 let sourceCodeView = null;      // #75 P0：CodeMirror 6 控制器（installCodeEditor 返回值）
 let rtlRefreshTimer = null;     // 编辑后防抖刷新 RTL 树
 let simAutoRetried = false;     // Bug1：/api/sim 网络失败后最多自动重试一次（用户重新点击时复位）
+// #86：服务自愈到「另一个回环端口」时把 /api/sim 指向那里（服务端对回环 origin 放行
+// CORS，且 text/plain 属简单请求不触发预检）。空串 = 同源（绝大多数情况）。
+let simApiBase = "";
 const SIM_REQUEST_TIMEOUT_MS = 45000; // 兜底：iverilog 卡死/服务假死时提示超时，避免无限「正在运行...」
+
+function simApiUrl(path) { return (simApiBase || "") + path; }
 
 // WavePaint 核心的 Bit 值数字编码（window.__wpConstants.WaveValue 默认值）：
 //   0=低, 1=高, -1=未定义(x), 2=高阻(z), 3=上拉(u), 4=下拉(d)
@@ -401,6 +406,7 @@ function initRefs() {
   refs.portPreview = el("port-preview");
   refs.modulePreview = el("module-preview");
   refs.status = el("sim-status");
+  refs.recoverBtn = el("sim-recover"); // 服务彻底死亡时的手动自愈入口（index.html 默认隐藏）
   refs.addFile = el("sim-addfile");
   refs.removeFile = el("sim-removefile");
   refs.parseBtn = el("sim-parse");
@@ -737,7 +743,10 @@ function buildTbPreview() {
 
 // Bug1：探活 —— 快速 GET api/ping（带超时）。用于区分「服务进程已死」与
 // 「服务瞬时重启/自愈中」：后者 ping 能在几百 ms 内成功，前者会失败。
-function probeServerAlive(timeoutMs = 800) {
+// 2026-09-10 根治「点仿真无响应」：优先用 WPServiceGuard 的「带身份标识」判活
+// （PING_TAG），避免把「占用同一端口的第三方服务」误判成本应用在线；
+// 同时保留裸 api/ping 兜底 —— dev-server / 旧 exe 只回 "OK"，没有标识行。
+function probePlainPing(timeoutMs = 800) {
   return new Promise((resolve) => {
     const controller = (typeof AbortController !== "undefined") ? new AbortController() : null;
     const timer = setTimeout(() => {
@@ -748,11 +757,62 @@ function probeServerAlive(timeoutMs = 800) {
       cache: "no-store",
       signal: controller ? controller.signal : undefined
     }).then((response) => {
+      clearTimeout(timer);
       resolve(!!(response && response.ok));
     }).catch(() => {
+      clearTimeout(timer);
       resolve(false);
     });
   });
+}
+
+function probeServerAlive(timeoutMs = 800) {
+  const guard = window.WPServiceGuard;
+  const tagged = (guard && typeof guard.ping === "function")
+    ? guard.ping(timeoutMs).then((found) => !!found).catch(() => false)
+    : Promise.resolve(false);
+  const plain = probePlainPing(timeoutMs);
+  // 已经切到别的回环 origin 时，也要把它算进去（否则会误判离线反复触发自愈）
+  const relocated = (simApiBase && guard && typeof guard.pingOrigin === "function")
+    ? guard.pingOrigin(simApiBase, timeoutMs).then((found) => !!found).catch(() => false)
+    : Promise.resolve(false);
+  return Promise.all([tagged, plain, relocated]).then((list) => list.some(Boolean));
+}
+
+// 服务自愈：把「服务无响应」变成「可用」。依赖 js/core/service-guard.js。
+//   alive / restarted → 服务已可用（同源），调用方可直接重试 /api/sim
+//   elsewhere         → 服务在「另一个」回环端口上：只把 simApiBase 指过去（不跳转，
+//                       跳转会把用户未保存的画布内容全丢掉）
+//   dead              → 自动恢复失败，需给出「手动拉起 / 重启应用」指引
+// WPServiceGuard 缺失时（旧 exe 内嵌旧页面 / 极端降级）返回 dead，行为退回旧提示。
+async function recoverService(options) {
+  const guard = window.WPServiceGuard;
+  if (!guard || typeof guard.recover !== "function") return { state: "dead" };
+  try {
+    return await guard.recover(options || {});
+  } catch (error) {
+    return { state: "dead" };
+  }
+}
+
+// 自动恢复失败时的兜底：展示可操作指引 + 亮出手动「启动本地仿真服务」按钮。
+function showRecoverHint() {
+  const message = "本地仿真服务无响应，自动恢复失败。\n"
+    + "  1. 点下方「启动本地仿真服务」再试（首次浏览器会问是否允许打开 wavepaint:，请选择允许）\n"
+    + "  2. 仍失败时：手动双击应用目录下的 WavePaintClean.exe 重新打开\n"
+    + "  3. 排查日志：%TEMP%\\WavePaintClean_sim.log";
+  refs.modulePreview.textContent = message;
+  setStatus("本地仿真服务无响应，请点下方按钮重试或重启应用。");
+  if (refs.recoverBtn) refs.recoverBtn.style.display = "block";
+}
+
+// 自动恢复进行中：先把手动入口亮出来（用户可立即点，不必干等），但文案**不说**
+// 「失败」——旧实现先弹「自动恢复失败」再继续尝试自动拉起，字样一闪而过很误导。
+function showRecoverPending() {
+  refs.modulePreview.textContent = "本地仿真服务无响应，正在自动恢复（重连 / 重新拉起服务）...\n"
+    + "  也可以立即点下方「启动本地仿真服务」手动拉起。";
+  setStatus("本地仿真服务无响应，正在自动恢复...");
+  if (refs.recoverBtn) refs.recoverBtn.style.display = "block";
 }
 
 async function runSimulation() {
@@ -802,7 +862,7 @@ async function runSimulation() {
     ? setTimeout(() => { try { simAbort.abort(); } catch (e) { /* ignore */ } }, SIM_REQUEST_TIMEOUT_MS)
     : null;
   try {
-    const response = await fetch("/api/sim", {
+    const response = await fetch(simApiUrl("/api/sim"), {
       method: "POST",
       headers: { "Content-Type": "text/plain; charset=utf-8" },
       body: payload,
@@ -840,6 +900,7 @@ async function runSimulation() {
     ].join("\n");
     render();
     refreshStructureTrees();
+    if (refs.recoverBtn) refs.recoverBtn.style.display = "none"; // 仿真成功 → 收起自愈入口
     setStatus(notes.length
       ? `仿真完成：${outputs.length} 个输出信号，但有 ${notes.length} 条提醒，请查看详情。`
       : `仿真完成：${outputs.length} 个输出信号。`);
@@ -863,21 +924,57 @@ async function runSimulation() {
         setTimeout(runSimulation, 600);
         return;
       }
-      const friendly = alive
-        ? "仿真请求失败：本地服务在线，但本次请求未完成。\n"
+      if (alive) {
+        // 服务在线但本次请求没完成：多为 iverilog 卡死/超时，或请求被丢弃。
+        const friendly = "仿真请求失败：本地服务在线，但本次请求未完成。\n"
           + (isTimeout
             ? `  1. iverilog 编译/仿真耗时超过 ${SIM_REQUEST_TIMEOUT_MS / 1000} 秒，已自动放弃\n`
             : "  1. 请求被丢弃（服务可能正在重启，或上一次仿真尚未结束）\n")
           + "  2. 可再点一次「运行仿真」重试\n"
-          + "若反复失败请查看日志：%TEMP%\\WavePaintClean_sim.log"
-        : "仿真请求失败：本地仿真服务无响应。\n"
-          + "可能原因：\n"
-          + "  1. 应用进程已退出（窗口检测或异常导致）\n"
-          + "  2. iverilog 编译/仿真卡死或超时\n"
-          + "  3. RTL 含导致 iverilog 崩溃的内容\n"
-          + "请重启应用，或查看日志：%TEMP%\\WavePaintClean_sim.log";
-      refs.modulePreview.textContent = friendly;
-      setStatus(friendly);
+          + "若反复失败请查看日志：%TEMP%\\WavePaintClean_sim.log";
+        refs.modulePreview.textContent = friendly;
+        setStatus(friendly);
+        return;
+      }
+      // 服务不在线（进程已退出 / 换端口 / 端口被占）→ 主动自愈，而不是只提示重启：
+      //   ① 快速发现（~1s，不重拉）：服务还在、只是换了回环端口 → 记下 origin 直接重试；
+      //   ② 进程真的没了 → 立刻亮出「启动本地仿真服务」按钮（用户可马上手动救），
+      //      同时后台尽力用 wavepaint: 协议自动重拉（本次点击带来的用户手势可能仍有效）；
+      //      重拉成功 → 自动重试仿真；失败 → 保留按钮 + 手动指引。
+      refs.modulePreview.textContent = "本地仿真服务无响应，正在自动恢复（重新连接 / 拉起服务）...";
+      setStatus("本地仿真服务无响应，正在自动恢复...");
+      const located = await recoverService({ allowRelaunch: false });
+      if (located.state === "alive" || located.state === "elsewhere") {
+        simApiBase = located.state === "elsewhere" ? located.origin : "";
+        if (!simAutoRetried) {
+          simAutoRetried = true;
+          refs.modulePreview.textContent = "已重新连接本地仿真服务，正在自动重试（1/1）...";
+          setStatus("已重新连接本地仿真服务，自动重试一次...");
+          setTimeout(runSimulation, 600);
+          return;
+        }
+        refs.modulePreview.textContent = "本地仿真服务已重连，请再点一次「运行仿真」。";
+        setStatus("本地仿真服务已重连，请再点一次「运行仿真」。");
+        return;
+      }
+      // 进程确实不在了：先给手动入口（用户可立即操作），再后台尝试自动重拉
+      showRecoverPending();
+      const relaunched = await recoverService({ allowRelaunch: true, waitMs: 15000 });
+      if (relaunched.state === "restarted" || relaunched.state === "alive" || relaunched.state === "elsewhere") {
+        if (relaunched.state === "elsewhere") simApiBase = relaunched.origin;
+        if (refs.recoverBtn) refs.recoverBtn.style.display = "none";
+        if (!simAutoRetried) {
+          simAutoRetried = true;
+          refs.modulePreview.textContent = "已重新启动本地仿真服务，正在自动重试（1/1）...";
+          setStatus("已重新启动本地仿真服务，自动重试一次...");
+          setTimeout(runSimulation, 600);
+          return;
+        }
+        refs.modulePreview.textContent = "本地仿真服务已重启，请再点一次「运行仿真」。";
+        setStatus("本地仿真服务已重启，请再点一次「运行仿真」。");
+        return;
+      }
+      showRecoverHint();
       return;
     }
     refs.modulePreview.textContent = raw || String(error);
@@ -1049,9 +1146,28 @@ function bindEvents() {
   refs.tbBtn?.addEventListener("click", buildTbPreview);
   refs.runBtn?.addEventListener("click", () => {
     simAutoRetried = false; // Bug1：每次用户手动点击都重新允许一次自动重试
+    if (refs.recoverBtn) refs.recoverBtn.style.display = "none"; // 手动重试时收起自愈入口
     runSimulation();
   });
   refs.tbCopy?.addEventListener("click", copyTb);
+  // 服务彻底死亡时的手动自愈入口：点击即用 wavepaint: 协议拉起 exe 并等服务上线。
+  // 必须由用户点击触发，浏览器才允许启动外部协议（自动恢复路径只能尽力而为）。
+  refs.recoverBtn?.addEventListener("click", async () => {
+    refs.recoverBtn.disabled = true;
+    refs.recoverBtn.style.display = "none";
+    refs.modulePreview.textContent = "正在拉起本地仿真服务（首次会询问是否允许打开 wavepaint:，请选择允许）...";
+    setStatus("正在启动本地仿真服务...");
+    const recovery = await recoverService({ allowRelaunch: true, waitMs: 20000 });
+    refs.recoverBtn.disabled = false;
+    if (recovery.state === "restarted" || recovery.state === "alive" || recovery.state === "elsewhere") {
+      simApiBase = recovery.state === "elsewhere" ? recovery.origin : "";
+      simAutoRetried = false;
+      setStatus("本地仿真服务已就绪，正在重试仿真...");
+      runSimulation();
+      return;
+    }
+    showRecoverHint();
+  });
   refs.sourceEditor?.addEventListener("input", () => {
     syncEditor();
     render();

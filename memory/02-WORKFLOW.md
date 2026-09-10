@@ -28,7 +28,7 @@
 
 ---
 
-## 2. 硬性约束 C1~C18
+## 2. 硬性约束 C1~C19
 
 | # | 约束 | 对应做法 |
 |---|---|---|
@@ -50,6 +50,7 @@
 | C16 | 沙箱会回收从 bash 后台起的 GUI exe | exe 冒烟/保活验证用非沙箱方式启动 |
 | C17 | **每次改代码必须同步更新记忆/文档/日志** | `04-PROGRESS` + `logs/当日日志` +（涉需求）`03-REQUIREMENTS`；与代码同一 commit |
 | C18 | 版本号自查 | `build.ps1` 自动生成 `version.txt`（`v主版本+时间+git短哈希`）；发大版本时手动升主版本号 |
+| C19 | **服务在线性不变量（2026-09-10 第十三轮确立，勿破坏）**：① 端口固定首选 `17817`；② `/api/ping` 必须回 `PING_TAG`（`WAVEPAINT-SERVICE`）+ 端口 + 构建戳，前端只认带标识的应答；③ 服务自愈**禁止自动整页跳转**（本应用无自动保存），只能「改 `simApiBase` / 同端口重拉」；④ 触发 `wavepaint:` 协议只用隐藏 iframe；⑤ `ivlRoot` 等资源变量不得只在 cache 命中分支赋值 | 动这五项任一项前先读 `07-DECISIONS.md` D15 与 `06-PITFALLS.md` P28/P29/P30；「点仿真无响应」= 必须修到「点即成功」，只给「请重启应用」提示视为未完成 |
 
 ---
 
@@ -58,11 +59,12 @@
 | 命令 | 用途 | 期望 | 适用 |
 |---|---|---|---|
 | `node --check <改过的js>` | 语法 | OK | 任何 JS 改动 |
-| `node tools/regression.mjs` | 逻辑/快照回归 | 全过（当前 58 项） | 任何 JS 改动 |
+| `node tools/regression.mjs` | 逻辑/快照回归 | 全过（当前 62 项） | 任何 JS 改动 |
 | `node tools/e2e-sim.mjs` | 真跑 iverilog 全链路 | 失败 0 项 | `sim/engine` / `ui-bridge` / `launcher` 改动 |
 | `node tools/probe-param.mjs` | 参数化设计真 iverilog 端到端 | 全过 | `engine` 参数 / TB 生成改动 |
-| `node tools/e2e-ui.mjs` | 真实 Edge 交互（35 项） | 35/35 | `editor` / `core` / `index.html` 改动 |
-| `node tools/e2e-rtl.mjs` | #75 冒烟：CM6 / RTL Tree / VCD 树（9 项） | 9/9 | `rtl-nav/vcd-index/rtl-panel/ui-bridge/index.html` 改动 |
+| `node tools/e2e-ui.mjs` | 真实 Edge 交互（73 项） | 73/73 | `editor` / `core` / `index.html` 改动 |
+| `node tools/e2e-rtl.mjs` | #75/#85 冒烟：CM6 / RTL Tree / VCD 树 / 观察行（16 项） | 16/16 | `rtl-nav/vcd-index/rtl-panel/ui-bridge/index.html` 改动 |
+| `node .e2e-tmp/verify-recovery2.mjs` | 服务自愈：判活 / 重连 / 重拉 / 自动重试（17 项） | 17/17 | `service-guard` / `ui-bridge` / `launcher` / `index.html` 改动 |
 | `node tools/exe-smoke.mjs` | 真实 exe 冒烟 | 通过 | exe 重建后 |
 | 浏览器人工验收 | UI 视觉/交互 | 用户确认 | AI 无法完整实测的 UI 改动，必须明确告知用户 |
 

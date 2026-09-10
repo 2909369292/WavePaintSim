@@ -17,6 +17,18 @@ namespace WaveWorkbench
         const int ProcessTimeoutMs = 30000;
         const int MaxBodyBytes = 8 * 1024 * 1024;   // /api/sim、/api/snapshot 请求体上限
         const int MaxSnapshots = 20;                // 快照目录保留上限（超出删最旧）
+        // 首选固定端口（2026-09-10 根治「点仿真请求无响应」）：
+        //   旧实现每次启动都 FreePort() 取随机端口 —— exe 一旦退出/被重启，端口就变；
+        //   已经打开的旧页面仍指向「上一个端口」，之后每一次 /api/sim 都是
+        //   ERR_CONNECTION_REFUSED（用户看到的就是「点仿真没反应/请求无响应」），
+        //   而且刷新页面也救不回来（刷新请求本身就打在死端口上）。
+        //   改成固定首选端口后，页面 origin 跨会话稳定：exe 重启后旧页面「刷新 / 自动
+        //   重连 / 由本页重新拉起服务」都能重新连上同一个 origin。端口若被别的程序
+        //   占用才回退到随机端口（并写入发现文件，前端可跨端口自愈）。
+        const int PreferredPort = 17817;
+        // 服务身份标识：页面探活时用它区分「本应用的仿真服务」与「别人占用了同一端口
+        // 的其它本地 HTTP 服务」——否则会对着别家的服务发 /api/sim 而拿到 404。
+        const string PingTag = "WAVEPAINT-SERVICE";
         static string root;
         static string ivlRoot;
         static HttpListener server;
@@ -27,10 +39,14 @@ namespace WaveWorkbench
                                                     // 清零 → 监控循环恢复退出检测 → 杀掉进行中的仿真）
         static volatile bool shuttingDown;
         static bool everSeen;
+        static bool windowProbeOk;                  // 顶层窗口枚举是否真的执行成功（false ⇒ 绝不按「没窗口」退出）
         static string portFile = Path.Combine(Path.GetTempPath(), "WavePaintClean_port_" + Process.GetCurrentProcess().Id + ".txt");
+        static string serviceFile = Path.Combine(Path.GetTempPath(), "WavePaintClean_service.txt");
         static string logFile = Path.Combine(Path.GetTempPath(), "WavePaintClean_sim.log");
         static string snapshotRoot = Path.Combine(Path.GetTempPath(), "WavePaintClean_snapshots");
         static int listenPort;                       // 本实例监听端口（CORS 白名单用）
+        static string buildStamp = "unknown";        // 资源整包指纹（= version.txt 内容）
+        static string exitReason = "unknown";        // 退出原因（写日志，供事后定位）
         static readonly object logLock = new object();   // 日志写入串行化（多线程请求）
 
         static string FindEdge()
@@ -46,12 +62,86 @@ namespace WaveWorkbench
             return null;
         }
 
-        static void ExtractResources(Assembly asm)
+        // 资源解压（2026-09-10 根治改造）：
+        //   旧实现每次启动都 `Directory.Delete(root,true)` 后整包重解（含 ~20MB 的
+        //   ivl.zip），存在三类会直接表现为「双击 exe 没反应 / 点仿真请求无响应」的故障：
+        //     ① 上一次实例的 exe 尚未完全退出（或文件被杀软/索引器占用）→ Delete 或
+        //        解压抛异常 → MainCore 弹一个 MessageBox 后 return 1，服务从未起来；
+        //     ② 解压到一半被打断（用户又点了一次、系统睡眠）→ ivl\bin\iverilog.exe 缺失，
+        //        第一次点「运行仿真」必然失败；
+        //     ③ 每次启动都重解 20MB，启动慢，扩大了 ①② 的窗口。
+        //   新实现：按 stamp（version.txt 内容 = 版本+构建时间+git 哈希）判定缓存，命中且
+        //   ivl 完整就直接复用（秒起）；需要重建时若原目录删不掉，就退到唯一目录
+        //   （绝不与旧实例抢同一份文件）；stamp 最后写，保证「没有 stamp ⇒ 资源不完整」。
+        static string EnsureResources(Assembly asm)
         {
-            root = Path.Combine(Path.GetTempPath(), "WavePaintClean_" + Environment.UserName);
-            if (Directory.Exists(root)) try { Directory.Delete(root, true); } catch { }
-            Directory.CreateDirectory(root);
-            foreach (var dir in new[] { "js", "css", "img", "lib" }) Directory.CreateDirectory(Path.Combine(root, dir));
+            buildStamp = ReadVersionText(asm);
+            string baseRoot = Path.Combine(Path.GetTempPath(), "WavePaintClean_" + Environment.UserName);
+            if (IsResourceRootUsable(baseRoot, buildStamp))
+            {
+                root = baseRoot;
+                ivlRoot = Path.Combine(root, "ivl");
+                return "cache";
+            }
+            string mode;
+            try
+            {
+                if (Directory.Exists(baseRoot)) Directory.Delete(baseRoot, true);
+                ExtractInto(asm, baseRoot, buildStamp);
+                root = baseRoot;
+                mode = "extract";
+            }
+            catch (Exception ex)
+            {
+                Log(DateTime.Now.ToString("u") + " EXTRACT base-root failed (" + ex.Message + ") → unique dir" + Environment.NewLine);
+                string unique = Path.Combine(Path.GetTempPath(), "WavePaintClean_" + Environment.UserName + "_" + Process.GetCurrentProcess().Id);
+                try { if (Directory.Exists(unique)) Directory.Delete(unique, true); } catch { }
+                ExtractInto(asm, unique, buildStamp);
+                root = unique;
+                mode = "extract-unique";
+            }
+            // ⚠ 必须与 cache 分支一样刷新 ivlRoot。历史缺陷：只有 cache 分支赋值，
+            // 于是「换版本后第一次启动」（走 extract 分支）ivlRoot 仍为 null，
+            // 用户第一次点「运行仿真」必崩在 Path.Combine(null, "bin", ...) →
+            // 表现为「本地仿真失败 / 请求无响应」。同时 root 变了也必须重算。
+            ivlRoot = Path.Combine(root, "ivl");
+            return mode;
+        }
+
+        static bool IsResourceRootUsable(string dir, string stamp)
+        {
+            try
+            {
+                if (!File.Exists(Path.Combine(dir, "index.html"))) return false;
+                string marker = Path.Combine(dir, ".wpb-stamp");
+                if (!File.Exists(marker)) return false;
+                if (File.ReadAllText(marker).Trim() != stamp) return false;
+                return File.Exists(Path.Combine(dir, "ivl", "bin", "iverilog.exe"));
+            }
+            catch { return false; }
+        }
+
+        static string ReadVersionText(Assembly asm)
+        {
+            try
+            {
+                using (var stream = asm.GetManifestResourceStream("root_version.txt"))
+                {
+                    if (stream != null)
+                    {
+                        using (var reader = new StreamReader(stream, Encoding.UTF8)) return reader.ReadToEnd().Trim();
+                    }
+                }
+            }
+            catch { }
+            try { return "build-" + File.GetLastWriteTimeUtc(asm.Location).Ticks.ToString(); } catch { }
+            return "build-unknown";
+        }
+
+        static void ExtractInto(Assembly asm, string target, string stamp)
+        {
+            Directory.CreateDirectory(target);
+            foreach (var dir in new[] { "js", "css", "img", "lib" }) Directory.CreateDirectory(Path.Combine(target, dir));
             foreach (var resource in asm.GetManifestResourceNames())
             {
                 if (resource == "ivl.zip") continue;
@@ -62,7 +152,7 @@ namespace WaveWorkbench
                 else if (resource.StartsWith("css_")) { subdir = "css"; relative = resource.Substring(4); }
                 else if (resource.StartsWith("img_")) { subdir = "img"; relative = resource.Substring(4); }
                 else if (resource.StartsWith("lib_")) { subdir = "lib"; relative = resource.Substring(4); }
-                string destination = subdir.Length == 0 ? Path.Combine(root, relative) : Path.Combine(root, subdir, relative);
+                string destination = subdir.Length == 0 ? Path.Combine(target, relative) : Path.Combine(target, subdir, relative);
                 // 资源名可能带子路径（如 js_core/__core.js → js/core/__core.js），确保目录存在
                 string destDir = Path.GetDirectoryName(destination);
                 if (!string.IsNullOrEmpty(destDir)) Directory.CreateDirectory(destDir);
@@ -73,17 +163,64 @@ namespace WaveWorkbench
                 }
             }
 
-            ivlRoot = Path.Combine(root, "ivl");
-            Directory.CreateDirectory(ivlRoot);
+            string ivlDir = Path.Combine(target, "ivl");
+            Directory.CreateDirectory(ivlDir);
+            string zipPath = Path.Combine(target, "ivl.zip");
             using (var zip = asm.GetManifestResourceStream("ivl.zip"))
             {
                 if (zip == null) throw new InvalidOperationException("Missing ivl.zip resource.");
-                var zipPath = Path.Combine(root, "ivl.zip");
                 using (var output = new FileStream(zipPath, FileMode.Create, FileAccess.Write, FileShare.None))
                 {
                     zip.CopyTo(output);
                 }
+            }
+            ZipFile.ExtractToDirectory(zipPath, ivlDir);
+            if (!File.Exists(Path.Combine(ivlDir, "bin", "iverilog.exe")))
+                throw new InvalidOperationException("ivl.zip 解压后缺少 bin\\iverilog.exe。");
+            // stamp 最后写：解压中途被打断 ⇒ 没有 stamp ⇒ 下次启动自动重来
+            File.WriteAllText(Path.Combine(target, ".wpb-stamp"), stamp);
+        }
+
+        // 按需补齐 ivl（仿真链路自救）：exe 进程活着但 ivl 目录被清理/解压不完整时，
+        // 旧实现会一路走到 iverilog.exe 不存在，用户看到的是「仿真失败」而不知为什么。
+        // 这里在每次仿真前兜一次，能修就修，修不了就返回可读的中文错误（而不是静默/崩溃）。
+        static bool EnsureIvlReady(out string error)
+        {
+            error = null;
+            try
+            {
+                // 防御：ivlRoot 未初始化时从 root 兜底推导（历史空引用崩溃的二次保险）。
+                // 连 root 都没有才报可读中文错误，绝不让 Path.Combine 抛出难懂的英文异常。
+                if (string.IsNullOrEmpty(ivlRoot))
+                {
+                    if (string.IsNullOrEmpty(root)) { error = "本地资源目录尚未就绪，请重启应用后重试。"; return false; }
+                    ivlRoot = Path.Combine(root, "ivl");
+                }
+                string exePath = Path.Combine(ivlRoot, "bin", "iverilog.exe");
+                if (File.Exists(exePath)) return true;
+                Directory.CreateDirectory(ivlRoot);
+                string zipPath = Path.Combine(root, "ivl.zip");
+                if (!File.Exists(zipPath))
+                {
+                    using (var zip = Assembly.GetExecutingAssembly().GetManifestResourceStream("ivl.zip"))
+                    {
+                        if (zip == null) { error = "安装包内缺少 ivl.zip 资源，无法运行 iverilog。"; return false; }
+                        using (var output = new FileStream(zipPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                        {
+                            zip.CopyTo(output);
+                        }
+                    }
+                }
                 ZipFile.ExtractToDirectory(zipPath, ivlRoot);
+                if (!File.Exists(exePath)) { error = "仿真工具解压不完整（缺少 ivl\\bin\\iverilog.exe）。"; return false; }
+                Log(DateTime.Now.ToString("u") + " IVL repaired at " + ivlRoot + Environment.NewLine);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = "仿真工具（iverilog）不可用：" + ex.Message;
+                Log(DateTime.Now.ToString("u") + " IVL repair failed: " + ex + Environment.NewLine);
+                return false;
             }
         }
 
@@ -103,7 +240,8 @@ namespace WaveWorkbench
 
         static bool StartServer(int port)
         {
-            // 初始启动：FreePort→Start 之间端口可能被抢（竞态），失败换端口重试。
+            // 初始启动：端口可能被抢（竞态/别的程序占用首选固定端口），失败换端口重试。
+            // 首选端口固定 ⇒ 页面 origin 跨会话稳定（详见 PreferredPort 注释）。
             for (int attempt = 0; attempt < 10; attempt++)
             {
                 try
@@ -113,6 +251,11 @@ namespace WaveWorkbench
                     server.Start();
                     listenPort = port;
                     try { File.WriteAllText(portFile, port.ToString()); } catch { }
+                    PublishDiscovery();
+                    Log(DateTime.Now.ToString("u") + " SERVER start pid=" + Process.GetCurrentProcess().Id
+                        + " port=" + port + " root=" + root + " stamp=" + buildStamp
+                        + (port == PreferredPort ? "" : " (fallback-port)")
+                        + Environment.NewLine);
                     var thread = new Thread(AcceptLoop);
                     thread.IsBackground = true;
                     thread.Start();
@@ -142,6 +285,7 @@ namespace WaveWorkbench
                     server.Start();
                     listenPort = port;
                     try { File.WriteAllText(portFile, port.ToString()); } catch { }
+                    PublishDiscovery();
                     Log(DateTime.Now.ToString("u") + " SERVER self-healed on port " + port + Environment.NewLine);
                     var thread = new Thread(AcceptLoop);
                     thread.IsBackground = true;
@@ -255,9 +399,12 @@ namespace WaveWorkbench
                     // 页面心跳（js/core/heartbeat.js 每 2s 一次）：纯画布编辑不产生请求，
                     // 没有心跳的话 lastActivity 会过期 → 静置一段时间后被下面的空闲退出逻辑
                     // 误杀服务（前端再点仿真就 Failed to fetch「服务不在线」）。
+                    // 应答带身份标识（PingTag）+ 端口 + 版本戳：前端据此区分「本应用的
+                    // 仿真服务」与「别的程序占了同一端口」，也让用户/日志能定位版本。
                     lastActivity = Environment.TickCount;
-                    byte[] data = Encoding.UTF8.GetBytes("OK");
+                    byte[] data = Encoding.UTF8.GetBytes(PingTag + "\n" + listenPort + "\n" + buildStamp + "\n");
                     context.Response.ContentType = "text/plain; charset=utf-8";
+                    context.Response.AddHeader("Cache-Control", "no-store");
                     context.Response.ContentLength64 = data.Length;
                     context.Response.OutputStream.Write(data, 0, data.Length);
                     context.Response.Close();
@@ -339,6 +486,16 @@ namespace WaveWorkbench
             if (current != null) WriteOne(work, names, current, buffer.ToString());
             Log("RUN files " + names.Count + Environment.NewLine);
             WriteFallbackAliases(work, names);
+
+            // 按需补齐 iverilog（自救）：临时目录被清理/上次解压不完整时，这里修好再跑，
+            // 修不了就返回可读错误（而不是让用户看到一句莫名的「仿真失败」）。
+            string ivlError;
+            if (!EnsureIvlReady(out ivlError))
+            {
+                try { Directory.Delete(work, true); } catch { }
+                Log("RUN ivl-not-ready " + ivlError + Environment.NewLine);
+                return "IVERILOG-ERROR:\n" + ivlError;
+            }
 
             var compileBatches = BuildCompileBatches(names);
             string compileError = null;
@@ -574,11 +731,23 @@ namespace WaveWorkbench
             try { process.WaitForExit(2000); } catch { }
         }
 
-        // 只认本实例自己服务的两个同源地址
+        // 同源白名单：本实例端口，外加本机回环上的任意端口。
+        // 放开「回环任意端口」是前端自愈所必需：exe 回退到非首选端口、或旧页面 origin
+        // 的端口与服务端口不一致时，页面必须还能 GET api/ping 探活、才能自动重连。
+        // 仍然只认回环（127.0.0.1/localhost/::1），外部主机/网页拿不到数据。
         static bool IsSameOrigin(string origin)
         {
-            return string.Equals(origin, "http://127.0.0.1:" + listenPort, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(origin, "http://localhost:" + listenPort, StringComparison.OrdinalIgnoreCase);
+            if (string.IsNullOrEmpty(origin)) return false;
+            if (string.Equals(origin, "http://127.0.0.1:" + listenPort, StringComparison.OrdinalIgnoreCase)) return true;
+            if (string.Equals(origin, "http://localhost:" + listenPort, StringComparison.OrdinalIgnoreCase)) return true;
+            try
+            {
+                var uri = new Uri(origin);
+                if (uri.Scheme != "http") return false;
+                string host = uri.Host;
+                return host == "127.0.0.1" || host == "localhost" || host == "::1" || host == "[::1]";
+            }
+            catch { return false; }
         }
 
         // 规范化后的绝对路径必须仍在解压根目录内
@@ -598,6 +767,7 @@ namespace WaveWorkbench
         static void DeletePortFile()
         {
             try { if (File.Exists(portFile)) File.Delete(portFile); } catch { }
+            DeleteDiscovery();
         }
 
         static string MimeFor(string ext)
@@ -615,22 +785,47 @@ namespace WaveWorkbench
             }
         }
 
-        static bool HasWindow()
+        // 应用窗口判定（2026-09-10 重写）：旧实现遍历 msedge 进程读 Process.MainWindowTitle。
+        // 一个 msedge 进程可以有多个顶层窗口，MainWindowTitle 只报它认定的「主窗口」——
+        // 用户一旦另开普通 Edge 窗口、窗口被 Chromium 重组、或应用窗口不是该进程的主窗口，
+        // 标题就取不到 → HasWindow() 误判「窗口没了」→ 监控循环判定「用户已关页面」→
+        // 停服务并退出 → 桌面上窗口还在，用户再点「运行仿真」= 请求无响应。
+        // 改为枚举全部可见顶层窗口（与 CloseLegacyWindows 同源，真值来源唯一）。
+        static List<IntPtr> FindWaveWindowHandles()
         {
+            var targets = new List<IntPtr>();
+            bool ok = false;
             try
             {
-                foreach (var process in Process.GetProcessesByName("msedge"))
+                EnumWindows(delegate(IntPtr hWnd, IntPtr lParam)
                 {
                     try
                     {
-                        if (!string.IsNullOrEmpty(process.MainWindowTitle) && (process.MainWindowTitle.IndexOf("WavePaint", StringComparison.OrdinalIgnoreCase) >= 0 || process.MainWindowTitle.IndexOf("WaveWorkbench", StringComparison.OrdinalIgnoreCase) >= 0))
-                            return true;
+                        if (!IsWindowVisible(hWnd)) return true;
+                        var sb = new StringBuilder(512);
+                        if (GetWindowText(hWnd, sb, sb.Capacity) > 0)
+                        {
+                            string title = sb.ToString();
+                            if (title.IndexOf("WavePaint", StringComparison.OrdinalIgnoreCase) >= 0
+                                || title.IndexOf("WaveWorkbench", StringComparison.OrdinalIgnoreCase) >= 0)
+                                targets.Add(hWnd);
+                        }
                     }
                     catch { }
-                }
+                    return true;
+                }, IntPtr.Zero);
+                ok = true;
             }
             catch { }
-            return false;
+            windowProbeOk = ok;   // 探测失败时调用方必须保守处理（绝不按「无窗口」退出）
+            return targets;
+        }
+
+        static bool HasWindow()
+        {
+            var handles = FindWaveWindowHandles();
+            if (!windowProbeOk) return true;   // 探测机制本身失败 → 保守认为有窗口
+            return handles.Count > 0;
         }
 
         static bool IsAlive(Process process)
@@ -658,28 +853,7 @@ namespace WaveWorkbench
 
         static void CloseLegacyWindows()
         {
-            var targets = new List<IntPtr>();
-            try
-            {
-                EnumWindows(delegate(IntPtr hWnd, IntPtr lParam)
-                {
-                    try
-                    {
-                        if (!IsWindowVisible(hWnd)) return true;
-                        var sb = new StringBuilder(512);
-                        if (GetWindowText(hWnd, sb, sb.Capacity) > 0)
-                        {
-                            string title = sb.ToString();
-                            if (title.IndexOf("WavePaint", StringComparison.OrdinalIgnoreCase) >= 0
-                                || title.IndexOf("WaveWorkbench", StringComparison.OrdinalIgnoreCase) >= 0)
-                                targets.Add(hWnd);
-                        }
-                    }
-                    catch { }
-                    return true;
-                }, IntPtr.Zero);
-            }
-            catch { return; }
+            var targets = FindWaveWindowHandles();
             if (targets.Count == 0) return;
             foreach (var hWnd in targets)
             {
@@ -689,29 +863,7 @@ namespace WaveWorkbench
             // 最多等 ~2.5s 让 Edge 收窗；等不到也不阻塞（新窗口随后打开即可）
             for (int i = 0; i < 5; i++)
             {
-                bool any = false;
-                try
-                {
-                    EnumWindows(delegate(IntPtr hWnd, IntPtr lParam)
-                    {
-                        try
-                        {
-                            if (!IsWindowVisible(hWnd)) return true;
-                            var sb = new StringBuilder(512);
-                            if (GetWindowText(hWnd, sb, sb.Capacity) > 0)
-                            {
-                                string title = sb.ToString();
-                                if (title.IndexOf("WavePaint", StringComparison.OrdinalIgnoreCase) >= 0
-                                    || title.IndexOf("WaveWorkbench", StringComparison.OrdinalIgnoreCase) >= 0)
-                                { any = true; return false; }
-                            }
-                        }
-                        catch { }
-                        return true;
-                    }, IntPtr.Zero);
-                }
-                catch { break; }
-                if (!any) break;
+                if (FindWaveWindowHandles().Count == 0) break;
                 Thread.Sleep(500);
             }
         }
@@ -734,44 +886,218 @@ namespace WaveWorkbench
             }
         }
 
-        // 已有实例在运行：定位其端口并打开对应窗口（确保用户看到最新版本），然后本实例退出。
-        static void OpenExistingInstance()
+        // 已有实例在运行：定位「真正在服务」的端口，让用户看到窗口。
+        // 2026-09-10 重写要点：
+        //   ① 判活从「TCP 能连上」升级为「GET api/ping 且返回本应用标识」——
+        //      旧实现只要某个端口能建立 TCP 就把窗口指向它：%TEMP% 里残留的旧端口文件
+        //      若被别的程序占用，会打开一个指向陌生服务的窗口（页面 404/白屏），
+        //      用户看到的就是「点仿真没反应」；而「进程活着但服务已死」的僵尸实例
+        //      会让旧实现直接 return 0（什么都不开），用户双击 exe 毫无反应。
+        //   ② 陈旧端口文件顺手清掉（内容不是数字 / 标识不匹配 / 连不上）。
+        //   ③ 已经有应用窗口时不再新开一个，只把它唤到前台（避免窗口越点越多）。
+        // 返回 true 表示「已接管并可以退出本进程」；false 表示需要本进程自己把服务起起来。
+        static bool OpenExistingInstance()
         {
-            try
+            int livePort = 0;
+            DiscoveryScan(out livePort);
+            if (livePort == 0) return false;
+            Log(DateTime.Now.ToString("u") + " HANDOFF to existing instance on port " + livePort + Environment.NewLine);
+            FocusWaveWindow();
+            if (FindWaveWindowHandles().Count == 0)
             {
                 string edge = FindEdge();
-                if (edge == null) return;
-                var files = Directory.GetFiles(Path.GetTempPath(), "WavePaintClean_port_*.txt");
-                foreach (var file in files)
+                if (edge == null) return true;
+                var psi = new ProcessStartInfo();
+                psi.FileName = edge;
+                psi.Arguments = "--app=\"http://127.0.0.1:" + livePort + "/index.html\" --no-first-run --no-default-browser-check";
+                psi.UseShellExecute = false;
+                try { Process.Start(psi); } catch { }
+            }
+            return true;
+        }
+
+        // 扫描候选端口（发现文件 + 全部端口文件），返回第一个真正是本应用服务的端口。
+        static void DiscoveryScan(out int livePort)
+        {
+            livePort = 0;
+            var candidates = new List<int>();
+            try
+            {
+                if (File.Exists(serviceFile))
+                {
+                    foreach (var line in File.ReadAllLines(serviceFile))
+                    {
+                        if (!line.StartsWith("port=", StringComparison.OrdinalIgnoreCase)) continue;
+                        int p;
+                        if (int.TryParse(line.Substring(5).Trim(), out p) && p > 0 && !candidates.Contains(p)) candidates.Add(p);
+                    }
+                }
+            }
+            catch { }
+            try
+            {
+                foreach (var file in Directory.GetFiles(Path.GetTempPath(), "WavePaintClean_port_*.txt"))
                 {
                     try
                     {
-                        string portText = File.ReadAllText(file).Trim();
-                        int port;
-                        if (!int.TryParse(portText, out port)) { TryDeleteStalePortFile(file); continue; }
-                        using (var tcp = new System.Net.Sockets.TcpClient())
+                        int p;
+                        if (!int.TryParse(File.ReadAllText(file).Trim(), out p) || p <= 0)
                         {
-                            var connect = tcp.BeginConnect("127.0.0.1", port, null, null);
-                            if (!connect.AsyncWaitHandle.WaitOne(500)) { TryDeleteStalePortFile(file); continue; }
-                            try { tcp.EndConnect(connect); } catch { TryDeleteStalePortFile(file); continue; }
+                            TryDeleteStalePortFile(file);
+                            continue;
                         }
-                        var psi = new ProcessStartInfo();
-                        psi.FileName = edge;
-                        psi.Arguments = "--app=\"http://127.0.0.1:" + port + "/index.html\" --no-first-run --no-default-browser-check";
-                        psi.UseShellExecute = false;
-                        CloseLegacyWindows();
-                        Process.Start(psi);
-                        return;
+                        string tag = HttpGetPing(p, 800);
+                        if (tag == null || !tag.StartsWith(PingTag, StringComparison.Ordinal))
+                        {
+                            // 不是我们的服务（端口被别的程序占用/实例已退出）→ 陈旧文件，清掉
+                            TryDeleteStalePortFile(file);
+                            continue;
+                        }
+                        if (!candidates.Contains(p)) candidates.Insert(0, p);   // 实测存活的优先
                     }
                     catch { }
                 }
             }
             catch { }
+            foreach (var p in candidates)
+            {
+                string tag = HttpGetPing(p, 800);
+                if (tag != null && tag.StartsWith(PingTag, StringComparison.Ordinal))
+                {
+                    livePort = p;
+                    return;
+                }
+            }
+        }
+
+        [DllImport("user32.dll")]
+        static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+        [DllImport("user32.dll")]
+        static extern bool SetForegroundWindow(IntPtr hWnd);
+        const int SW_RESTORE = 9;
+
+        // 把已有应用窗口唤到前台（用户重复双击 exe 时的期望行为），失败静默。
+        static void FocusWaveWindow()
+        {
+            try
+            {
+                var handles = FindWaveWindowHandles();
+                foreach (var hWnd in handles)
+                {
+                    try { ShowWindow(hWnd, SW_RESTORE); } catch { }
+                    try { SetForegroundWindow(hWnd); } catch { }
+                    return;
+                }
+            }
+            catch { }
+        }
+
+        // 注册 wavepaint: URL 协议（HKCU，无需管理员）。用途：页面在「服务已不在线」
+        // 时，用户可以点面板上的「启动本地仿真服务」，由浏览器直接拉起 exe（首次会弹一次
+        // 「是否允许打开」确认框，勾选始终允许后即无感）—— 这是「每次点仿真都必须成功」
+        // 的最后一道自愈：连服务进程都没了，页面也能把它拉回来。
+        static void RegisterUrlProtocol()
+        {
+            try
+            {
+                string exe = Assembly.GetExecutingAssembly().Location;
+                if (string.IsNullOrEmpty(exe) || !File.Exists(exe)) return;
+                using (var key = Registry.CurrentUser.CreateSubKey(@"Software\Classes\wavepaint"))
+                {
+                    if (key == null) return;
+                    key.SetValue(null, "URL:WavePaint Local Simulation Service");
+                    key.SetValue("URL Protocol", "");
+                    using (var command = key.CreateSubKey(@"shell\open\command"))
+                    {
+                        if (command != null) command.SetValue(null, "\"" + exe + "\" \"%1\"");
+                    }
+                }
+            }
+            catch { }
+        }
+
+        // 从协议 URI（wavepaint://start?port=49234）里取端口。手写解析，避免为一个
+        // 小功能引入 System.Text.RegularExpressions。取不到 / 非法一律返回 0。
+        static int ParsePortArg(string uri)
+        {
+            if (string.IsNullOrEmpty(uri)) return 0;
+            int at = uri.IndexOf("port=", StringComparison.OrdinalIgnoreCase);
+            if (at < 0) return 0;
+            int start = at + 5;
+            int end = start;
+            while (end < uri.Length && uri[end] >= '0' && uri[end] <= '9') end++;
+            if (end == start) return 0;
+            int value;
+            if (!int.TryParse(uri.Substring(start, end - start), out value)) return 0;
+            return (value > 0 && value < 65536) ? value : 0;
         }
 
         static void TryDeleteStalePortFile(string file)
         {
             try { File.Delete(file); } catch { }
+        }
+
+        // 「当前实例」发现文件（固定路径）：单实例接管、以及前端跨端口自愈都靠它定位
+        // 真正在服务的那个端口。写失败不影响服务本身（端口文件仍在）。
+        static void PublishDiscovery()
+        {
+            try
+            {
+                File.WriteAllText(serviceFile,
+                    "port=" + listenPort + Environment.NewLine
+                    + "pid=" + Process.GetCurrentProcess().Id + Environment.NewLine
+                    + "stamp=" + buildStamp + Environment.NewLine);
+            }
+            catch { }
+        }
+
+        static void DeleteDiscovery()
+        {
+            // 只删「自己写的」那条：接管场景下可能已有新实例改写了发现文件，别误删别人的。
+            try
+            {
+                if (!File.Exists(serviceFile)) return;
+                string text = File.ReadAllText(serviceFile);
+                if (text.IndexOf("pid=" + Process.GetCurrentProcess().Id, StringComparison.Ordinal) >= 0) File.Delete(serviceFile);
+            }
+            catch { }
+        }
+
+        // 启动自检：服务真的能应答才开始服务页面（否则 Edge 会打开一个连不上服务的窗口，
+        // 用户点仿真必然「无响应」——这正是历史故障的可见症状）。
+        static bool SelfCheck()
+        {
+            for (int i = 0; i < 10; i++)
+            {
+                try
+                {
+                    string tag = HttpGetPing(listenPort, 1000);
+                    if (tag != null && tag.StartsWith(PingTag, StringComparison.Ordinal)) return true;
+                }
+                catch { }
+                Thread.Sleep(200);
+            }
+            return false;
+        }
+
+        // 读本机某端口的 api/ping 应答（用于启动自检与单实例接管校验）。
+        // 返回 null 表示连不上 / 不是本应用的服务（标识不匹配）。
+        static string HttpGetPing(int port, int timeoutMs)
+        {
+            try
+            {
+                var request = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:" + port + "/api/ping");
+                request.Method = "GET";
+                request.Timeout = timeoutMs;
+                request.ReadWriteTimeout = timeoutMs;
+                request.Proxy = null;   // 绕过系统代理：回环地址走代理会直接失败
+                using (var response = (HttpWebResponse)request.GetResponse())
+                using (var reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
+                {
+                    return reader.ReadToEnd().Trim();
+                }
+            }
+            catch { return null; }
         }
 
         [STAThread]
@@ -785,20 +1111,65 @@ namespace WaveWorkbench
 
         static int MainCore()
         {
+            // 通过 wavepaint: 协议被页面拉起时（服务已死、页面点「启动本地仿真服务」）
+            // 只把服务起起来，不新开窗口 —— 用户本来就在一个窗口里。
+            bool protocolLaunch = false;
+            int requestedPort = 0;
+            try
+            {
+                foreach (var arg in Environment.GetCommandLineArgs())
+                {
+                    if (string.IsNullOrEmpty(arg) || !arg.StartsWith("wavepaint:", StringComparison.OrdinalIgnoreCase)) continue;
+                    protocolLaunch = true;
+                    // 页面会把自己当前 origin 的端口带上（wavepaint://start?port=49234）：
+                    // 重拉后服务回到同一端口 ⇒ 页面 origin 不变 ⇒ 无需整页跳转
+                    // （跳转会丢掉用户尚未保存的画布内容）。解析不到才退回固定首选端口。
+                    requestedPort = ParsePortArg(arg);
+                    break;
+                }
+            }
+            catch { }
+
             if (!TryAcquireSingleInstance())
             {
-                OpenExistingInstance();
-                return 0;
+                // 已有实例：先确认它「真的在服务」。僵尸实例（进程活着、服务已死，
+                // 例如用户手滑杀掉了监听线程、或旧版本遗留）必须能接管，否则用户双击
+                // exe 之后什么都没发生，桌面上的旧窗口点仿真永远「无响应」。
+                if (OpenExistingInstance()) return 0;
+                Log(DateTime.Now.ToString("u") + " TAKE-OVER: mutex held but no live service found" + Environment.NewLine);
             }
-            try { ExtractResources(Assembly.GetExecutingAssembly()); }
-            catch (Exception ex) { System.Windows.Forms.MessageBox.Show("Extract failed: " + ex.Message, "WavePaintClean"); return 1; }
-            lastActivity = Environment.TickCount;
-            int port = FreePort();
-            if (!StartServer(port))
+            try { Log(DateTime.Now.ToString("u") + " BOOT resources=" + EnsureResources(Assembly.GetExecutingAssembly()) + Environment.NewLine); }
+            catch (Exception ex)
             {
-                System.Windows.Forms.MessageBox.Show("Failed to start local service (port bind).", "WavePaintClean");
+                Log(DateTime.Now.ToString("u") + " EXTRACT-FAILED " + ex + Environment.NewLine);
+                System.Windows.Forms.MessageBox.Show(
+                    "WavePaint 资源解压失败：\n" + ex.Message
+                    + "\n\n请关闭所有 WavePaint 窗口后重试；若仍失败请查看日志：\n" + logFile,
+                    "WavePaintClean");
                 return 1;
             }
+            RegisterUrlProtocol();
+            lastActivity = Environment.TickCount;
+            // 端口优先级：页面指定的原端口（协议重拉，保证与页面同源）→ 固定首选端口
+            bool started = StartServer(requestedPort > 0 ? requestedPort : PreferredPort);
+            // 启动自检：服务必须真的应答才开始服务页面。失败则换端口再试一次
+            //（避免「Edge 打开了窗口、服务其实没起来」这种点仿真必然无响应的局面）。
+            if (!started || !SelfCheck())
+            {
+                Log(DateTime.Now.ToString("u") + " SELFCHECK failed on port " + listenPort + " → retry new port" + Environment.NewLine);
+                try { if (server != null) server.Stop(); } catch { }
+                int retryPort = FreePort();
+                if (retryPort == PreferredPort) retryPort = FreePort();
+                started = StartServer(retryPort) && SelfCheck();
+            }
+            if (!started)
+            {
+                System.Windows.Forms.MessageBox.Show(
+                    "WavePaint 本地仿真服务启动失败（端口无法绑定或自检不通过）。\n请重试，或查看日志：" + logFile,
+                    "WavePaintClean");
+                return 1;
+            }
+            int port = listenPort;
             string edge = FindEdge();
             if (edge == null)
             {
@@ -806,22 +1177,29 @@ namespace WaveWorkbench
                 System.Windows.Forms.MessageBox.Show("Microsoft Edge not found.", "WavePaintClean");
                 return 1;
             }
-            string url = "http://127.0.0.1:" + port + "/index.html";
-            var psi = new ProcessStartInfo();
-            psi.FileName = edge;
-            psi.Arguments = "--app=\"" + url + "\" --no-first-run --no-default-browser-check";
-            psi.UseShellExecute = false;
-            CloseLegacyWindows();
-            try { Process.Start(psi); }
-            catch (Exception ex)
+            bool hasWindow = FindWaveWindowHandles().Count > 0;
+            if (!hasWindow || !protocolLaunch)
             {
-                try { server.Stop(); } catch { }
-                System.Windows.Forms.MessageBox.Show("Failed to launch Edge: " + ex.Message, "WavePaintClean");
-                return 1;
+                string url = "http://127.0.0.1:" + port + "/index.html";
+                var psi = new ProcessStartInfo();
+                psi.FileName = edge;
+                psi.Arguments = "--app=\"" + url + "\" --no-first-run --no-default-browser-check";
+                psi.UseShellExecute = false;
+                CloseLegacyWindows();
+                try { Process.Start(psi); }
+                catch (Exception ex)
+                {
+                    Log(DateTime.Now.ToString("u") + " EDGE-LAUNCH-FAILED " + ex.Message + Environment.NewLine);
+                    try { server.Stop(); } catch { }
+                    System.Windows.Forms.MessageBox.Show("Failed to launch Edge: " + ex.Message, "WavePaintClean");
+                    return 1;
+                }
             }
 
+            int bootTicks = Environment.TickCount;
             int gone = 0;
             int noWindowTicks = 0;
+            bool lastSeen = hasWindow;
             for (;;)
             {
                 // 仿真处理期间（iverilog/vvp 可能运行数秒到数十秒）不执行窗口/空闲退出检测，
@@ -831,25 +1209,34 @@ namespace WaveWorkbench
                 if (Interlocked.CompareExchange(ref simActive, 0, 0) > 0) { Thread.Sleep(500); continue; }
                 bool has = HasWindow();
                 everSeen = everSeen || has;
+                if (has != lastSeen)
+                {
+                    lastSeen = has;
+                    Log(DateTime.Now.ToString("u") + " WINDOW visible=" + (has ? 1 : 0)
+                        + " idle=" + (Environment.TickCount - lastActivity) + "ms" + Environment.NewLine);
+                }
                 if (has) gone = 0;
                 else if (everSeen) gone++;
                 else noWindowTicks++;
                 int idle = Environment.TickCount - lastActivity;
-                // 退出策略（2026-09-03 定、2026-09-04 收紧语义）：
-                //   进程存活期间服务必须一直在线 —— 唯一的主动退出条件是
-                //   「用户真的关闭了页面」（窗口消失 + 心跳停止 → idle 爬升）。
-                //   页面打开期间 js/core/heartbeat.js 每 2s 打一次 api/ping（Worker
-                //   计时，后台节流也不中断）→ idle 恒 < ~4s，任何窗口标题获取失败、
-                //   系统繁忙、最小化都不会触发退出 —— 这是「运行一段时间后仿真服务
-                //   不在线」的最终防线。
-                // 窗口消失 >12s 且空闲 >20s → 页面已关，正常退出。
-                if (gone > 24 && idle > 20000) break;
+                // 退出策略（2026-09-10 再收紧，根治「服务不在线」）：
+                //   进程存活期间服务必须一直在线。两个条件同时成立才退出：
+                //     ① 窗口枚举成功且确实看不到应用窗口（windowProbeOk）；
+                //     ② 心跳也停了很久（>90s）—— 页面打开时 heartbeat.js 每 2s 打一次
+                //        api/ping，idle 恒 < ~4s。
+                //   为什么必须「窗口 + 心跳」双条件、且探测失败不退出：
+                //     旧实现只等 12s/20s，遇到「Chromium 冻结后台渲染器导致心跳暂停」
+                //     或「窗口标题取不到」就会误判用户已关页面 → 停服务退出，而窗口还在，
+                //     用户回来点仿真 = 请求无响应。宁可多留一会儿进程，也绝不误杀服务。
+                if (everSeen && windowProbeOk && gone > 24 && idle > 90000) { exitReason = "window-closed+idle" + idle; break; }
                 // Edge 从未出现（启动失败/被拦截）：无页面可服务，超时退出防僵尸
-                if (!everSeen && noWindowTicks > 240) break;
-                if (!everSeen && idle > 60000) break;
+                if (!everSeen && noWindowTicks > 240) { exitReason = "edge-never-shown"; break; }
+                if (!everSeen && idle > 60000) { exitReason = "no-edge-no-heartbeat"; break; }
                 Thread.Sleep(500);
             }
 
+            Log(DateTime.Now.ToString("u") + " EXIT reason=" + exitReason
+                + " uptime=" + (Environment.TickCount - bootTicks) / 1000 + "s" + Environment.NewLine);
             shuttingDown = true;
             try { server.Stop(); } catch { }
             return 0;

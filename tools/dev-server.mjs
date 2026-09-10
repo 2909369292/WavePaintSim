@@ -100,8 +100,11 @@ http.createServer(async (req, res) => {
       return;
     }
     if (urlPath === '/api/ping') { // 与 exe 内置服务同款心跳（js/core/heartbeat.js）
-      res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-      res.end('OK');
+      // 2026-09-10：与 WavePaintLauncher.exe 的身份标识格式对齐（PING_TAG 首行 +
+      // 端口 + 构建标识），供 js/core/service-guard.js 判活时区分「本应用」与
+      // 「占用同端口的第三方服务」。仅回 "OK" 会让前端身份校验判为离线。
+      res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end('WAVEPAINT-SERVICE\n' + port + '\ndev-server\n');
       return;
     }
     if (urlPath === '/') urlPath = '/index.html';
