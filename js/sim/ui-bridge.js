@@ -1,8 +1,8 @@
 import { buildAutoTestbench, buildSimulationPayload, createPortStimulus, createSignalFromPort, diagnoseSimulation, parseVerilogDesign, vcdToProjectOutputs } from "./engine.js";
 import { formatVectorValue, normalizeVectorValue } from "./project-model.js";
-import { buildRtlNav, buildSymbolIndex, collectModuleDefs, moduleAtLine, resolveModuleDef, resolveSymbolVcdPaths } from "./rtl-nav.js";
+import { buildRtlNav, buildSymbolIndex, collectModuleDefs, findSymbols, moduleAtLine, resolveModuleDef, resolveSymbolVcdPaths } from "./rtl-nav.js";
 import { buildVcdHierarchy, findVcdPathsByName } from "./vcd-index.js";
-import { installCodeEditor, renderRtlTree, renderVcdTree } from "./rtl-panel.js";
+import { highlightRtlRow, highlightVcdSignal, installCodeEditor, renderRtlTree, renderVcdTree } from "./rtl-panel.js";
 
 const DEFAULT_SOURCE = `module counter(
   input clk,
@@ -36,6 +36,8 @@ const state = {
 const refs = {};
 let sourceCodeView = null;      // #75 P0：CodeMirror 6 控制器（installCodeEditor 返回值）
 let rtlRefreshTimer = null;     // 编辑后防抖刷新 RTL 树
+let activeSyncTimer = null;     // #76 B3：光标移动 → 反向高亮的防抖（索引是全量解析，别每键都算）
+let activeHighlight = null;     // #76 B3：当前「代码 → 树」联动状态 {name,fileIndex,line,target,path,fallbackTarget}
 let simAutoRetried = false;     // Bug1：/api/sim 网络失败后最多自动重试一次（用户重新点击时复位）
 // #86：服务自愈到「另一个回环端口」时把 /api/sim 指向那里（服务端对回环 origin 放行
 // CORS，且 text/plain 属简单请求不触发预检）。空串 = 同源（绝大多数情况）。
@@ -476,7 +478,9 @@ function initSourceCodeView() {
     },
     // #76 B4：代码区取词触发（双击变量名 / 右键菜单 / Ctrl+Alt+W）→ 加波形。
     // rtl-panel 只负责取词与触发，映射与画布落点在这里（见 addSymbolFromCode）。
-    onAddSymbol: (context) => addSymbolFromCode(context)
+    onAddSymbol: (context) => addSymbolFromCode(context),
+    // #76 B3：光标/选区变化 → 「代码 → 树」反向高亮（仿 Verdi nTrace 的 Active Annotation）
+    onCursorMove: (context) => scheduleActiveSync(context)
   });
   const usingCm = !!sourceCodeView.active;
   refs.cmHost.style.display = usingCm ? "block" : "none";
@@ -685,6 +689,96 @@ function addSymbolFromCode(context) {
   setStatus(`${name} 有 ${paths.length} 个候选信号，请在代码区旁的选择器里点选。`);
 }
 
+// ---------------------------------------------------------------------------
+// #76 B3：代码 → 树 反向定位（仿 Verdi nTrace「光标即高亮」的双向 Active Annotation）
+// ---------------------------------------------------------------------------
+// 与 B4 的分工：B4 是「代码 → 波形」（加信号，用户主动触发）；B3 是「代码 → 树」
+// （只做高亮 + 滚动，零副作用、不加信号、不弹框、不新增面板）。
+// 数据底座完全复用现成的两块，绝不另写解析：
+//   · 取词       = installCodeEditor 的 getContext()（B4 已闭环的 symbolNameAt 口径）；
+//   · 定位/映射  = B1 的 moduleAtLine / findSymbols / resolveSymbolVcdPaths。
+// 规则：
+//   1) 光标所在行 → 所属模块（moduleAtLine）→ 高亮 RTL 树的**模块行**；
+//   2) 光标正好停在**实例名**上（findSymbols 命中 kind="instance" 且行号一致）→ 高亮**实例行**
+//      （实例名不是 VCD 信号，因此不参与 VCD 高亮）；
+//   3) 其余符号 → resolveSymbolVcdPaths：**唯一**候选才高亮 VCD 树的对应信号行；
+//      多候选 = 有歧义 → 不高亮（宁可不亮也不猜）；符号侧为空时用名称兜底，同样要求唯一；
+//   4) 取不到词 / 取不到任何目标 → 清空高亮。
+// ⚠ RTL 树仍然只做层级浏览：这里只加 .rtl-active 视觉标记与滚动，不加端口/信号行、
+//   不恢复「点行加波形」（用户明确口径）。
+function clearActiveHighlight() {
+  activeHighlight = null;
+  highlightRtlRow(refs.rtlTree, null);
+  highlightVcdSignal(refs.vcdTree, null);
+}
+
+// 把当前高亮重放到树上。refreshStructureTrees() 是 container.replaceChildren() 全量重建，
+// 重建后高亮 class 会被抹掉 —— 所以每次重建完都必须重放一次。
+function applyActiveHighlight() {
+  if (!refs.rtlTree && !refs.vcdTree) return;
+  if (!activeHighlight) {
+    highlightRtlRow(refs.rtlTree, null);
+    highlightVcdSignal(refs.vcdTree, null);
+    return;
+  }
+  let hit = null;
+  if (activeHighlight.target) hit = highlightRtlRow(refs.rtlTree, activeHighlight.target);
+  // 实例行没命中（例如该实例未进树）→ 退回高亮所属模块行，保证至少落在正确的模块上
+  if (!hit && activeHighlight.fallbackTarget) highlightRtlRow(refs.rtlTree, activeHighlight.fallbackTarget);
+  highlightVcdSignal(refs.vcdTree, activeHighlight.path || null);
+}
+
+// 由代码上下文算出「树上的目标」并立即应用。context 缺省时读当前编辑器光标
+// （与 B4 的 addSymbolFromCode 同一取词口径）。返回联动状态（供探针核验）。
+function syncActiveFromCode(context) {
+  const info = context || sourceCodeView?.getContext?.() || {};
+  const name = String(info.name || "").trim();
+  const fileIndex = Number.isFinite(Number(info.fileIndex)) ? Number(info.fileIndex) : state.active;
+  const line = Number(info.line) > 0 ? Number(info.line) : 0;
+  if (!name || !line) {
+    clearActiveHighlight();
+    return null;
+  }
+  const index = currentSymbolIndex();
+  const mod = moduleAtLine(index, fileIndex, line);
+  const fallbackTarget = mod
+    ? { kind: "module", fileIndex: mod.fileIndex, line: mod.line, moduleName: mod.name, name: mod.name }
+    : null;
+  const { hits } = findSymbols(index, name, { fileIndex, line });
+  const instHit = hits.find((symbol) => symbol.kind === "instance") || null;
+  let target = fallbackTarget;
+  let path = "";
+  if (instHit) {
+    target = { kind: "instance", fileIndex: instHit.fileIndex, line: instHit.line, instanceName: instHit.name, name: instHit.name };
+  } else {
+    const resolved = resolveSymbolVcdPaths(index, name, { moduleName: mod?.name || "", fileIndex, line });
+    if (resolved.paths.length === 1) path = resolved.paths[0];
+    else if (!resolved.paths.length) {
+      const byName = findVcdPathsByName(state.vcd, name);
+      if (byName.length === 1) path = byName[0];
+    }
+  }
+  if (!target && !path) {
+    clearActiveHighlight();
+    return null;
+  }
+  activeHighlight = {
+    name, fileIndex, line, target, path,
+    fallbackTarget: instHit ? fallbackTarget : null
+  };
+  applyActiveHighlight();
+  return activeHighlight;
+}
+
+// 光标移动防抖：连续按键/拖选时只在停顿时算一次（currentSymbolIndex 是全量解析）。
+function scheduleActiveSync(context) {
+  if (activeSyncTimer) clearTimeout(activeSyncTimer);
+  activeSyncTimer = window.setTimeout(() => {
+    activeSyncTimer = null;
+    syncActiveFromCode(context);
+  }, 180);
+}
+
 // 切到目标文件并跳到目标行（跨文件先同步当前编辑内容，再切标签页）。
 function gotoSource(fileIndex, line) {
   if (typeof fileIndex === "number" && fileIndex !== state.active && state.files[fileIndex]) {
@@ -693,6 +787,9 @@ function gotoSource(fileIndex, line) {
     renderFileTabs();
   }
   if (Number(line) > 0) jumpToEditorLine(Number(line));
+  // 树 → 代码 之后立刻把「代码 → 树」的高亮同步到落点行（双向联动的闭环）：
+  // 点模块行 → 光标落在定义行 → 该模块行保持高亮；点实例行 → 落到定义/例化点后同步刷新。
+  syncActiveFromCode();
 }
 
 // 重建 RTL 结构树（纯数据 buildRtlNav 从 state.files 现算，不依赖 state.design）。
@@ -735,6 +832,8 @@ function refreshStructureTrees() {
     });
   }
   refreshVcdTree();
+  // ⚠ 上面两棵树都是 replaceChildren() 全量重建：高亮 class 会被一起抹掉，必须重放。
+  applyActiveHighlight();
 }
 
 function readWaveDocument() {
@@ -1639,6 +1738,38 @@ window.__wpsim = {
     return true;
   },
   closeSymbolPicker,
+  // #76 B3：代码 → 树 反向定位（高亮 + 滚动）的自动化入口。
+  // 传 context {name, fileIndex, line, …} 等价于「把光标放到该变量上」；不传则读当前编辑器光标。
+  syncActiveFromCode,
+  clearActiveHighlight,
+  get activeSymbol() {
+    if (!activeHighlight) return null;
+    return {
+      name: activeHighlight.name,
+      fileIndex: activeHighlight.fileIndex,
+      line: activeHighlight.line,
+      path: activeHighlight.path || "",
+      targetKind: activeHighlight.target?.kind || ""
+    };
+  },
+  // 当前高亮的 RTL 行（读 DOM 上的 data-rtl-*，与渲染/定位同源）；无高亮 → null。
+  get highlightedRtlRow() {
+    const el = refs.rtlTree?.querySelector?.(".rtl-active") || null;
+    if (!el) return null;
+    return {
+      kind: el.dataset.rtlKind || "",
+      fileIndex: Number(el.dataset.fileIndex),
+      line: Number(el.dataset.line) || 0,
+      moduleName: el.dataset.moduleName || "",
+      instanceName: el.dataset.instanceName || "",
+      name: el.dataset.name || "",
+      text: String(el.textContent || "").trim()
+    };
+  },
+  get highlightedVcdPath() {
+    const el = refs.vcdTree?.querySelector?.(".vcd-active") || null;
+    return el ? (el.dataset.vcdPath || "") : null;
+  },
   // 仿真输出在当前画布口径下的展开值（长度 = 主步 × (子步+1)）；e2e 核验观察行同源用。
   nativeValuesOfOutput(name) {
     const outputs = Array.isArray(state.outputs) ? state.outputs : [];

@@ -10,6 +10,8 @@
 //      任何加信号交互（数据层 buildRtlNav 仍产出 ports/params 供解析与 scope 映射复用）；
 //   3. renderVcdTree：把 buildVcdHierarchy() 的 VCD 层次树渲染成折叠列表
 //      （点击信号 → onSignalPick(完整点分路径)）。
+//   4. #76 B3：highlightRtlRow / highlightVcdSignal —— 代码光标 → 树节点高亮定位
+//      （只加视觉标记 + 滚动，不新增任何点击/加信号交互；RTL 树仍只做层级浏览）。
 // 约束：纯 DOM 渲染 + 持有 CodeMirror 实例，不 import ui-bridge（避免循环依赖）；
 //      结构数据来自 js/sim/rtl-nav.js 与 js/sim/vcd-index.js（已可单测）。
 
@@ -103,15 +105,140 @@ export function symbolNameAt(text, from, to) {
 }
 
 // ---------------------------------------------------------------------------
+// 1b. #76 B3：代码 → 树 反向定位的「行匹配」（纯函数，不碰 DOM，regression 单测）
+// ---------------------------------------------------------------------------
+// 行描述（DOM 侧由 data-rtl-* 还原，见 datasetToRtlRow）：
+//   { kind:'module'|'instance', fileIndex, line, moduleName, instanceName, name }
+// 目标描述同形，缺项 = 该维度不参与打分。
+// 匹配规则（刻意保守，宁可不匹配也不能高亮错行）：
+//   1) 目标带 kind 时，必须同类才可能命中（实例目标绝不会落到模块行）；
+//   2) 必须有「位置证据」——行号相等，或 名称（instanceName/moduleName/name）相等；
+//      只靠 fileIndex 不构成命中（否则同文件任意实例都会被抓来顶替）；
+//   3) 证据越多分越高：同类 +16、行号命中 +12、名称命中 +8、文件命中 +6。
+
+function normText(value) {
+  return String(value ?? "").trim();
+}
+
+export function rowMatchScore(row, target) {
+  if (!row || !target) return 0;
+  const targetKind = normText(target.kind);
+  if (targetKind && normText(row.kind) !== targetKind) return 0;
+  const targetLine = Number(target.line) || 0;
+  const lineHit = targetLine > 0 && (Number(row.line) || 0) === targetLine;
+  const nameHit = ["instanceName", "moduleName", "name"].some((key) => {
+    const want = normText(target[key]);
+    return !!want && normText(row[key]) === want;
+  });
+  if (!lineHit && !nameHit) return 0;
+  let score = targetKind ? 16 : 0;
+  if (lineHit) score += 12;
+  if (nameHit) score += 8;
+  const rowFile = Number(row.fileIndex);
+  const targetFile = Number(target.fileIndex);
+  if (Number.isFinite(targetFile) && Number.isFinite(rowFile) && rowFile === targetFile) score += 6;
+  return score;
+}
+
+// 返回命中的下标（无命中 -1）。同分取先出现的（渲染顺序 = 树的自然顺序）。
+export function pickRtlRowIndex(rows, target) {
+  const list = Array.isArray(rows) ? rows : [];
+  let best = -1;
+  let bestScore = 0;
+  for (let i = 0; i < list.length; i += 1) {
+    const score = rowMatchScore(list[i], target);
+    if (score > bestScore) { bestScore = score; best = i; }
+  }
+  return best;
+}
+
+// DOM 行 → 行描述（渲染时写在 data-rtl-* 上；两条路共用同一组字段名）
+export function datasetToRtlRow(element) {
+  const ds = element?.dataset;
+  if (!ds) return null;
+  const fileIndex = Number(ds.fileIndex);
+  return {
+    kind: ds.rtlKind || "",
+    fileIndex: Number.isFinite(fileIndex) ? fileIndex : NaN,
+    line: Number(ds.line) || 0,
+    moduleName: ds.moduleName || "",
+    instanceName: ds.instanceName || "",
+    name: ds.name || ""
+  };
+}
+
+// 展开元素的所有祖先 <details>（树是折叠的，不展开就滚不到/看不到）
+function openAncestorDetails(element, boundary) {
+  let parent = element?.parentElement || null;
+  while (parent && parent !== boundary) {
+    if (String(parent.tagName || "").toUpperCase() === "DETAILS") parent.open = true;
+    parent = parent.parentElement;
+  }
+}
+
+function scrollRowIntoView(element) {
+  try {
+    element?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  } catch (error) { /* 忽略：滚动只是增强，缺失不影响高亮 */ }
+}
+
+// 清掉树里的 B3 高亮，返回清掉的数量。
+export function clearRtlHighlight(container) {
+  if (!container?.querySelectorAll) return 0;
+  const active = [...container.querySelectorAll(".rtl-active")];
+  for (const element of active) element.classList.remove("rtl-active");
+  return active.length;
+}
+
+export function clearVcdHighlight(container) {
+  if (!container?.querySelectorAll) return 0;
+  const active = [...container.querySelectorAll(".vcd-active")];
+  for (const element of active) element.classList.remove("vcd-active");
+  return active.length;
+}
+
+// 高亮 RTL 树的模块行/实例行（target=null → 只清高亮）。
+// 返回命中的行描述（供调用方判断「实例行没命中 → 退回模块行」），无命中返回 null。
+export function highlightRtlRow(container, target) {
+  if (!container?.querySelectorAll) return null;
+  clearRtlHighlight(container);
+  if (!target) return null;
+  const rows = [...container.querySelectorAll("[data-rtl-kind]")];
+  const index = pickRtlRowIndex(rows.map(datasetToRtlRow), target);
+  if (index < 0) return null;
+  const element = rows[index];
+  element.classList.add("rtl-active");
+  openAncestorDetails(element, container);
+  scrollRowIntoView(element);
+  return datasetToRtlRow(element);
+}
+
+// 高亮 VCD 树的信号行（按完整点分路径精确定位；path 空 → 只清高亮）。
+export function highlightVcdSignal(container, path) {
+  if (!container?.querySelectorAll) return null;
+  clearVcdHighlight(container);
+  const want = normText(path);
+  if (!want) return null;
+  const rows = [...container.querySelectorAll("[data-vcd-path]")];
+  const element = rows.find((row) => row.dataset.vcdPath === want) || null;
+  if (!element) return null;
+  element.classList.add("vcd-active");
+  openAncestorDetails(element, container);
+  scrollRowIntoView(element);
+  return element.dataset.vcdPath;
+}
+
+// ---------------------------------------------------------------------------
 // 1. CodeMirror 6 代码视图
 // ---------------------------------------------------------------------------
 // onAddSymbol({name,line,selection,exact,via,anchor})：#76 B4 的代码侧入口，
 // 由 ui-bridge 负责「符号 → VCD 路径 → 画布观察行」；rtl-panel 只负责取词与触发。
-export function installCodeEditor({ host, textarea, doc = "", onChange, onAddSymbol }) {
+export function installCodeEditor({ host, textarea, doc = "", onChange, onAddSymbol, onCursorMove }) {
   const cm = globalThis.WPCm;
   const canUseCm = !!(host && textarea && cm && typeof cm.createVerilogEditor === "function");
   let view = null;
   let lastText = String(doc || "");
+  let emitCursor = null; // #76 B3：光标/选区变化通知（setText 重建编辑器后也要补发一次）
 
   const notifyUserChange = (text) => {
     if (typeof onChange === "function") onChange(text);
@@ -182,6 +309,37 @@ export function installCodeEditor({ host, textarea, doc = "", onChange, onAddSym
     }, true);
   }
 
+  // #76 B3 触发面：光标 / 选区变化 → 通知调用方（ui-bridge 用它做「代码 → 树」反向高亮）。
+  // ⚠ 不去改 CM6 bundle（免重建 lib/）：用 document 的 selectionchange + 宿主上的
+  //   mouseup/keyup 兜底；只在焦点确实落在代码区时发，并按「词/行/选区」去重。
+  if (typeof onCursorMove === "function" && (host || textarea)) {
+    const ownerDoc = host?.ownerDocument || textarea?.ownerDocument || globalThis.document;
+    const focusedHere = () => {
+      const active = ownerDoc?.activeElement || null;
+      if (view) return !!view.hasFocus || (!!active && !!host && host.contains(active));
+      return !!textarea && (active === textarea || (!!active && textarea.contains(active)));
+    };
+    let lastSignature = "";
+    emitCursor = () => {
+      const ctx = readContext();
+      const signature = `${ctx.source}|${ctx.name}|${ctx.line}|${ctx.selection}`;
+      if (signature === lastSignature) return;
+      lastSignature = signature;
+      onCursorMove(ctx);
+    };
+    const onSelectionChange = () => { if (focusedHere()) emitCursor(); };
+    ownerDoc?.addEventListener?.("selectionchange", onSelectionChange);
+    if (host) {
+      const onHostPointer = () => { if (focusedHere()) emitCursor(); };
+      host.addEventListener("mouseup", onHostPointer);
+      host.addEventListener("keyup", onHostPointer);
+    }
+    if (textarea) {
+      const onTextareaKey = () => { if (focusedHere()) emitCursor(); };
+      textarea.addEventListener("keyup", onTextareaKey);
+    }
+  }
+
   return {
     get active() {
       return canUseCm && !!view;
@@ -208,6 +366,9 @@ export function installCodeEditor({ host, textarea, doc = "", onChange, onAddSym
           notifyUserChange(changed);
         }
       });
+      // 换文档后光标必然回到 (1,0)：即使「词/行/选区」组合与上一文件相同，也必须补发一次，
+      // 否则高亮会停在上一个文件的节点上。
+      if (emitCursor) emitCursor();
     },
     jumpToLine(line) {
       const target = Math.max(1, Number(line) || 1);
@@ -245,10 +406,24 @@ export function installCodeEditor({ host, textarea, doc = "", onChange, onAddSym
 // jump：主入口（左键）。secondaryJump：次入口（右键 / Alt+左键）——
 // #86 A2：实例行的主入口 = 跳到该模块的**源码定义**（仿 Verdi nTrace 点实例跳定义），
 // 次入口 = 跳到**例化点行**（保留原有的“树 → 代码”能力）。
-function makeJumpRow(doc, className, text, title, jump, secondaryJump) {
+// meta（#76 B3）：{ kind, fileIndex, line, moduleName, instanceName, name } → 写成
+// data-rtl-* 属性，供 highlightRtlRow 反向定位（纯定位标记，不参与跳转逻辑）。
+function applyRtlRowMeta(row, meta) {
+  if (!meta) return row;
+  if (meta.kind) row.dataset.rtlKind = String(meta.kind);
+  if (Number.isFinite(Number(meta.fileIndex))) row.dataset.fileIndex = String(Number(meta.fileIndex));
+  if (Number(meta.line) > 0) row.dataset.line = String(Number(meta.line));
+  if (meta.moduleName) row.dataset.moduleName = String(meta.moduleName);
+  if (meta.instanceName) row.dataset.instanceName = String(meta.instanceName);
+  if (meta.name) row.dataset.name = String(meta.name);
+  return row;
+}
+
+function makeJumpRow(doc, className, text, title, jump, secondaryJump, meta) {
   const row = elFromDoc(doc, "button", "rtl-jump-btn" + (className ? " " + className : ""), text);
   row.type = "button";
   if (title) row.title = title;
+  applyRtlRowMeta(row, meta);
   row.addEventListener("click", (event) => {
     event.preventDefault();   // 阻止 <summary> 默认折叠切换
     event.stopPropagation();
@@ -310,7 +485,8 @@ export function renderRtlTree(container, modules, onJump) {
       modDetails.open = true;
       const modSummary = elFromDoc(doc, "summary", "rtl-module-summary");
       const go = () => onJump && onJump({ fileIndex, line: mod.moduleLine, kind: "module", name: mod.name });
-      modSummary.append(makeJumpRow(doc, "rtl-module-go", `module ${mod.name}`, `跳转到 ${fileName} 第 ${mod.moduleLine} 行`, go));
+      modSummary.append(makeJumpRow(doc, "rtl-module-go", `module ${mod.name}`, `跳转到 ${fileName} 第 ${mod.moduleLine} 行`, go, undefined,
+        { kind: "module", fileIndex, line: mod.moduleLine, moduleName: mod.name, name: mod.name }));
       modSummary.append(elFromDoc(doc, "span", "rtl-module-meta",
         `实例 ${mod.instanceCount || 0} · L${mod.moduleLine}`));
       modDetails.append(modSummary);
@@ -330,7 +506,8 @@ export function renderRtlTree(container, modules, onJump) {
           return makeJumpRow(doc, "rtl-inst", `${label}  L${inst.line}`,
             `${label}\n左键：跳到模块 ${inst.moduleName} 的源码定义\n右键 / Alt+左键：跳到例化点（${fileName}:${inst.line}）`,
             () => onJump && onJump({ ...payload, kind: "instance" }),
-            () => onJump && onJump({ ...payload, kind: "instanceSite" }));
+            () => onJump && onJump({ ...payload, kind: "instanceSite" }),
+            { kind: "instance", fileIndex, line: inst.line, moduleName: inst.moduleName, instanceName: inst.instanceName, name: payload.name });
         });
         modDetails.append(groupRows(doc, "实例 Instances", mod.instances.length, rows));
       }
@@ -372,6 +549,7 @@ export function renderVcdTree(container, index, onSignalPick) {
         const row = elFromDoc(doc, "button", "vcd-signal-row", `${signal.name}${widthText}`);
         row.type = "button";
         row.title = `完整路径：${path}`;
+        row.dataset.vcdPath = path; // #76 B3：代码 → VCD 树 反向定位的定位键
         row.addEventListener("click", () => {
           if (typeof onSignalPick === "function") onSignalPick(path, signal);
         });

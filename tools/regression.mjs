@@ -837,6 +837,45 @@ test("rtl-panel #76 B4：选区取词（首个非关键字标识符 / 层次名�
 });
 
 // ---------------------------------------------------------------------------
+group("rtl-panel.js（#76 B3 代码 → 树 反向定位的行匹配纯函数）");
+
+test("rtl-panel #76 B3：行匹配打分（同类才可能命中 / 必须有位置证据 / 行号优于文件号）", () => {
+  const rows = [
+    { kind: "module", fileIndex: 0, line: 1, moduleName: "counter", name: "counter" },
+    { kind: "instance", fileIndex: 0, line: 11, moduleName: "sub", instanceName: "u_a", name: "u_a" },
+    { kind: "instance", fileIndex: 0, line: 12, moduleName: "sub", instanceName: "u_b", name: "u_b" },
+    { kind: "module", fileIndex: 1, line: 1, moduleName: "sub", name: "sub" }
+  ];
+  const pick = (target) => rtlPanel.pickRtlRowIndex(rows, target);
+  assert.equal(pick({ kind: "module", fileIndex: 0, line: 1, moduleName: "counter", name: "counter" }), 0,
+    "模块目标落到模块行");
+  assert.equal(pick({ kind: "instance", fileIndex: 0, line: 12, instanceName: "u_b", name: "u_b" }), 2,
+    "实例目标按行号 + 实例名落到对应实例行");
+  assert.equal(pick({ kind: "instance", instanceName: "u_b" }), 2, "无行号时靠实例名唯一化");
+  assert.equal(pick({ kind: "module", fileIndex: 1, line: 1, moduleName: "sub", name: "sub" }), 3,
+    "跨文件同名模块按 fileIndex + 行号消歧（同名的 counter.sv 模块行 line 也是 1）");
+  assert.equal(pick({ kind: "instance", fileIndex: 0, line: 99 }), -1,
+    "无位置证据（行号不中且无名字）→ -1，绝不靠 fileIndex 抓一个替身");
+  assert.equal(pick({ kind: "module", fileIndex: 5, line: 42 }), -1, "越界目标 → -1");
+  assert.equal(pick({}), -1, "空目标 → -1");
+  assert.equal(rtlPanel.pickRtlRowIndex([], { kind: "module", line: 1 }), -1, "空候选 → -1");
+  assert.equal(rtlPanel.rowMatchScore(rows[1], { kind: "module", fileIndex: 0, line: 11 }), 0,
+    "目标带 kind 时同类是硬条件（实例行不会被模块目标命中）");
+  assert.equal(rtlPanel.rowMatchScore(null, { kind: "module" }), 0, "空行安全 0 分");
+  assert.ok(rtlPanel.rowMatchScore(rows[3], { kind: "module", fileIndex: 1, line: 1, moduleName: "sub" })
+    > rtlPanel.rowMatchScore(rows[0], { kind: "module", fileIndex: 1, line: 1, moduleName: "sub" }),
+    "同分项下 fileIndex 命中者分更高（避免跨文件串味）");
+});
+
+test("rtl-panel #76 B3：DOM 行描述还原（data-rtl-* → 行描述；缺属性安全）", () => {
+  const row = rtlPanel.datasetToRtlRow({ dataset: { rtlKind: "instance", fileIndex: "2", line: "11", moduleName: "sub", instanceName: "u_a", name: "u_a" } });
+  assert.deepEqual(row, { kind: "instance", fileIndex: 2, line: 11, moduleName: "sub", instanceName: "u_a", name: "u_a" });
+  assert.equal(rtlPanel.datasetToRtlRow({ dataset: {} }).line, 0, "缺 line → 0（= 不参与行号匹配）");
+  assert.equal(Number.isNaN(rtlPanel.datasetToRtlRow({ dataset: {} }).fileIndex), true, "缺 fileIndex → NaN");
+  assert.equal(rtlPanel.datasetToRtlRow(null), null, "无元素安全返回 null");
+});
+
+// ---------------------------------------------------------------------------
 group("vcd-index.js（#75 P0 VCD 全路径索引，纯函数）");
 
 function sampleParsedVcd() {

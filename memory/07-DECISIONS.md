@@ -252,3 +252,52 @@
     「登记真实 VCD 路径后观察行与原生等长同子步」；`tools/e2e-rtl.mjs` 新增 G1~G7 黑盒覆盖。
   - 以后若要做 `#87②`（模块全接口 Ctrl+4）或 B3（代码 ↔ 树双向跳转），**沿用本决策的入口与
     取词口径**（`getContext()` + `symbolNameAt`），不要再造第二套。
+
+---
+
+## D17 · 代码 → 树的反向联动口径：光标即高亮 + 必须位置证据 + 歧义不猜（#76 B3，2026-09-10）
+
+- **背景**：#76 B3 要补「代码 ↔ 树」中「**代码 → 树**」这一半（另一半「树 → 代码」= #86 A2
+  已落地）。用户口径：**RTL 树只做代码层级浏览**（不带出端口/信号行、不承载加信号），
+  加信号唯一主路径 = 代码内点/选中变量（B4）。因此 B3 必须是**纯视觉**的：只做高亮 + 滚动，
+  不加信号、不弹框、不新增面板。
+- **决策**：
+  1. **单一入口 `ui-bridge.syncActiveFromCode(context)`**：context 缺省读 `sourceCodeView.getContext()`
+     （B4 同一取词口径）；映射只用 B1 的 `moduleAtLine` / `findSymbols` / `resolveSymbolVcdPaths`
+     与 `vcd-index.findVcdPathsByName` —— **不另写第二套解析**（与 D16 一致）。
+  2. **四条规则**：① 光标所在行 → 所属**模块行**高亮（nTrace 式「当前 scope」常亮）；
+     ② 光标正好在**实例名**上（`findSymbols` 命中 `kind === 'instance'` 且行号一致）→ 高亮
+     **实例行**（实例名不是 VCD 信号，不参与 VCD 高亮）；③ 其余符号 → `resolveSymbolVcdPaths`
+     **候选数 === 1 才**高亮 VCD 信号行，符号侧为空才用 `findVcdPathsByName` 兜底、**同样要求
+     唯一**；④ 完全无目标（既不在模块内、名字也不是符号）→ **清空**。
+  3. **行匹配必须带位置证据**：`rowMatchScore(row, target)` 中「目标带 `kind` 时同类是硬条件」、
+     「必须行号相等或实例名/模块名/名字相等」，否则 **0 分**；同分**取先出现者**。
+     `pickRtlRowIndex` 无命中返回 **-1**。**没有证据的“匹配”= 随机亮行，比不亮更糟**。
+  4. **歧义宁可不亮**：多个实例下的同名信号一律不亮 VCD（与 D16「精确优先、不取并集」同源）。
+  5. **高亮是状态不是渲染**：`activeHighlight` 存模块级；`refreshStructureTrees()` 末尾
+     `applyActiveHighlight()` **重放**（树是 `replaceChildren` 全量重建）；`gotoSource()` 末尾
+     `syncActiveFromCode()` 做**闭环**（树 → 代码 → 树 一致）。
+  6. **光标事件源**：`ownerDocument` 的 `selectionchange` + 宿主 `mouseup`/`keyup`
+     （无 CM 时退回 textarea `keyup`），位置签名去重 + 仅焦点在内时发；`setText()` 重建后
+     **强制补发一次**。
+- **理由**：用户要的是「在代码里点哪、右边就知道你在哪、对应信号也亮起来」的低干扰辅助；
+  任何“猜”都会让高亮失去可信度（亮错比不亮更干扰阅读）。取词与映射已有现成底座，复用即可
+  保证 B3/B4 两条链路对同一个词的理解完全一致。
+- **否决方案**：
+  1. 另写一套“按行号找模块/找信号”的解析 —— 会与 B4 的取词口径漂移；
+  2. 多候选时亮第一条 / 全亮 —— 与用户「宁可不亮也不能亮错」冲突；还会与 B4 的“不取并集”打架；
+  3. **未知符号时连「所在模块」的 scope 高亮也清掉** —— 会把「我在哪个模块」这个有用指示一并
+     抹掉；实测（e2e-rtl H4）确认保留模块行、只清信号级目标才是对的（无目标时全清，见 H4b）；
+  4. 接 `EditorView.updateListener` 监听 CM6 文档/选区变化 —— 需要重跑 esbuild 重建
+     `lib/codemirror.bundle.js`，而收益与 DOM 方案相同，**不值**；
+  5. 高亮时把端口/信号行加进 RTL 树“顺便展示” —— 破坏第十二轮口径（见 04 §4.10），
+     e2e-rtl H6 已把它钉死（`.rtl-port`/`.vcd-signal-row` 计数必须为 0）。
+- **影响**：
+  - `index.html` 只新增两条高亮 CSS（`.rtl-active` / `.vcd-active`），**无新面板、无布局尺寸变化**；
+  - `lib/codemirror.bundle.js` / `tools/cm6-entry.js` **未改**（无 esbuild 重打包）；
+  - `rtl-panel.js` 导出面扩大（`rowMatchScore`/`pickRtlRowIndex`/`datasetToRtlRow`/
+    `highlightRtlRow`/`highlightVcdSignal`/`clearRtlHighlight`/`clearVcdHighlight`），
+    `ui-bridge.js` 的 `__wpsim` 增 5 个探针入口，供 `tools/e2e-rtl.mjs` H 段与后续轮次断言；
+  - 以后做 **#87②**（模块全接口 Ctrl+4）或 **B5**（信号组入 `.wp`）时，**沿用**：
+    取词 `getContext()`、映射 `moduleAtLine`/`findSymbols`/`resolveSymbolVcdPaths`、
+    联动状态「模块级状态 + 重建后重放」的写法，**不要再造第二套**。

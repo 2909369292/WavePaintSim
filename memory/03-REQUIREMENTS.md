@@ -94,7 +94,7 @@
 | #73 | 参数化位宽完整支持（嵌套参数/$clog2/移位/sized字面量） | ✅ | 求值器升级 + TB 内嵌参数定义，位宽算术交给 iverilog |
 | #74 | 跨 AI 总纲文档 | ✅ | 已升级为本 `memory/` 体系 |
 | #75 | Verdi 借鉴 P0：CodeMirror6 代码视图 + RTL Tree + VCD 全路径索引 | ✅ | esbuild 预打包 CM6 单文件入 `lib/`；新增 `rtl-nav.js`(纯函数行号定位) / `vcd-index.js`(纯函数 VCD 层次索引) / `rtl-panel.js`(DOM 渲染层)；textarea 保留为数据镜像、CM 缺失自动降级；回归 58/58 + e2e-rtl 9/9 |
-| #76 | Verdi 借鉴 P1：代码点变量→加波形 + 树↔代码跳转 + 信号组入 `.wp` | 🔄 **进行中：B1 ✅（第十五轮）+ B4 ✅（第十六轮）；下一顺位 = B3，其后 B5** | **第十二轮澄清：代码内点变量为唯一加信号主路径（B4，“中追”式）；RTL 树仅层级浏览、不再点行加信号（B2 撤销）**。复用 `toNativeSignal` + `simWatches` 注入链路（#85 底座）。**首批实施（RTL 树瘦身：renderRtlTree 删端口/参数分组与端口计数）已完成 2026-09-09**（e2e-rtl 16/16 + exe 重建 22:19:04，见 04 §4.10）。**B1 数据层已完成 2026-09-10 第十五轮**：`rtl-nav.js` 新增 `scanModuleSymbols`（体内声明 → 名/种类/方向/位宽/行号）、`buildInstancePaths`/`buildSymbolIndex`/`moduleAtLine`/`findSymbols`/`resolveSymbolVcdPaths`（符号 → VCD 全路径候选）、`vcd-index.js` 新增 `findVcdPathsByName`（名称兜底）；regression **75/75**、e2e-rtl **32/32**（F1~F9 真实 VCD 核对）；见 04 §4.13、06 P32。**B4 交互已完成 2026-09-10 第十六轮**：`rtl-panel.js` 导出纯函数 `symbolNameAt(text, from, to)`（~110 词关键字排除 + 剥 `q[3:0]` 位选 + `a.b.c` 取末段 + `exact` 判定）、`installCodeEditor` 增第 5 参 `onAddSymbol` 与 `getContext()`/`focus()`；**触发面 = 双击变量 / 右键菜单 / 捕获阶段 `Ctrl+Alt+W`**（**不用 `Ctrl+W`**：Edge `--app` 会吞它当关窗，06 P33）；`ui-bridge.js` 新增 `addSymbolFromCode`（`currentSymbolIndex` → `moduleAtLine` 收窄 → `resolveSymbolVcdPaths`，**仅当候选为空才** `findVcdPathsByName` 兜底）→ 唯一候选直加、多候选弹**代码区旁轻量选择器** `.sim-symbol-picker`（**不是**单独的“信号层次选择框”）；并**收敛「运行仿真后全量自动灌信号」**（`replaceInjectedOutputs` 改名 `syncSimRows`，不再灌 outputs）。regression **77/77**、e2e-rtl **39/39**（G1~G7）、e2e-ui 73/73、e2e-sim 0 失败、真 exe 冒烟通过；exe 重建 21:33:05；见 04 §4.14、06 P33。**下一项 = B3（代码 ↔ 树双向跳转）**，其后 B5（信号组入 `.wp`） |
+| #76 | Verdi 借鉴 P1：代码点变量→加波形 + 树↔代码跳转 + 信号组入 `.wp` | 🔄 **进行中：B1 ✅（第十五轮）+ B4 ✅（第十六轮）+ B3 ✅（第十七轮）；下一顺位 = B5** | **第十二轮澄清：代码内点变量为唯一加信号主路径（B4，“中追”式）；RTL 树仅层级浏览、不再点行加信号（B2 撤销）**。复用 `toNativeSignal` + `simWatches` 注入链路（#85 底座）。**首批实施（RTL 树瘦身：renderRtlTree 删端口/参数分组与端口计数）已完成 2026-09-09**（e2e-rtl 16/16 + exe 重建 22:19:04，见 04 §4.10）。**B1 数据层已完成 2026-09-10 第十五轮**：`rtl-nav.js` 新增 `scanModuleSymbols`（体内声明 → 名/种类/方向/位宽/行号）、`buildInstancePaths`/`buildSymbolIndex`/`moduleAtLine`/`findSymbols`/`resolveSymbolVcdPaths`（符号 → VCD 全路径候选）、`vcd-index.js` 新增 `findVcdPathsByName`（名称兜底）；regression **75/75**、e2e-rtl **32/32**（F1~F9 真实 VCD 核对）；见 04 §4.13、06 P32。**B4 交互已完成 2026-09-10 第十六轮**：`rtl-panel.js` 导出纯函数 `symbolNameAt(text, from, to)`（~110 词关键字排除 + 剥 `q[3:0]` 位选 + `a.b.c` 取末段 + `exact` 判定）、`installCodeEditor` 增第 5 参 `onAddSymbol` 与 `getContext()`/`focus()`；**触发面 = 双击变量 / 右键菜单 / 捕获阶段 `Ctrl+Alt+W`**（**不用 `Ctrl+W`**：Edge `--app` 会吞它当关窗，06 P33）；`ui-bridge.js` 新增 `addSymbolFromCode`（`currentSymbolIndex` → `moduleAtLine` 收窄 → `resolveSymbolVcdPaths`，**仅当候选为空才** `findVcdPathsByName` 兜底）→ 唯一候选直加、多候选弹**代码区旁轻量选择器** `.sim-symbol-picker`（**不是**单独的“信号层次选择框”）；并**收敛「运行仿真后全量自动灌信号」**（`replaceInjectedOutputs` 改名 `syncSimRows`，不再灌 outputs）。regression **77/77**、e2e-rtl **39/39**（G1~G7）、e2e-ui 73/73、e2e-sim 0 失败、真 exe 冒烟通过；exe 重建 21:33:05；见 04 §4.14、06 P33。**B3 交互已完成 2026-09-10 第十七轮**（仿 nTrace「光标即高亮」，**代码 → 树**反向联动；树→代码由 #86 A2 早已具备）：`rtl-panel.js` 新增导出纯函数 `rowMatchScore`/`pickRtlRowIndex`/`datasetToRtlRow`（**目标带 kind 时同类是硬条件 + 必须有位置证据 + 同分取先出现者**）与 `highlightRtlRow`/`highlightVcdSignal`/`clearRtlHighlight`/`clearVcdHighlight`（清旧 → 命中 → 加 `.rtl-active`/`.vcd-active` → **展开祖先 `<details>`** → `scrollIntoView`）；`installCodeEditor` 增第 6 参 `onCursorMove`（`selectionchange`(ownerDocument) + 宿主 `mouseup`/`keyup`，位置签名去重、仅焦点在内时发、`setText()` 重建后强制补发）；RTL 树行补 `data-rtl-*` 元数据、VCD 信号行补 `data-vcd-path`；`ui-bridge.js` 新增 `syncActiveFromCode`（`moduleAtLine` 模块行 / 实例名 → 实例行 / `resolveSymbolVcdPaths` **唯一才亮** VCD、符号侧空才 `findVcdPathsByName` 兜底同样要求唯一；无目标则清空）+ `scheduleActiveSync`（180ms 防抖）+ `applyActiveHighlight`/`clearActiveHighlight`（**树全量重建后重放高亮**），`gotoSource()` 末尾闭环、`refreshStructureTrees()` 末尾重放，`__wpsim` 增探针；`index.html` 只加两条高亮 CSS（无新面板、无布局变化）。**纯视觉、零副作用**（不加信号、不弹框），**且仍遵守 RTL 树纯层级口径**（不带出端口/信号行）。regression **79/79**、e2e-rtl **46/46**（H1/H2/H3/H4/H4b/H5/H6）、e2e-ui 73/73、e2e-sim 0 失败、probe-param 全过、真 exe 冒烟通过；exe 重建 22:06:08；见 04 §4.15、07 D17、06 P34。**下一项 = B5（信号组/观察行随 `.wp` 存档）** |
 | #77 | Verdi 借鉴 P2：Active Annotation + driver/load 高亮 | ⬜ 远期 | 数据全齐，待 UI 实现；2026-09-09 第十一轮用户**打入远期**，#87④ Active Annotation 与之合流 |
 | #78 | Verdi 借鉴 P3（备选）：X 追溯 / 波形 diff / VSCode 扩展 | ⬜ | 可复用 launcher HTTP `/api` |
 | #79 | 仿真器选型定论 | ✅ | iverilog 保持主后端，Verilator 远期可选 |
@@ -133,9 +133,11 @@
 > 页面侧自动重连/重新拉起服务并自动重试仿真（`js/core/service-guard.js`）。
 > 详见 04 §4.11、`memory/logs/2026-09-10.md`。**#86 A1~A4（实例→定义源码跳转 + 源码
 > 文件导入）其后已于第十四轮全部完成**（见 04 §4.12）。
-> **2026-09-10 第十五/十六轮**：近期主线第二项 **#76** 已连续落地 **B1（符号索引数据层）**
-> 与 **B4（代码内点/选中变量 → 加波形 = 唯一加信号主路径）**；**下一项 = B3（代码 ↔ 树
-> 双向跳转）**，其后 B5、#87②。详见 04 §4.13/§4.14、06 P32/P33、08 §1.2。
+> **2026-09-10 第十五/十六/十七轮**：近期主线第二项 **#76** 已连续落地 **B1（符号索引数据层，
+> 第十五轮）**、**B4（代码内点/选中变量 → 加波形 = 唯一加信号主路径，第十六轮）** 与
+> **B3（代码 ↔ 树双向跳转 = 代码光标反向高亮 RTL/VCD 树，仿 nTrace「光标即高亮」，第十七轮）**；
+> **下一项 = B5（信号组/观察行随 `.wp` 工程存档与恢复）**，其后 #87②（模块全接口 Ctrl+4）。
+> 详见 04 §4.13/§4.14/§4.15、06 P32/P33/P34、07 D16/D17、08 §1.2。
 
 | ID | 需求 | 状态 | 实现思路 / 备注 |
 |----|------|------|----------------|
@@ -206,7 +208,8 @@
   `js/core/service-guard.js` + launcher 固定端口 17817 + 身份标识判活 + 自动重连/重拉/重试；
   铁律见 `02-WORKFLOW.md` C19、`07-DECISIONS.md` D15。**此为插队专项，不改变主线顺序。**
 - 复刻“中追”式代码内点变量名 → 加波形（=#87①/#76 语义）：VCD 树点信号已由 #85 实现；
-  代码内点变量名 = **第十二轮确认的唯一加信号主路径**（#76 B4），不再是“远期未排期”。
+  代码内点变量名 = **第十二轮确认的唯一加信号主路径**（#76 B4，**第十六轮已落地**），不再是
+  “远期未排期”；代码光标 → 树反向高亮（#76 B3）**已于第十七轮落地**（纯视觉、零副作用）。
 - **RTL 结构树瘦身（第十二轮澄清，已落地）**：RTL 树只做代码层级浏览（文件 → 模块 → 实例，
   点击跳源码），**删除「端口 Ports / 参数 Parameters」分组与模块行端口计数**；不在 RTL 树上
   看接口/信号，也不给 RTL 树挂任何“点信号→画布”能力。数据层 `buildRtlNav` 保留 ports/params

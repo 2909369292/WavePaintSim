@@ -63,16 +63,20 @@
 - 禁止重做已完成的解混淆、重构、批次1~10。
 
 ---
-*最后更新：2026-09-10（第十六轮：**#76 B4 交互落地 —— 代码内点/选中变量 → 加波形**，
-= **唯一加信号主路径**，仿 Verdi nWave「中追」：代码里**双击变量 / 右键 / `Ctrl+Alt+W`** →
-`rtl-panel.symbolNameAt` 取词 → `ui-bridge.addSymbolFromCode`（`moduleAtLine` 收窄 →
-`resolveSymbolVcdPaths`，**仅当候选为空**才名称兜底）→ 唯一候选直加、多候选弹**代码区旁轻量
-选择器** `.sim-symbol-picker`；并**收敛「运行仿真后全量自动灌信号」**（`replaceInjectedOutputs`
-→ `syncSimRows`，不再灌 outputs）。验证 regression **77/77** + e2e-rtl **39/39**（G1~G7）+
-e2e-ui 73/73 + e2e-sim 0 失败 + 真 exe 冒烟通过，exe 重建 `21:33:05`。新增 04 §4.14（§2 时间线
-补记第十六轮）、`06-PITFALLS.md` P33（代码取词加信号四坑）、03 表 F/H #76 状态（B1 ✅ + B4 ✅）、
-08 文件头/§1/§1.2、09 §1/§3/§4/§5/§6/§7/§9、`memory/logs/2026-09-10.md`「第十六轮」、
-`05-LOGS.md` 索引。同日第十五轮完成 #76 B1、第十四轮 #86 A1~A4、第十三轮服务在线性根治。
-**主线下一项 = #76 B3**（代码 ↔ 树双向跳转）；其后 B5（信号组入 `.wp`）→ #87②（模块全接口
+*最后更新：2026-09-10（第十七轮：**#76 B3 落地 —— 代码 ↔ 树双向跳转（代码光标 → RTL/VCD 树
+反向高亮，仿 Verdi nTrace「光标即高亮」）**，**纯视觉、零副作用**：`rtl-panel.js` 新增
+`rowMatchScore`/`pickRtlRowIndex`/`datasetToRtlRow` + `highlightRtlRow`/`highlightVcdSignal`
+（清旧 → 加 `.rtl-active`/`.vcd-active` → 展开祖先 `<details>` → `scrollIntoView`）+
+`installCodeEditor` 第 6 参 `onCursorMove`；`ui-bridge.js` `syncActiveFromCode`（`moduleAtLine`
+模块行 / 实例名 → 实例行 / `resolveSymbolVcdPaths` **唯一才亮**、歧义不猜、无目标清空）+
+180ms 防抖 + `applyActiveHighlight`/`clearActiveHighlight`（**树重建后重放**），`gotoSource()`
+末尾闭环；`index.html` 只加两条高亮 CSS（无新面板）。验证 regression **79/79** + e2e-rtl
+**46/46**（H1/H2/H3/H4/H4b/H5/H6）+ e2e-ui 73/73 + e2e-sim 0 失败 + probe-param 全过 +
+真 exe 冒烟通过，exe 重建 `22:06:08`。新增 04 §4.15（§2 时间线补记第十七轮）、
+`06-PITFALLS.md` P34（反向高亮五坑）、07 D17（代码 → 树反向联动口径）、03 表 F/H #76 状态
+（B1 ✅ + B4 ✅ + B3 ✅，下一顺位 B5）、08 文件头/§1/§1.2（B3 ✅ + B5 开工点）、
+09 §1/§3/§4/§5/§6/§7/§9、`memory/logs/2026-09-10.md`「第十七轮」、`05-LOGS.md` 索引。
+同轮序列：第十五轮 #76 B1、第十六轮 #76 B4、第十四轮 #86 A1~A4、第十三轮服务在线性根治。
+**主线下一项 = #76 B5**（信号组/观察行随 `.wp` 工程存档与恢复）；其后 #87②（模块全接口
 Ctrl+4）；侧栏/整体 UI 重构为并行方案线（08 §2）。
 维护者：任何接手的 AI。*

@@ -53,7 +53,18 @@
 > 不再灌 outputs）。验证全绿（regression **77/77**、e2e-rtl **39/39** 含 G1~G7、e2e-ui 73/73、
 > e2e-sim 0 失败、真 exe 冒烟），exe 重建 `2026-09-10 21:33:05 ebce2b5`；**未改
 > `sim/engine.js` 一行**（C9）。详见 04 §4.14、07 D16、06 P33、日志 2026-09-10 第十六轮。
-> **主线下一项 = #76 B3**（代码 ↔ 树双向跳转）。
+> **第十七轮（2026-09-10）**：**#76 B3 落地 = 代码 → 树 反向联动**（仿 nTrace「光标即高亮」）——
+> `rtl-panel.js` 新增导出纯函数 `rowMatchScore`/`pickRtlRowIndex`/`datasetToRtlRow`（**同类硬条件
+> + 必须位置证据**）与 `highlightRtlRow`/`highlightVcdSignal`/`clearRtlHighlight`/`clearVcdHighlight`，
+> `installCodeEditor` 增 `onCursorMove`（`selectionchange` + `mouseup`/`keyup` + 签名去重 +
+> `setText()` 后强制补发）；`ui-bridge.js` 新增 `syncActiveFromCode`（`moduleAtLine` 模块行 /
+> 实例名 → 实例行 / `resolveSymbolVcdPaths` **唯一才亮** VCD，歧义不猜、无目标清空）+ 180ms 防抖
+> + `applyActiveHighlight` 重建后重放，`gotoSource()` 末尾闭环、`refreshStructureTrees()` 末尾重放；
+> `index.html` 只加两条高亮 CSS（无新面板）。验证全绿（regression **79/79**、e2e-rtl **46/46**
+> 含 H1/H2/H3/H4/H4b/H5/H6、e2e-ui 73/73、e2e-sim 0 失败、probe-param 全过、真 exe 冒烟），
+> exe 重建 `2026-09-10 22:06:08`；**未改 `sim/engine.js` 一行**（C9）。详见 04 §4.15、07 D17、
+> 06 P34、日志 2026-09-10 第十七轮。
+> **主线下一项 = #76 B5**（信号组/观察行随 `.wp` 工程存档与恢复）。
 
 ---
 
@@ -70,7 +81,7 @@
 | 期 | 内容 | 状态 | 关键点 |
 |---|---|---|---|
 | #86 | 实例 → 模块定义源码跳转 + 源码文件导入 + 例化解析增强 | ✅ **A1~A4 全部完成 2026-09-10（第十四轮）**；服务在线性子项 ✅ 同日第十三轮 | 底层：模块定义索引（全量 module 表 `file+moduleLine` 已就绪）**已补**「源码级实例扫描器 + 模块定义候选索引」，覆盖参数化例化 `#(.p(v))`、命名/位置端口例化、generate 内例化、多实例同语句、多文件同名模块歧义（同文件优先）；交互（仿 nTrace）：实例行**左键跨文件跳定义行，右键/Alt 跳“例化点”**，黑盒给中文提示，磁盘多选导入 `.sv/.v` 进 `state.files`（= Verdi filelist 语义的本地等价）；**源码集合随 `.wp` 存档恢复**（A4）。**2026-09-10 第十三轮另做了独立子项「服务在线性根治」**（固定端口 17817 + 身份标识判活 + `ivlRoot` 首启崩溃修复 + 服务自愈，见 04 §4.11）。实现细节见 04 §4.12、06 P31 |
-| #76 | 代码点变量 → 加波形 + 树↔代码双向跳转 + 信号组入 `.wp` | 🔄 **进行中：B1 ✅（第十五轮）+ B4 ✅（第十六轮）；下一顺位 = B3，其后 B5**（#85 的 VCD 侧已完成） | 底层：**模块体内符号索引**（reg/wire/net/端口/实例名 → 行号 → 映射到 VCD scope 全路径）**✅ B1 已落地**（`scanModuleSymbols`/`buildInstancePaths`/`buildSymbolIndex`/`findSymbols` + `vcd-index.findVcdPathsByName` 名称兜底；多实例歧义候选数据就绪 = `resolveSymbolVcdPaths` 返回多条 path）；交互（仿 Verdi Get Signals/nWave）：**代码内点/选中变量 → 加波形 = 唯一主路径**（**✅ B4 已落地**：双击 / 右键 / 捕获阶段 `Ctrl+Alt+W` → `symbolNameAt` 取词 → `resolveSymbolVcdPaths`，唯一候选直加、多候选弹代码区旁轻量选择器；并收敛「仿真后不再全量自动灌信号」）、树↔代码双向跳转（**B3 = 下一项**）、信号组/观察行随 `.wp` 存档恢复（B5 沿用 A4 存档桥）。实现细节见 04 §4.13/§4.14、06 P32/P33 |
+| #76 | 代码点变量 → 加波形 + 树↔代码双向跳转 + 信号组入 `.wp` | 🔄 **进行中：B1 ✅（第十五轮）+ B4 ✅（第十六轮）+ B3 ✅（第十七轮）；下一顺位 = B5**（#85 的 VCD 侧已完成） | 底层：**模块体内符号索引**（reg/wire/net/端口/实例名 → 行号 → 映射到 VCD scope 全路径）**✅ B1 已落地**（`scanModuleSymbols`/`buildInstancePaths`/`buildSymbolIndex`/`findSymbols` + `vcd-index.findVcdPathsByName` 名称兜底；多实例歧义候选数据就绪 = `resolveSymbolVcdPaths` 返回多条 path）；交互（仿 Verdi Get Signals/nWave）：**代码内点/选中变量 → 加波形 = 唯一主路径**（**✅ B4 已落地**：双击 / 右键 / 捕获阶段 `Ctrl+Alt+W` → `symbolNameAt` 取词 → `resolveSymbolVcdPaths`，唯一候选直加、多候选弹代码区旁轻量选择器；并收敛「仿真后不再全量自动灌信号」）、**树 ↔ 代码双向跳转**（树→代码 ✅ #86 A2；**代码→树 ✅ B3 第十七轮落地**：光标即在模块行/实例行高亮 + VCD 唯一候选高亮、歧义不猜、重建后重放）、信号组/观察行随 `.wp` 存档恢复（**B5 = 下一项**，沿用 A4 存档桥）。实现细节见 04 §4.13/§4.14/§4.15、06 P32/P33/P34、07 D16/D17 |
 | #87①/② | 源码选中变量 → 加波形（Ctrl+W）、模块全部接口一键入波形（Ctrl+4） | ⬜ 优先级提高 | 用户将 #87 整体优先级提高；① 即“代码内点变量名→加波形”（与 #76 目标合流，建议并入 #76 实现而非另起）；② 是模块/实例全部接口批量入波形（= “Ctrl+4”），建议紧跟 #76 收尾落地；③ 信号组管理与 #76 信号组入 `.wp` 合流；④ Active Annotation 随 #77 移远期 |
 
 ### 1.1 #86 拆解（近期第一项，建议小步 commit）
@@ -106,8 +117,8 @@
 
 ### 1.2 #76 拆解（近期第二项，建议小步 commit；第十二轮口径：代码点变量 = 唯一加信号主路径）
 
-> **状态：🔄 B1 ✅ + B4 ✅ 已完成（2026-09-10 第十五/十六轮，regression 77/77、e2e-rtl 39/39
-> 全绿，exe 重建 21:33:05）；下一项 = B3。**
+> **状态：🔄 B1 ✅ + B4 ✅ + B3 ✅ 已完成（2026-09-10 第十五/十六/十七轮，regression 79/79、
+> e2e-rtl 46/46 全绿，exe 重建 22:06:08）；下一项 = B5（开工点）。**
 > 可直接复用 #86 A1 打好的解析底座：`rtl-nav.js` 的 `scanInstances` / `collectModuleDefs` /
 > `resolveModuleDef` / `maskStrings`（抹白字符串与注释，供符号扫描安全复用）；A4 的 `.wp`
 > 存档桥（`installProjectArchiveBridge` / `injectArchiveSourceFiles`）也是 B5 信号组存档的现成入口。
@@ -126,10 +137,22 @@
   不显示接口/信号、不承担加信号交互。不再实施。**RTL 树瘦身（删端口/参数分组与端口计数）的
   首批实施已完成 2026-09-09**（rtl-panel.js UI 只删不增，数据层不变；e2e-rtl 16/16 +
   exe 重建 22:19:04，见 04 §4.10）。
-- **B3 交互：代码 ↔ 树双向跳转**（**下一项、开工点**）：已有“树 → 代码”（#86 A2 双语义）；
-  补“代码符号/行 → 反向高亮/定位 RTL 树与 VCD 树节点”。**B4 已把取词底座打好**：
-  `rtl-panel` 的 `getContext()` 返回 `{name, line, selection, exact, source}`，配合
-  `moduleAtLine`/`findSymbols` 就能定位“哪个模块、哪一行、什么符号” —— **不要另写一套解析**。
+- **B3 ✅ 交互：代码 ↔ 树双向跳转（2026-09-10 第十七轮完成）**：已有“树 → 代码”（#86 A2 双语义）；
+  本轮补“**代码符号/行 → 反向高亮/定位 RTL 树与 VCD 树节点**”（仿 nTrace「光标即高亮」）。
+  取词完全复用 B4 的 `getContext()`/`symbolNameAt`，映射完全复用 B1 的 `moduleAtLine`/
+  `findSymbols`/`resolveSymbolVcdPaths` —— **没有另写解析**。实现：`rtl-panel.js` 新增导出
+  `rowMatchScore`/`pickRtlRowIndex`/`datasetToRtlRow`（**同类硬条件 + 必须位置证据 + 同分取
+  先出现者**）与 `highlightRtlRow`/`highlightVcdSignal`/`clearRtlHighlight`/`clearVcdHighlight`
+  （清旧 → 加 `.rtl-active`/`.vcd-active` → **展开祖先 `<details>`** → `scrollIntoView`），
+  `installCodeEditor` 增第 6 参 `onCursorMove`（`selectionchange`(ownerDocument) + 宿主
+  `mouseup`/`keyup`，位置签名去重、仅焦点在内时发、`setText()` 后强制补发），RTL 树行补
+  `data-rtl-*`、VCD 信号行补 `data-vcd-path`；`ui-bridge.js` 新增 `syncActiveFromCode`
+  （模块行 / 实例行 / **VCD 唯一候选才亮**、无目标清空）+ `scheduleActiveSync`（180ms 防抖）
+  + `applyActiveHighlight`/`clearActiveHighlight`（**重建后重放**），`gotoSource()` 末尾闭环、
+  `refreshStructureTrees()` 末尾重放；`index.html` 只加两条高亮 CSS（无新面板、无布局变化）。
+  验证：regression **79/79**（+2 纯函数 test）、e2e-rtl **46/46**（H1/H2/H3/H4/H4b/H5/H6）、
+  e2e-ui 73/73、e2e-sim 0 失败、probe-param 全过、真 exe 冒烟通过；exe 重建 `22:06:08`。
+  细节 04 §4.15、决策 07 D17、坑 06 P34。
 - **B4 ✅ 交互：代码内点变量名 → 加波形（2026-09-10 第十六轮完成）**（= #87① / “中追”式）：
   三条入口进同一个 `onAddSymbol` —— **双击变量（要求 `exact`）/ 右键菜单 / 捕获阶段
   `Ctrl+Alt+W`**（**不用 `Ctrl+W`**：Edge `--app` 会吞它当关窗，见 06 P33）；取词走纯函数
@@ -142,8 +165,10 @@
   （只同步真实 VCD 路径登记的观察行，不再把 `outputs` 全量推入画布）。
   验证：regression **77/77**、e2e-rtl **39/39**（G1~G7）、e2e-ui 73/73、e2e-sim 0 失败、
   真 exe 冒烟通过；exe 重建 `21:33:05`。细节 04 §4.14、决策 07 D16、坑 06 P33。
-- **B5 交互：信号组入 `.wp`**：GroupManager 组 + 观察行（`simWatches`）随工程存档恢复；
-  （承接 A4 的话）源码集合一并存档。
+- **B5 交互：信号组入 `.wp`（下一项、开工点）**：GroupManager 组 + 观察行（`simWatches`）随
+  工程存档恢复；（承接 A4 的话）源码集合一并存档。**沿用 A4 的存档桥**（`installProjectArchiveBridge`
+  / `injectArchiveSourceFiles` 的「文本拼接 + 不动核心 parse」口径），**不要另造存档格式**；
+  参考本轮的「状态提到模块级 + 渲染后重放」写法（06 P34）避免“载入后 UI 不刷新”。
 
 ---
 

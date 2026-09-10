@@ -684,6 +684,100 @@ if (ready === 'ready') {
     G.ctxSource === 'cm', gState);
 }
 
+// ---------------------------------------------------------------------------
+// H. #76 B3：代码 → 树 反向定位（光标在源码符号上 → RTL/VCD 树同步高亮 + 滚动）
+// ---------------------------------------------------------------------------
+// 口径：只加视觉高亮（.rtl-active / .vcd-active），零副作用 —— 不加信号、不弹框、
+//       不新增面板；RTL 树仍只做层级浏览（高亮**不得**带出端口/信号行）。
+//       未知符号 = 拿不到信号级目标：**不得**乱猜 VCD 路径、**不得**高亮实例行；
+//       RTL 侧仍保留「光标所在模块」的 scope 高亮（仿 nTrace「当前 scope」指示），
+//       这是规则 1 的正常结果，不算误亮。
+{
+  const hState = await ev(`(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const wpsim = window.__wpsim;
+    const status = () => String(document.getElementById('sim-status').textContent || '');
+    wpsim.setSourceFiles(${G_FILES_JSON});
+    await sleep(500);
+    if (!document.querySelectorAll('#vcd-tree .vcd-signal-row').length) {
+      document.getElementById('sim-run')?.click();
+      for (let i = 0; i < 80; i++) { await sleep(400); if (/仿真完成|失败|ERROR/.test(status())) break; }
+    }
+    await sleep(300);
+    const rtlActive = () => [...document.querySelectorAll('#rtl-tree .rtl-active')].map((el) => el.dataset.rtlKind);
+    const vcdActive = () => [...document.querySelectorAll('#vcd-tree .vcd-active')].map((el) => el.dataset.vcdPath);
+    const rtlRowTexts = () => [...document.querySelectorAll('#rtl-tree [data-rtl-kind]')].map((el) => el.textContent.trim());
+    // 1) 光标停在 counter.sv:7 的 q（体内 reg）→ 模块行高亮 + VCD 唯一路径高亮
+    wpsim.syncActiveFromCode({ name: 'q', fileIndex: 0, line: 7, selection: 'q', exact: true });
+    await sleep(80);
+    const s1 = {
+      rtl: rtlActive(), vcd: vcdActive(), row: wpsim.highlightedRtlRow,
+      path: wpsim.highlightedVcdPath, sym: wpsim.activeSymbol, rows: rtlRowTexts()
+    };
+    // 2) 光标停在 sub.v:2 的 q（同一模块被例化两次）→ 模块行高亮，但 VCD 有歧义 → 不高亮
+    wpsim.syncActiveFromCode({ name: 'q', fileIndex: 1, line: 2, selection: 'q', exact: true });
+    await sleep(80);
+    const s2 = { rtl: rtlActive(), vcd: vcdActive(), row: wpsim.highlightedRtlRow, path: wpsim.highlightedVcdPath };
+    // 3) 光标停在实例名 u_b 上（counter.sv:13）→ 高亮实例行；实例名不是 VCD 信号 → 不参与 VCD 高亮
+    wpsim.syncActiveFromCode({ name: 'u_b', fileIndex: 0, line: 13, selection: 'u_b', exact: true });
+    await sleep(80);
+    const s3 = { rtl: rtlActive(), vcd: vcdActive(), row: wpsim.highlightedRtlRow, path: wpsim.highlightedVcdPath };
+    // 4) 未知符号 → 信号级目标全空（不猜 VCD 路径、不亮实例行），只剩「所在模块」scope 高亮
+    wpsim.syncActiveFromCode({ name: 'no_such_signal_xyz', fileIndex: 0, line: 7 });
+    await sleep(80);
+    const s4 = { rtl: rtlActive(), vcd: vcdActive(), row: wpsim.highlightedRtlRow, sym: wpsim.activeSymbol };
+    // 4b) 光标不在任何模块内（行号越界）+ 非符号 → 真的没有目标 → 高亮全清（清空路径仍存在）
+    wpsim.syncActiveFromCode({ name: 'no_such_signal_xyz', fileIndex: 0, line: 40 });
+    await sleep(80);
+    const s4b = { rtl: rtlActive(), vcd: vcdActive(), row: wpsim.highlightedRtlRow, sym: wpsim.activeSymbol };
+    // 5) 树是 replaceChildren 全量重建：高亮必须能在重建后重放（点「解析 RTL」触发重建）
+    wpsim.syncActiveFromCode({ name: 'q', fileIndex: 0, line: 7, selection: 'q', exact: true });
+    await sleep(80);
+    const beforeRebuild = rtlActive().length;
+    document.getElementById('sim-parse')?.click();
+    await sleep(250);
+    const s5 = {
+      before: beforeRebuild, rtl: rtlActive(), vcd: vcdActive(),
+      row: wpsim.highlightedRtlRow, rows: rtlRowTexts()
+    };
+    // 6) RTL 树不得因为高亮而带出端口/信号行（纯层级浏览口径不许回退）
+    const treePortRows = document.querySelectorAll('#rtl-tree .rtl-port, #rtl-tree .rtl-port-row, #rtl-tree .vcd-signal-row').length;
+    wpsim.clearActiveHighlight();
+    await sleep(50);
+    const cleared = { rtl: rtlActive().length, vcd: vcdActive().length, row: wpsim.highlightedRtlRow, path: wpsim.highlightedVcdPath };
+    return JSON.stringify({ s1, s2, s3, s4, s4b, s5, treePortRows, cleared });
+  })()`);
+  const H = JSON.parse(hState || '{}');
+  check('H1: 光标停在 counter.sv:7 的 q → RTL 高亮 module counter 行 + VCD 高亮唯一路径 tb.dut.q',
+    JSON.stringify(H.s1?.rtl) === JSON.stringify(['module'])
+    && H.s1?.row?.moduleName === 'counter' && H.s1?.row?.fileIndex === 0 && H.s1?.row?.line === 1
+    && H.s1?.sym?.name === 'q' && H.s1?.sym?.targetKind === 'module'
+    && JSON.stringify(H.s1?.vcd) === JSON.stringify(['tb.dut.q']) && H.s1?.path === 'tb.dut.q', hState);
+  check('H2: 光标停在 sub.v:2 的 q（同名模块例化两次）→ RTL 高亮 module sub 行，VCD 有歧义则不猜（不高亮）',
+    JSON.stringify(H.s2?.rtl) === JSON.stringify(['module'])
+    && H.s2?.row?.moduleName === 'sub' && H.s2?.row?.fileIndex === 1 && H.s2?.row?.line === 1
+    && JSON.stringify(H.s2?.vcd) === JSON.stringify([]) && H.s2?.path === null, hState);
+  check('H3: 光标停在实例名 u_b 上（counter.sv:13）→ 高亮实例行（line=13），不误亮 VCD',
+    JSON.stringify(H.s3?.rtl) === JSON.stringify(['instance'])
+    && H.s3?.row?.instanceName === 'u_b' && H.s3?.row?.line === 13
+    && JSON.stringify(H.s3?.vcd) === JSON.stringify([]), hState);
+  check('H4: 未知符号 → 不误亮信号（无 VCD 高亮、不亮实例行），只保留所在模块 scope 高亮',
+    JSON.stringify(H.s4?.vcd) === JSON.stringify([])
+    && JSON.stringify(H.s4?.rtl) === JSON.stringify(['module'])
+    && H.s4?.row?.kind === 'module' && H.s4?.row?.moduleName === 'counter'
+    && H.s4?.sym?.path === '' && H.s4?.sym?.targetKind === 'module', hState);
+  check('H4b: 光标既不在任何模块内、名字也不是符号 → 无目标 → 高亮全部清空（清空路径仍在）',
+    JSON.stringify(H.s4b?.rtl) === JSON.stringify([]) && JSON.stringify(H.s4b?.vcd) === JSON.stringify([])
+    && H.s4b?.row === null && H.s4b?.sym === null, hState);
+  check('H5: 树全量重建（点「解析 RTL」）后高亮被重放，不丢',
+    H.s5?.before === 1 && JSON.stringify(H.s5?.rtl) === JSON.stringify(['module'])
+    && JSON.stringify(H.s5?.vcd) === JSON.stringify(['tb.dut.q'])
+    && H.s5?.row?.moduleName === 'counter', hState);
+  check('H6: 高亮不改变 RTL 树的层级浏览口径（树里仍无端口/信号行），clearActiveHighlight 可一键清空',
+    H.treePortRows === 0 && H.cleared?.rtl === 0 && H.cleared?.vcd === 0
+    && H.cleared?.row === null && H.cleared?.path === null, hState);
+}
+
 console.log('\n资源加载失败(404等)：' + netFails);
 console.log('控制台异常：' + (errors.length ? errors.join(' | ') : '无'));
 const failed = results.filter((r) => !r.ok);

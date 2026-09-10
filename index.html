@@ -452,7 +452,23 @@
         .vcd-signal-row:hover {
             background: var(--hover-bg, #e8f0e8);
             border-color: var(--accent, #4CAF50);
-        }</style>
+        }
+        /* ── #76 B3：代码 → 树 反向定位（Active Annotation 式高亮）───────────
+           光标停在源码符号上时，RTL 树的模块/实例行与 VCD 树的信号行同步点亮。
+           纯视觉标记（不改变任何点击语义、不新增交互），用描边 + 淡底 + 左侧色条，
+           不动布局尺寸，避免树重建时抖动。 */
+        .rtl-jump-btn.rtl-active {
+            background: var(--accent-soft, rgba(76, 175, 80, 0.18));
+            border-color: var(--accent, #4CAF50);
+            color: var(--signal-color, #2e7d32);
+            box-shadow: inset 2px 0 0 var(--accent, #4CAF50);
+        }
+        .vcd-signal-row.vcd-active {
+            background: var(--accent-soft, rgba(76, 175, 80, 0.18));
+            border-color: var(--accent, #4CAF50);
+            box-shadow: inset 2px 0 0 var(--accent, #4CAF50);
+        }
+</style>
     <script>
         (function () {
             function removeLoader() {
