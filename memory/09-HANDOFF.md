@@ -183,6 +183,12 @@ e2e-sim 0 失败。exe 已重建并核验特征串（`CloseLegacyWindows`/`EnumW
 - 行尾差异：`js/`、`tools/`、`memory/`、`index.html` **均为 LF、无 BOM**（2026-09-10 第十六轮按字节
   实测；`index.html` 往返写入 byteDiff=0）。历史「`index.html` 是 CRLF」的说法**已过时**，别据此
   做行尾转换（转换反而会产出整文件 diff）。
+- **exe 内嵌版本串 = 构建那一刻的 HEAD（不是承载该批代码的 commit）**：当前交付的
+  `v0.4.0 build 2026-09-10 21:33:05 ebce2b5` 里的 `ebce2b5` 是**父 commit**，代码内容其实是
+  第十六轮 #76 B4（已由 C8 特征串核验：`symbolNameAt`/`addSymbolFromCode`/`sim-symbol-picker`/
+  `syncSimRows`/`resolveSymbolVcdPaths` 全 >0）。**看到 `ebce2b5` 不等于 exe 落后**，不必为了
+  对齐 hash 重跑 `build.ps1`（如需版本串等于 HEAD 才重建，且重建后要同步更新 04/09 与本文件的
+  版本号口径）。
 - PowerShell 环境（本机 Codex desktop）：**无 `sed`**、`head` 不可用（用
   `Select-Object -First/Last`）；内联 JS 会被转义破坏 → 探针一律写成 `.mjs` 再 `node` 跑。
 
