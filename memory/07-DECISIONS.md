@@ -301,3 +301,51 @@
   - 以后做 **#87②**（模块全接口 Ctrl+4）或 **B5**（信号组入 `.wp`）时，**沿用**：
     取词 `getContext()`、映射 `moduleAtLine`/`findSymbols`/`resolveSymbolVcdPaths`、
     联动状态「模块级状态 + 重建后重放」的写法，**不要再造第二套**。
+
+## D18 · 观察行随 `.wp` 工程存档口径：复用 A4 文本拼接桥 + 只存元数据 + 无 VCD 以工程为准（#76 B5，2026-09-10）
+
+- **决策**：
+  1. **沿用 #86 A4 的存档桥，不另造格式**：包裹核心 `window.buildDocumentJson` /
+     `window.loadFromFileContent`，**文本拼接**注入字段（在最后一个 `}` 前插 `JSON.stringify(v, null, 2)`；
+     空文档 `{}` 不加逗号；非对象字面量原样返回），**整份文档不二次 `JSON.parse`**（波形文档可能很大，
+     保存时不该重解析）。原 `injectArchiveSourceFiles(json, files, activeIndex)` **泛化为**
+     `injectArchiveFields(json, fields)`（`fields = [[名, 值], …]`）。
+  2. **字段名 `simWatches`，只存找回元数据**：`archiveSimWatches()` → 每条
+     `{path, name, width, reference}`（`width = Math.max(1, Number(...) || 1)`）。**波形数据不重复存**
+     —— 它已在核心 `signals` 里。
+  3. **载入恢复 = `applyArchivedExtras(text)`**：`JSON.parse` 失败**静默 return**（分享链接的压缩
+     载荷走核心自己的路径，桥不插手也不报错）→ **先清** `state.vcd = null` / `state.outputs = []` /
+     `state.simWatches = []`（换人）→ `applySourceFilesFromArchive` → `applySimWatchesFromArchive`
+     （带字段 → 覆盖 + `adoptArchivedWatchRows`；**不带 → 返回 0 且保持已清空**）→ 面板未就绪
+     （启动即 `#d=` 链接）return（`init()` 会用新 state 渲染）→ `refreshVcdTree(); syncSimRows();
+     render();` → 状态栏**合并**一条文案（源码 N 个 + 观察行 M 个，避免后一条覆盖前一条）。
+  4. **观察行的恢复靠「行名 == 路径」认领 + 补位宽**：`adoptArchivedWatchRows` 置
+     `__simInjected`/`__simWatchPath`，补 `width`/`kind`/`msb`/`lsb`（核心一律丢这些），已注入则跳过。
+  5. **无 VCD 时以工程带回来的那一行为准**：`syncSimRows` 的 `buildWatchSignal` 空结果**只在没有 VCD
+     时**回退 `liveByPath.get(path)`；**有 VCD 仍以 VCD 为准**（保证「重新仿真 → 数据刷新」）。
+  6. **旧工程向后兼容显式化**：无 `simWatches` → 观察行清空（**观察行以工程为准**），不沿用内存旧登记。
+  7. **信号组入 `.wp` 不另写桥**：核心 `buildDocumentJson`（L1406~1515，逐字段存 `groupName`/
+     `groupColor`/`groupPath`，L1449~1451）与 `loadFromFileContent`（L1553~，逐字段还原
+     L1642~1644）**已天然闭环**，`GroupManager`（L1163~1404）是**纯函数派生、无独立状态** ——
+     桥一行都不用加。
+- **理由**：观察行是「**桥造出来的、核心不认识的东西**」，必须由造它的人负责找回。把「找回元数据」
+  与「波形数据」分离，既避免同一份数据存两遍，也避免让核心去懂仿真语义（核心是通用波形编辑器，
+  保持它与 `sim/` 解耦 = 保 C9 风险区不动）。
+- **否决方案**：
+  1. **另造一套 `.wp` 附加存档格式 / 旁挂文件** —— 与分享链接（核心自己压缩整个文档）割裂，
+     旧工程迁移也要写两套；
+  2. **让核心认识 `__simInjected`**（改 `wavepaint.clean.js` / `sim/engine.js`）—— 触碰 C9 最易碎区，
+     且核心本不该懂仿真；
+  3. **存档时把观察行从 `signals` 里剔除**（只留 `simWatches`）—— 会丢掉波形数据，载入后画布上
+     没值可显示（用户要的是「重开工程回到画布」）；
+  4. **无 VCD 时干脆丢观察行** —— 同上，直接违背 B5 目标；
+  5. **载入工程时保留旧 `state.vcd`“凑合用”** —— 数据张冠李戴，见 06 P35。
+- **影响**：
+  - `js/sim/ui-bridge.js`：`injectArchiveFields` / `archiveSimWatches` / `applyArchivedExtras` /
+    `applySourceFilesFromArchive` / `applySimWatchesFromArchive` / `adoptArchivedWatchRows`、
+    `syncSimRows` 增无 VCD 回退、`resetSourceFiles` 扩为全复位、`__wpsim` 增 `designSignalNames`
+    探针（旧函数名 `injectArchiveSourceFiles` / `applyArchivedSourceFiles` **已不存在**）；
+  - `js/wavepaint.clean.js` **一行未改**、`sim/engine.js` **一行未改**（C9 守住）；
+  - 改 `js/` → 按 **C1** 重建 exe 并核验 C8 特征串；e2e-rtl 增 I1~I6（**46 → 52**）；
+  - 以后新增「代码侧上下文入 `.wp`」（如 #87② 的模块接口快照）**沿用本桥**：泛化
+    `injectArchiveFields` + 「只存元数据 + 恢复时补核心丢的字段」的写法，**不要再造第二套**。

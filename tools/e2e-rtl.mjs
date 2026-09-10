@@ -10,6 +10,7 @@
 //      源码集合随工程存档/恢复（.wp 往返）
 //   F. #76 B1：模块体内符号索引 → 真实 VCD 全路径映射（点代码变量 → 波形路径的底座）
 //   G. #76 B4：代码内点/选中变量 → 加波形（唯一加信号主路径；且仿真后不再全量灌信号）
+//   I. #76 B5：画布观察行随 .wp 工程往返（存档 → 载入 → 恢复注入语义 / 向后兼容）
 // 用法：node tools/e2e-rtl.mjs   （自带 dev-server；需本机 Edge；退出码非 0 表示有失败）
 // 与 e2e-ui.mjs 相同的防 C 盘爆盘策略：profile/TEMP 全部指到 D 盘 .e2e-tmp。
 // ============================================================================
@@ -776,6 +777,109 @@ if (ready === 'ready') {
   check('H6: 高亮不改变 RTL 树的层级浏览口径（树里仍无端口/信号行），clearActiveHighlight 可一键清空',
     H.treePortRows === 0 && H.cleared?.rtl === 0 && H.cleared?.vcd === 0
     && H.cleared?.row === null && H.cleared?.path === null, hState);
+}
+
+// ---------------------------------------------------------------------------
+// I. #76 B5：画布观察行随 .wp 工程往返（存档 → 载入 → 恢复注入语义）
+// ---------------------------------------------------------------------------
+// 口径：观察行（VCD 点行 / 代码点变量加进来的行）必须随工程存档，载入后 ① 回到
+//       state.simWatches；② 仍是「注入行」，绝不被 readWaveDocument 当成用户画的激励
+//       信号（否则会生成脏 TB）；③ 位宽元数据（名字列 [3:0]）不丢。
+//       旧工程没有 simWatches 字段 → 观察行为空且不报错（向后兼容）。
+{
+  const iState = await ev(`(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const dw = () => window.document_wave;
+    const wpsim = window.__wpsim;
+    const status = () => String(document.getElementById('sim-status').textContent || '');
+    const rowOf = (path) => dw().m_signals.find((s) => s && s.__simWatchPath === path) || null;
+    const watchPaths = () => dw().m_signals.filter((s) => s && s.__simWatchPath).map((s) => s.__simWatchPath);
+    const out = {};
+    // 1) 造工程跑一次真实仿真（H 段已仿真过则复用）
+    wpsim.setSourceFiles(${G_FILES_JSON});
+    await sleep(500);
+    if (!document.querySelectorAll('#vcd-tree .vcd-signal-row').length) {
+      document.getElementById('sim-run')?.click();
+      for (let i = 0; i < 80; i++) { await sleep(400); if (/仿真完成|失败|ERROR/.test(status())) break; }
+    }
+    await sleep(300);
+    // 2) 走「代码点变量」主路径加一个观察行（tb.dut.q）
+    wpsim.addSymbolFromCode({ name: 'q', fileIndex: 0, line: 7, selection: 'q', exact: true, via: 'probe' });
+    await sleep(300);
+    out.beforeArchive = watchPaths();
+    // 3) 存档：工程 JSON 必须带 simWatches（path/width；不重复、不丢）
+    const archivedText = window.buildDocumentJson(dw());
+    const parsed = JSON.parse(archivedText);
+    const w0 = Array.isArray(parsed.simWatches) ? parsed.simWatches : [];
+    out.savedCount = w0.length;
+    out.savedPath = w0[0] && w0[0].path;
+    out.savedWidth = w0[0] && w0[0].width;
+    // 核心不认得注入行：它会把观察行一并当普通信号存进 signals（所以载入后要认领回来）
+    out.archivedSignalsHasWatch = (parsed.signals || []).some((s) => s && s.name === 'tb.dut.q');
+    // 4) 载入同一份工程 → 观察行恢复为注入语义（含核心不还原的位宽元数据）
+    out.loadOk = window.loadFromFileContent(dw(), archivedText);
+    await sleep(400);
+    const restored = wpsim.simWatches;
+    const row = rowOf('tb.dut.q');
+    out.restoredCount = restored.length;
+    out.restoredPath = restored[0] && restored[0].path;
+    out.restoredWidth = restored[0] && restored[0].width;
+    out.rowInjected = !!(row && row.__simInjected);
+    out.rowPath = row ? row.__simWatchPath : null;
+    out.rowWidth = row ? row.width : -1;
+    out.rowMsb = row ? row.msb : null;
+    out.rowLsb = row ? row.lsb : null;
+    out.rowKind = row ? row.kind : '';
+    out.restoreStatus = status().slice(0, 80);
+    // 5) 关键：观察行不得被当成用户激励信号（= readWaveDocument 的口径）
+    out.designHasWatch = wpsim.designSignalNames.includes('tb.dut.q');
+    // 6) 新建工程（就地重置）→ 观察行 / VCD / 源码全复位
+    out.beforeReset = wpsim.simWatches.length;
+    wpsim.resetSourceFiles();
+    await sleep(300);
+    out.afterResetWatches = wpsim.simWatches.length;
+    out.afterResetInjected = dw().m_signals.filter((s) => s && s.__simInjected).length;
+    out.afterResetFiles = wpsim.sourceFiles.map((f) => f.name).join(',');
+    // 7) 重新载入带 simWatches 的工程 → 再次恢复（证明可反复往返）
+    window.loadFromFileContent(dw(), archivedText);
+    await sleep(400);
+    out.reentryWatches = wpsim.simWatches.length;
+    // 8) 向后兼容：载入不带 simWatches 的旧工程 → 观察行以工程为准（= 空）、不报错、无注入行
+    const legacy = JSON.stringify({
+      sampleCount: 4,
+      subStepCount: 0,
+      signals: [{ name: 'legacy_a', type: 'bit', values: [0, 1, 0, 1], labels: ['', '', '', ''] }]
+    });
+    out.legacyOk = window.loadFromFileContent(dw(), legacy);
+    await sleep(400);
+    out.legacyWatches = wpsim.simWatches.length;
+    out.legacyInjected = dw().m_signals.filter((s) => s && s.__simInjected).length;
+    out.legacyNames = dw().m_signals.map((s) => s && s.name).join(',');
+    // 9) 非法载荷（分享链接压缩串 / 坏 JSON）→ 静默跳过，不抛异常
+    let threw = false;
+    try { window.loadFromFileContent(dw(), 'not-a-json-payload'); } catch (e) { threw = true; }
+    await sleep(150);
+    out.badJsonThrew = threw;
+    return JSON.stringify(out);
+  })()`);
+  const I = JSON.parse(iState || '{}');
+  check('I1: 观察行随工程存档 —— buildDocumentJson 含 simWatches（path/width），且核心 signals 里也留了一份原样副本',
+    JSON.stringify(I.beforeArchive) === JSON.stringify(['tb.dut.q'])
+    && I.savedCount === 1 && I.savedPath === 'tb.dut.q' && I.savedWidth === 4
+    && I.archivedSignalsHasWatch === true, iState);
+  check('I2: 载入工程 → simWatches 恢复，画布行回到注入语义（__simInjected/__simWatchPath + 位宽元数据补回）',
+    I.loadOk === true && I.restoredCount === 1 && I.restoredPath === 'tb.dut.q' && I.restoredWidth === 4
+    && I.rowInjected === true && I.rowPath === 'tb.dut.q' && I.rowWidth === 4
+    && I.rowMsb === '3' && I.rowLsb === '0' && I.rowKind === 'vector', iState);
+  check('I3: 观察行不被当成用户激励信号（readWaveDocument 口径已剔除），且状态栏提示已恢复观察行',
+    I.designHasWatch === false && /观察行/.test(I.restoreStatus || ''), iState);
+  check('I4: 新建工程（就地重置）→ 观察行登记 / 注入行 / 源码集合一并复位',
+    I.beforeReset === 1 && I.afterResetWatches === 0 && I.afterResetInjected === 0
+    && I.afterResetFiles === 'design.sv', iState);
+  check('I5: 向后兼容 —— 旧工程（无 simWatches）载入后观察行为空且不报错，且可反复往返恢复',
+    I.reentryWatches === 1 && I.legacyOk === true && I.legacyWatches === 0 && I.legacyInjected === 0, iState);
+  check('I6: 非法载荷（坏 JSON / 压缩串）→ 桥静默跳过，不抛异常',
+    I.badJsonThrew === false, iState);
 }
 
 console.log('\n资源加载失败(404等)：' + netFails);

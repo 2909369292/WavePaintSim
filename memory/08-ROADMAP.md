@@ -64,7 +64,26 @@
 > 含 H1/H2/H3/H4/H4b/H5/H6、e2e-ui 73/73、e2e-sim 0 失败、probe-param 全过、真 exe 冒烟），
 > exe 重建 `2026-09-10 22:06:08`；**未改 `sim/engine.js` 一行**（C9）。详见 04 §4.15、07 D17、
 > 06 P34、日志 2026-09-10 第十七轮。
-> **主线下一项 = #76 B5**（信号组/观察行随 `.wp` 工程存档与恢复）。
+> **第十八轮实施（2026-09-10，用户「按照规划继续」）**：
+> ⑪ **#76 B5 落地** —— **观察行随 `.wp` 工程存档/恢复**。存档桥由「源码桥」泛化为
+> `injectArchiveFields(json, fields)`（**文本拼接**口径不变，不动核心 parse），
+> `buildDocumentJson` 注入 **`simWatches`**（`archiveSimWatches()` **只存找回元数据**
+> `{path,name,width,reference}`；波形数据仍在核心 `signals` 里，不重复存）；载入
+> `applyArchivedExtras(text)`：坏载荷（坏 JSON / 分享链接压缩串）**静默跳过** → **先清
+> `vcd`/`outputs`/`simWatches`**（画布整体换人）→ `applySourceFilesFromArchive` →
+> `applySimWatchesFromArchive` → **`adoptArchivedWatchRows`**（按「行名 == 观察路径」认领，
+> 补回核心丢掉的 `width`/`kind`/`msb`/`lsb`，已是注入行则跳过 → 幂等）→ 面板就绪则
+> `refreshVcdTree`/`syncSimRows`/`render` + 状态栏合并文案。`syncSimRows` 先建 `liveByPath`，
+> **无 VCD 时回退工程带回来的那一行**（有 VCD 仍以 VCD 为准 → 保证重仿真刷新）；
+> `resetSourceFiles()` 扩为「新工程全复位」（含 `vcd`/`outputs`/`simWatches`/`lastTestbench`，
+> 与 C12 一致）；旧工程无该字段 → 观察行清空（**观察行以工程为准**，向后兼容）。
+> **信号组无需另写桥**：核心 `buildDocumentJson`（L1449~1451）/`loadFromFileContent`
+> （L1642~1644）已逐字段存还原 `groupName`/`groupColor`/`groupPath`，`GroupManager`
+> （L1163~1404）是**纯函数派生、无独立状态** → 天然闭环。验证全绿（regression **79/79**、
+> e2e-rtl **52/52** 含 I1~I6、e2e-ui 73/73、e2e-sim 0 失败、probe-param 全过、真 exe 冒烟），
+> exe 重建 `2026-09-10 22:23:52`；**`wavepaint.clean.js` 与 `sim/engine.js` 一行未改**（C9）。
+> 详见 04 §4.16、07 D18、06 P35、日志 2026-09-10 第十八轮。
+> **主线下一项 = #87②（模块全接口 Ctrl+4）** —— **#76 已收口（B1~B5 全部完成，B2 撤销）**。
 
 ---
 
@@ -81,7 +100,7 @@
 | 期 | 内容 | 状态 | 关键点 |
 |---|---|---|---|
 | #86 | 实例 → 模块定义源码跳转 + 源码文件导入 + 例化解析增强 | ✅ **A1~A4 全部完成 2026-09-10（第十四轮）**；服务在线性子项 ✅ 同日第十三轮 | 底层：模块定义索引（全量 module 表 `file+moduleLine` 已就绪）**已补**「源码级实例扫描器 + 模块定义候选索引」，覆盖参数化例化 `#(.p(v))`、命名/位置端口例化、generate 内例化、多实例同语句、多文件同名模块歧义（同文件优先）；交互（仿 nTrace）：实例行**左键跨文件跳定义行，右键/Alt 跳“例化点”**，黑盒给中文提示，磁盘多选导入 `.sv/.v` 进 `state.files`（= Verdi filelist 语义的本地等价）；**源码集合随 `.wp` 存档恢复**（A4）。**2026-09-10 第十三轮另做了独立子项「服务在线性根治」**（固定端口 17817 + 身份标识判活 + `ivlRoot` 首启崩溃修复 + 服务自愈，见 04 §4.11）。实现细节见 04 §4.12、06 P31 |
-| #76 | 代码点变量 → 加波形 + 树↔代码双向跳转 + 信号组入 `.wp` | 🔄 **进行中：B1 ✅（第十五轮）+ B4 ✅（第十六轮）+ B3 ✅（第十七轮）；下一顺位 = B5**（#85 的 VCD 侧已完成） | 底层：**模块体内符号索引**（reg/wire/net/端口/实例名 → 行号 → 映射到 VCD scope 全路径）**✅ B1 已落地**（`scanModuleSymbols`/`buildInstancePaths`/`buildSymbolIndex`/`findSymbols` + `vcd-index.findVcdPathsByName` 名称兜底；多实例歧义候选数据就绪 = `resolveSymbolVcdPaths` 返回多条 path）；交互（仿 Verdi Get Signals/nWave）：**代码内点/选中变量 → 加波形 = 唯一主路径**（**✅ B4 已落地**：双击 / 右键 / 捕获阶段 `Ctrl+Alt+W` → `symbolNameAt` 取词 → `resolveSymbolVcdPaths`，唯一候选直加、多候选弹代码区旁轻量选择器；并收敛「仿真后不再全量自动灌信号」）、**树 ↔ 代码双向跳转**（树→代码 ✅ #86 A2；**代码→树 ✅ B3 第十七轮落地**：光标即在模块行/实例行高亮 + VCD 唯一候选高亮、歧义不猜、重建后重放）、信号组/观察行随 `.wp` 存档恢复（**B5 = 下一项**，沿用 A4 存档桥）。实现细节见 04 §4.13/§4.14/§4.15、06 P32/P33/P34、07 D16/D17 |
+| #76 | 代码点变量 → 加波形 + 树↔代码双向跳转 + 信号组入 `.wp` | ✅ **B1~B5 全部完成（B2 已撤销）**：B1 ✅ 第十五轮 / B4 ✅ 第十六轮 / B3 ✅ 第十七轮 / **B5 ✅ 第十八轮**（#85 的 VCD 侧更早完成） | 底层：**模块体内符号索引**（reg/wire/net/端口/实例名 → 行号 → 映射到 VCD scope 全路径）**✅ B1 已落地**（`scanModuleSymbols`/`buildInstancePaths`/`buildSymbolIndex`/`findSymbols` + `vcd-index.findVcdPathsByName` 名称兜底；多实例歧义候选数据就绪 = `resolveSymbolVcdPaths` 返回多条 path）；交互（仿 Verdi Get Signals/nWave）：**代码内点/选中变量 → 加波形 = 唯一主路径**（**✅ B4 已落地**：双击 / 右键 / 捕获阶段 `Ctrl+Alt+W` → `symbolNameAt` 取词 → `resolveSymbolVcdPaths`，唯一候选直加、多候选弹代码区旁轻量选择器；并收敛「仿真后不再全量自动灌信号」）、**树 ↔ 代码双向跳转**（树→代码 ✅ #86 A2；**代码→树 ✅ B3 第十七轮落地**：光标即在模块行/实例行高亮 + VCD 唯一候选高亮、歧义不猜、重建后重放）、信号组/观察行随 `.wp` 存档恢复（**✅ B5 第十八轮落地**，沿用 A4 存档桥并泛化为 `injectArchiveFields`，观察行只存找回元数据 + 无 VCD 以工程为准）。实现细节见 04 §4.13/§4.14/§4.15/§4.16、06 P32/P33/P34/P35、07 D16/D17/D18 |
 | #87①/② | 源码选中变量 → 加波形（Ctrl+W）、模块全部接口一键入波形（Ctrl+4） | ⬜ 优先级提高 | 用户将 #87 整体优先级提高；① 即“代码内点变量名→加波形”（与 #76 目标合流，建议并入 #76 实现而非另起）；② 是模块/实例全部接口批量入波形（= “Ctrl+4”），建议紧跟 #76 收尾落地；③ 信号组管理与 #76 信号组入 `.wp` 合流；④ Active Annotation 随 #77 移远期 |
 
 ### 1.1 #86 拆解（近期第一项，建议小步 commit）
@@ -117,11 +136,12 @@
 
 ### 1.2 #76 拆解（近期第二项，建议小步 commit；第十二轮口径：代码点变量 = 唯一加信号主路径）
 
-> **状态：🔄 B1 ✅ + B4 ✅ + B3 ✅ 已完成（2026-09-10 第十五/十六/十七轮，regression 79/79、
-> e2e-rtl 46/46 全绿，exe 重建 22:06:08）；下一项 = B5（开工点）。**
-> 可直接复用 #86 A1 打好的解析底座：`rtl-nav.js` 的 `scanInstances` / `collectModuleDefs` /
-> `resolveModuleDef` / `maskStrings`（抹白字符串与注释，供符号扫描安全复用）；A4 的 `.wp`
-> 存档桥（`installProjectArchiveBridge` / `injectArchiveSourceFiles`）也是 B5 信号组存档的现成入口。
+> **状态：✅ #76 全部完成 —— B1 ✅ + B4 ✅ + B3 ✅ + B5 ✅（2026-09-10 第十五~十八轮，regression
+> 79/79、e2e-rtl 52/52 全绿，exe 重建 22:23:52）；#76 收口，下一项 = #87②（模块全接口 Ctrl+4）。**
+> 可复用底座：#86 A1 的 `rtl-nav.js` `scanInstances` / `collectModuleDefs` / `resolveModuleDef` /
+> `maskStrings`（抹白字符串与注释，供符号扫描安全复用）；A4 的 `.wp` 存档桥
+> （`installProjectArchiveBridge` / **`injectArchiveFields`** —— 原 `injectArchiveSourceFiles`
+> 已在 B5 泛化，并用它把 `simWatches` 一并写进 `.wp`）。
 
 - **B1 ✅ 底层：模块体内符号索引 + scope 映射（2026-09-10 第十五轮完成）**：
   `rtl-nav.js` 新增 `scanModuleSymbols`（体内声明 → `{name,kind,direction,width,msb,lsb,
@@ -165,10 +185,23 @@
   （只同步真实 VCD 路径登记的观察行，不再把 `outputs` 全量推入画布）。
   验证：regression **77/77**、e2e-rtl **39/39**（G1~G7）、e2e-ui 73/73、e2e-sim 0 失败、
   真 exe 冒烟通过；exe 重建 `21:33:05`。细节 04 §4.14、决策 07 D16、坑 06 P33。
-- **B5 交互：信号组入 `.wp`（下一项、开工点）**：GroupManager 组 + 观察行（`simWatches`）随
-  工程存档恢复；（承接 A4 的话）源码集合一并存档。**沿用 A4 的存档桥**（`installProjectArchiveBridge`
-  / `injectArchiveSourceFiles` 的「文本拼接 + 不动核心 parse」口径），**不要另造存档格式**；
-  参考本轮的「状态提到模块级 + 渲染后重放」写法（06 P34）避免“载入后 UI 不刷新”。
+- **B5 ✅ 交互：信号组 / 观察行随 `.wp` 工程存档与恢复（2026-09-10 第十八轮完成）**：存档桥由
+  「源码桥」泛化为 **`injectArchiveFields(json, fields)`**（「文本拼接 + 不动核心 parse」口径不变；
+  旧函数名 `injectArchiveSourceFiles` / `applyArchivedSourceFiles` **已不存在**），
+  `buildDocumentJson` 注入 **`simWatches`**（`archiveSimWatches()` 只存 `{path,name,width,reference}`
+  **找回元数据**，波形数据仍在核心 `signals` 里不重复存）；载入 **`applyArchivedExtras(text)`**：
+  坏载荷静默跳过 → **先清 `vcd`/`outputs`/`simWatches`**（画布换人）→ `applySourceFilesFromArchive`
+  → `applySimWatchesFromArchive`（不带该字段 → 0，保持已清空）→ **`adoptArchivedWatchRows`**
+  （「行名 == 观察路径」认领 + 补回核心丢掉的 `width`/`kind`/`msb`/`lsb`，幂等）→ 面板就绪则
+  `refreshVcdTree`/`syncSimRows`/`render` + 状态栏合并文案；`syncSimRows` **无 VCD 时回退工程带
+  回来的行**（有 VCD 仍以 VCD 为准）；`resetSourceFiles` 扩为「新工程全复位」；旧工程无该字段 →
+  观察行清空（向后兼容）。**信号组不用另写桥**：核心 `buildDocumentJson`（L1449~1451）/
+  `loadFromFileContent`（L1642~1644）已逐字段存还原 `groupName`/`groupColor`/`groupPath`，
+  `GroupManager`（L1163~1404）纯函数派生。验证：regression **79/79**、e2e-rtl **52/52**
+  （I1~I6：存档含 `simWatches`、载入回注入语义 + 位宽补回、观察行不进激励、新建全复位、
+  反复往返 + 旧工程兼容、坏 JSON 不抛）、e2e-ui 73/73、e2e-sim 0 失败、probe-param 全过、
+  真 exe 冒烟通过；exe 重建 `22:23:52`。细节 04 §4.16、决策 07 D18、坑 06 P35。
+  **未改 `wavepaint.clean.js` 与 `sim/engine.js` 一行**（C9）。
 
 ---
 

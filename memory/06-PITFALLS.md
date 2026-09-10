@@ -448,3 +448,46 @@
   - 「高亮/定位」类功能一律遵循 **有唯一证据才亮、歧义宁可不亮**（与 B4 精确优先同源）。
   - 高亮不得改变该 UI 区的既有语义边界：RTL 树仍**只做层级浏览**（高亮**不带出**端口/信号行），
     本轮用 e2e-rtl H6（`.rtl-port`/`.vcd-signal-row` 计数 === 0）钉死。
+
+## P35 · 观察行随工程存档三坑：核心不认注入行 / 载入后无 VCD 会静默丢行 / 载入新工程必须先清旧 VCD（#76 B5）
+
+- **症状**：
+  1. 保存 `.wp` 再打开，代码里加进来的**观察行**（`state.simWatches` / `__simInjected`）要么被当成
+     **用户画的激励信号**（点「运行仿真」会拿它去生成 TB = 脏激励），要么名字列丢了 `[3:0]` 位宽；
+  2. 载入工程后画布**渲染一次，观察行就消失了**（登记还在、行没了）；
+  3. 载入工程后观察行确实回来了，但**值/波形是上一份设计的数据**（张冠李戴）；
+  4. 点「新建」后画布**残留上一个工程**的观察行 / 仿真结果 / 源码集合。
+- **根因**：
+  1. 核心 `js/wavepaint.clean.js` **不认得**注入行：`buildDocumentJson` 把它当**普通信号**写进
+     `signals`（含 `values`），`loadFromFileContent` 里 `new Signal(...)` 重建后**丢掉**
+     `__simInjected` / `__simWatchPath` / `width` / `msb` / `lsb`。两级后果：① 丢注入身份 →
+     `readWaveDocument()` 把它当**用户激励**去生成 TB；② 丢位宽元数据 → `displaySignalName`
+     拼不出 `[3:0]`。
+  2. `syncSimRows()` 原实现无条件 `buildWatchSignal(path)`，而该函数**依赖 `state.vcd`**；刚载入
+     工程时 `state.vcd` 为空 → 行被**静默丢弃**（登记在 `simWatches` 里，但画布拿不到 signal 对象）。
+  3. 载入工程时**没清 `state.vcd`** → `syncSimRows` 拿**上一份设计**的 VCD 去刷新刚载入的行
+     （路径恰好同名时数据全错）。
+  4. `resetSourceFiles()` 原只复位源码集合（`files`/`active`/`design`），不复位
+     `vcd`/`outputs`/`simWatches`/`lastTestbench`。
+- **解法**：
+  1. **桥只存「怎么找回观察行」的元数据**：`archiveSimWatches()` → `{path, name, width, reference}`
+     （波形数据本身已在核心 `signals` 里，**不重复存**）；`adoptArchivedWatchRows(watches)` 按
+     **「行名 == 观察路径」**认领（`buildWatchSignal` 本就用 `path` 当行名），置回
+     `__simInjected` + `__simWatchPath` 并**补回核心不还原的字段**（`width` /
+     `kind = width>1?'vector':'logic'` / `msb = width-1` / `lsb = '0'`）；已是注入行则 `continue`（幂等）。
+  2. `syncSimRows()` 先建 `liveByPath`，`buildWatchSignal(...)` 返回空时**仅在没有 VCD 时**退回
+     `liveByPath.get(path)`。口径：**有 VCD 以 VCD 为准**（缺路径 = 未 dump → 丢弃，保证重仿真刷新），
+     **无 VCD（刚载入工程）按工程带回来的那一行保留**。
+  3. `applyArchivedExtras(text)` 载入工程时**先清** `state.vcd = null` / `state.outputs = []` /
+     `state.simWatches = []`，再恢复 —— **画布整体换人**，上一份设计的 VCD 对新画布毫无意义。
+  4. `resetSourceFiles()` 扩为「新工程全复位」（加 `vcd`/`outputs`/`simWatches`/`lastTestbench` +
+     `refreshVcdTree`/`updateTbViewer`/`render`），与 C12「新建就地重置」一致。
+- **预防**（通用）：
+  - 「**带元数据的注入产物**」存档时**一律只存找回元数据**，波形/值交给核心；并且**要假设核心一定
+    丢元数据** —— 凡是被渲染或生成 TB 依赖的字段（注入标记 / 位宽 / 路径），恢复时都要显式补回。
+  - 任何「**依赖外部状态（VCD）派生**」的渲染链路，都要写明「外部状态为空时」的语义（此处 =
+    用工程带回来的行），否则表现就是**静默丢弃**（不报错、只是没了）。
+  - 载入新文档的**第一步永远是清空上一份文档派生的全部状态**；「换人（换设计）」与「重建（重渲染）」
+    是两件事，不能混。
+  - 向后兼容要显式：旧工程**无该字段 → 观察行清空**（口径 = 观察行以工程为准），**不沿用内存旧登记**；
+    用 e2e-rtl I5 钉死（旧工程载入后 `legacyWatches:0` / `legacyInjected:0` 且不报错）。

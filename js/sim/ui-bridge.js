@@ -371,22 +371,31 @@ function scrollWaveToWatchPath(path) {
 // 不再把 VCD 里的输出/内部信号整批灌进画布（用户明确要求：仿真后不要"把所有可看的变量
 // 全都添加上去"；加信号统一走「代码里点/选中变量」，见 addSymbolFromCode）。
 // state.outputs 仍保留（状态栏统计 / 诊断 / 观察行取数），只是不再落到画布上。
+// #76 B5：观察行还要能**从工程里回来** —— 刚载入工程时 state.vcd 为空，此时按
+// 「工程里带回来的那一行」保留（它的 values 就是存档数据）；一旦有 VCD 数据就以
+// VCD 为准（缺该路径 = 未 dump → 丢弃），保证「重新仿真 → 数据刷新」这条链路。
 function syncSimRows() {
   const dw = window.document_wave;
   if (!dw || !Array.isArray(dw.m_signals)) return;
   const currentRows = dw.m_signals;
+  const liveByPath = new Map();
+  for (const signal of currentRows) {
+    const path = signal && signal.__simWatchPath;
+    if (path && !liveByPath.has(path)) liveByPath.set(path, signal);
+  }
   // #85：观察行只保留当前画布仍存在的行（用户删行后不复活；想再要可重新点 VCD 行）。
   // 注意要在 strip 之前看原数组 —— 观察行都是 __simInjected，重建后才判断
   // 会把自己误判成“已删除”。
   state.simWatches = (Array.isArray(state.simWatches) ? state.simWatches : []).filter((watch) =>
-    !!watch?.path && currentRows.some((signal) => !!signal && signal.__simWatchPath === watch.path)
+    !!watch?.path && liveByPath.has(watch.path)
   );
   const baseSignals = stripInjectedSignals(currentRows);
   // 观察行 values 长度对齐数据模型：主步数 × (子步+1)
   const effectiveCount = Math.max(4, canvasEffectiveCount());
   const template = baseSignals[0] || null;
   const watchRows = state.simWatches
-    .map((watch, index) => buildWatchSignal(watch, index, template, effectiveCount))
+    .map((watch, index) => buildWatchSignal(watch, index, template, effectiveCount)
+      || (state.vcd ? null : (liveByPath.get(watch.path) || null)))
     .filter((row) => !!row);
   dw.m_signals = [...baseSignals, ...watchRows];
   // m_sampleCount 语义是主步数，不能被有效长度污染
@@ -1463,17 +1472,20 @@ async function importSourceFiles() {
 }
 
 // ---------------------------------------------------------------------------
-// #86 A4：源码文件集合随 .wp 工程存档 / 恢复
+// #86 A4 + #76 B5：工程附加状态（源码文件集合 + 画布观察行）随 .wp 存档 / 恢复
 // ---------------------------------------------------------------------------
 // 口径：**不改核心**（js/wavepaint.clean.js 是解混淆产物，改一行都要背上回归风险），
-// 改用「包裹核心两个顶层函数」给工程 JSON 追加 `sourceFiles` + `activeSourceIndex`：
+// 改用「包裹核心两个顶层函数」给工程 JSON 追加：
+//   · `sourceFiles` + `activeSourceIndex` —— #86 A4：源码文件集合 / 当前标签页；
+//   · `simWatches`                        —— #76 B5：画布上的「观察行」登记
+//     （= VCD 树点行 / 代码里点变量加进来的信号，state.simWatches）。
 //   · `buildDocumentJson` —— 保存 / 分享链接共用；核心内部是 `buildDocumentJson(item)`
 //     动态查表（classic script 的顶层 function 声明即全局对象属性），所以包裹
 //     `window.buildDocumentJson` 对 `saveToFile` / `createShareLink` 一并生效；
 //   · `loadFromFileContent` —— 覆盖「打开 / 载入示例 / 分享链接(#d=)」全部载入路径。
 // 注入方式用**文本拼接**而不是二次 JSON.parse+stringify：波形文档可能很大，
 // 保存时不该把整份文档再解析一遍（JSON.stringify 才是耗时大头）。
-// 旧工程没有这两个字段 → 保持当前源码集合不动（向后兼容）。
+// 旧工程没有这些字段 → 保持当前源码集合不动（向后兼容）；观察行则以工程为准。
 let archiveBridgeInstalled = false;
 
 function indentBlock(text, indent) {
@@ -1481,20 +1493,21 @@ function indentBlock(text, indent) {
   return String(text).split("\n").map((line) => pad + line).join("\n");
 }
 
-// 把 { sourceFiles, activeSourceIndex } 追加进核心产物 JSON 的末尾。
+// 把若干 { 字段名: 值 } 追加进核心产物 JSON 的末尾。
 // 核心产物形如 `{\n  "sampleCount": 30,\n  …\n}`（JSON.stringify(val, null, 2)），
 // 因此在最后一个 `}` 之前插入即可 —— 不解析、不重排，只做一次字符串拼接。
-function injectArchiveSourceFiles(json, files, activeIndex) {
+function injectArchiveFields(json, fields) {
   const text = String(json || "");
   const braceAt = text.lastIndexOf("}");
   if (braceAt < 0) return text;
   const head = text.slice(0, braceAt).replace(/[\s,]+$/, "");
   const tail = text.slice(braceAt);
   if (!/\{/.test(head)) return text;             // 不是对象字面量（异常输入）→ 原样返回
-  const block = [
-    `"sourceFiles": ${JSON.stringify(files, null, 2)}`,
-    `"activeSourceIndex": ${Math.max(0, Number(activeIndex) || 0)}`
-  ].join(",\n");
+  const block = (Array.isArray(fields) ? fields : [])
+    .filter((field) => Array.isArray(field) && typeof field[0] === "string" && field[0])
+    .map((field) => `${JSON.stringify(field[0])}: ${JSON.stringify(field[1], null, 2)}`)
+    .join(",\n");
+  if (!block) return text;
   const comma = head.endsWith("{") ? "" : ",";   // 空文档 `{}` 不能多一个逗号
   return `${head}${comma}\n${indentBlock(block, 2)}\n${tail}`;
 }
@@ -1511,11 +1524,25 @@ function archiveSourceFiles() {
   return state.files.map((file) => ({ name: String(file.name || ""), content: String(file.content || "") }));
 }
 
+// #76 B5：观察行登记 → 存档副本。只存「怎么找回它」的元数据（VCD 全路径 / 显示名 /
+// 位宽 / reference）；波形数据本身在核心的 `signals` 里（核心不认得注入行，会把观察行
+// 一并当普通信号存档），恢复时按 path 认领回来（见 adoptArchivedWatchRows）。
+function archiveSimWatches() {
+  return (Array.isArray(state.simWatches) ? state.simWatches : [])
+    .filter((watch) => !!watch?.path)
+    .map((watch) => ({
+      path: String(watch.path),
+      name: String(watch.name ?? watch.path),
+      width: Math.max(1, Number(watch.width) || 1),
+      reference: String(watch.reference ?? "")
+    }));
+}
+
 function installProjectArchiveBridge() {
   if (archiveBridgeInstalled) return true;
   if (typeof window.buildDocumentJson !== "function" || typeof window.loadFromFileContent !== "function") {
-    // 核心未按预期暴露顶层函数（结构变了）→ 静默降级：工程仍可存取，只是不带源码集合。
-    console.warn("[WavePaint] 源码存档桥未安装：核心未暴露 buildDocumentJson / loadFromFileContent。");
+    // 核心未按预期暴露顶层函数（结构变了）→ 静默降级：工程仍可存取，只是不带附加状态。
+    console.warn("[WavePaint] 工程存档桥未安装：核心未暴露 buildDocumentJson / loadFromFileContent。");
     return false;
   }
   const originalBuild = window.buildDocumentJson;
@@ -1523,9 +1550,13 @@ function installProjectArchiveBridge() {
   window.buildDocumentJson = function (item) {
     const json = originalBuild.apply(this, arguments);
     try {
-      return injectArchiveSourceFiles(json, archiveSourceFiles(), state.active);
+      return injectArchiveFields(json, [
+        ["sourceFiles", archiveSourceFiles()],
+        ["activeSourceIndex", Math.max(0, Number(state.active) || 0)],
+        ["simWatches", archiveSimWatches()]
+      ]);
     } catch (error) {
-      console.warn("[WavePaint] 注入源码集合失败（工程本身仍正常保存）：", error);
+      console.warn("[WavePaint] 注入工程附加状态失败（工程本身仍正常保存）：", error);
       return json;
     }
   };
@@ -1533,9 +1564,9 @@ function installProjectArchiveBridge() {
     const ok = originalLoad.apply(this, arguments);
     if (ok) {
       try {
-        applyArchivedSourceFiles(text);
+        applyArchivedExtras(text);
       } catch (error) {
-        console.warn("[WavePaint] 恢复源码集合失败（波形本身已载入）：", error);
+        console.warn("[WavePaint] 恢复工程附加状态失败（波形本身已载入）：", error);
       }
     }
     return ok;
@@ -1544,36 +1575,107 @@ function installProjectArchiveBridge() {
   return true;
 }
 
-// 工程里带 sourceFiles → 整体替换源码集合（并刷新标签页/RTL 树）；
-// 不带（旧工程）→ 保持现状，避免把用户正在编辑的源码清掉。
-function applyArchivedSourceFiles(text) {
+// 载入工程后把附加状态接回来：源码集合 + 观察行登记，然后重绘画布。
+// ⚠ 画布已整体换人：上一份设计留下的仿真结果（VCD / outputs / 观察行）对新画布没有
+// 意义，先清干净 —— 否则 syncSimRows 会拿旧 VCD 去刷新载入的观察行（数据张冠李戴）。
+function applyArchivedExtras(text) {
   let parsed;
   try {
     parsed = JSON.parse(String(text || ""));
   } catch (error) {
     return;   // 分享链接的压缩载荷等场景：解析不了就跳过（波形载入不受影响）
   }
+  state.vcd = null;
+  state.outputs = [];
+  state.simWatches = [];
+  const files = applySourceFilesFromArchive(parsed);
+  const watches = applySimWatchesFromArchive(parsed);
+  if (!refs.sourceFiles) return;   // 面板尚未就绪（如启动即带 #d= 链接）：init() 会用新的 state 渲染
+  refreshVcdTree();
+  syncSimRows();
+  render();
+  const notes = [];
+  if (files) notes.push(`已从工程恢复 ${files} 个源码文件并自动解析`);
+  if (watches) notes.push(`已恢复 ${watches} 个观察行`);
+  if (notes.length) setStatus(notes.join("；") + "。");
+}
+
+// 工程里带 sourceFiles → 整体替换源码集合（并刷新标签页/RTL 树）；返回恢复的文件数。
+// 不带（旧工程）→ 保持现状，避免把用户正在编辑的源码清掉。
+function applySourceFilesFromArchive(parsed) {
   const raw = Array.isArray(parsed?.sourceFiles) ? parsed.sourceFiles : null;
-  if (!raw || !raw.length) return;
+  if (!raw || !raw.length) return 0;
   const files = raw
     .filter((file) => file && typeof file.name === "string" && file.name.trim())
     .map((file) => ({ name: String(file.name), content: String(file.content ?? "") }));
-  if (!files.length) return;
+  if (!files.length) return 0;
   state.files = files;
   state.active = Math.max(0, Math.min(files.length - 1, Number(parsed.activeSourceIndex) || 0));
-  if (!refs.sourceFiles) return;   // 面板尚未就绪（如启动即带 #d= 链接）：init() 会用新的 state.files 渲染
+  if (!refs.sourceFiles) return files.length;   // 面板尚未就绪：init() 会用新的 state.files 渲染
   renderFileTabs();   // 必须先切编辑器文本，再 parseDesign（否则 syncEditor 会把旧文本回写进新文件）
   parseDesign();      // 重新解析 + 刷新 RTL 结构树
-  setStatus(`已从工程恢复 ${files.length} 个源码文件并自动解析。`);
+  return files.length;
 }
 
-// 新建工程：源码集合一并复位为「一个空标签页」（与 C12 的「新建就地重置」口径一致）。
+// 工程里带 simWatches → 覆盖观察行登记，并把核心当「普通信号」载入的观察行副本
+// 认领回注入语义（见 adoptArchivedWatchRows）；返回恢复的观察行数。
+// 不带该字段 → 观察行以「工程本身」为准（= 空）：新画布上不该残留上一个工程的观察行。
+function applySimWatchesFromArchive(parsed) {
+  const raw = Array.isArray(parsed?.simWatches) ? parsed.simWatches : null;
+  if (!raw) return 0;
+  const watches = raw
+    .filter((watch) => watch && typeof watch.path === "string" && watch.path.trim())
+    .map((watch) => ({
+      path: String(watch.path),
+      name: String(watch.name ?? watch.path),
+      width: Math.max(1, Number(watch.width) || 1),
+      reference: String(watch.reference ?? "")
+    }));
+  state.simWatches = watches;
+  adoptArchivedWatchRows(watches);
+  return watches.length;
+}
+
+// 核心的 loadFromFileContent 不认得注入行：buildDocumentJson 会把观察行连同行数据一起
+// 存成**普通信号**，载入后它们就丢了「注入」身份 —— 后果是它们会被 readWaveDocument 当成
+// 用户画的激励信号去生成 TB（脏激励），重新仿真后也不会刷新。
+// 这里按「行名 == 观察路径」（buildWatchSignal 用 path 当行名）把行认领回来，
+// 并把存档里的位宽元数据补回行上（核心不还原 width/msb/lsb，名字列会丢掉 `[3:0]`）。
+function adoptArchivedWatchRows(watches) {
+  const dw = window.document_wave;
+  if (!dw || !Array.isArray(dw.m_signals)) return 0;
+  const byPath = new Map(watches.map((watch) => [watch.path, watch]));
+  let adopted = 0;
+  for (const signal of dw.m_signals) {
+    if (!signal || signal.__simInjected) continue;
+    const watch = byPath.get(String(signal.name || ""));
+    if (!watch) continue;
+    signal.__simInjected = true;
+    signal.__simWatchPath = watch.path;
+    signal.width = watch.width;
+    signal.kind = watch.width > 1 ? "vector" : "logic";
+    signal.msb = watch.width > 1 ? String(watch.width - 1) : "";
+    signal.lsb = watch.width > 1 ? "0" : "";
+    adopted += 1;
+  }
+  return adopted;
+}
+
+// 新建工程：源码集合 + 仿真结果（VCD / outputs / 观察行）一并复位
+// （与 C12 的「新建就地重置」口径一致：新画布不该残留上一个工程的任何东西）。
 function resetSourceFiles() {
   state.files = [{ id: "file0", name: "design.sv", content: "" }];
   state.active = 0;
   state.design = null;
+  state.vcd = null;
+  state.outputs = [];
+  state.lastTestbench = "";
+  state.simWatches = [];
   refs.sourceFiles && renderFileTabs();
   refs.rtlTree && refreshStructureTrees();
+  refreshVcdTree();
+  updateTbViewer();
+  render();
 }
 
 // 整体替换源码集合（自动化/探针入口；也供将来「打开 filelist」复用）。
@@ -1786,6 +1888,12 @@ window.__wpsim = {
   },
   get simWatches() {
     return (Array.isArray(state.simWatches) ? state.simWatches : []).map((watch) => ({ ...watch }));
+  },
+  // #76 B5：核心画布口径下的「用户设计信号」名 —— 即 readWaveDocument 真正会喂给 TB 的行
+  // （观察行被 stripInjectedSignals 剔除）。e2e 用它核验「载入工程后观察行不再当激励」。
+  get designSignalNames() {
+    return stripInjectedSignals(window.document_wave?.m_signals || [])
+      .map((signal) => String(signal?.name || ""));
   },
   setSourceFiles,
   resetSourceFiles,

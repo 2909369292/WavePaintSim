@@ -63,20 +63,23 @@
 - 禁止重做已完成的解混淆、重构、批次1~10。
 
 ---
-*最后更新：2026-09-10（第十七轮：**#76 B3 落地 —— 代码 ↔ 树双向跳转（代码光标 → RTL/VCD 树
-反向高亮，仿 Verdi nTrace「光标即高亮」）**，**纯视觉、零副作用**：`rtl-panel.js` 新增
-`rowMatchScore`/`pickRtlRowIndex`/`datasetToRtlRow` + `highlightRtlRow`/`highlightVcdSignal`
-（清旧 → 加 `.rtl-active`/`.vcd-active` → 展开祖先 `<details>` → `scrollIntoView`）+
-`installCodeEditor` 第 6 参 `onCursorMove`；`ui-bridge.js` `syncActiveFromCode`（`moduleAtLine`
-模块行 / 实例名 → 实例行 / `resolveSymbolVcdPaths` **唯一才亮**、歧义不猜、无目标清空）+
-180ms 防抖 + `applyActiveHighlight`/`clearActiveHighlight`（**树重建后重放**），`gotoSource()`
-末尾闭环；`index.html` 只加两条高亮 CSS（无新面板）。验证 regression **79/79** + e2e-rtl
-**46/46**（H1/H2/H3/H4/H4b/H5/H6）+ e2e-ui 73/73 + e2e-sim 0 失败 + probe-param 全过 +
-真 exe 冒烟通过，exe 重建 `22:06:08`。新增 04 §4.15（§2 时间线补记第十七轮）、
-`06-PITFALLS.md` P34（反向高亮五坑）、07 D17（代码 → 树反向联动口径）、03 表 F/H #76 状态
-（B1 ✅ + B4 ✅ + B3 ✅，下一顺位 B5）、08 文件头/§1/§1.2（B3 ✅ + B5 开工点）、
-09 §1/§3/§4/§5/§6/§7/§9、`memory/logs/2026-09-10.md`「第十七轮」、`05-LOGS.md` 索引。
-同轮序列：第十五轮 #76 B1、第十六轮 #76 B4、第十四轮 #86 A1~A4、第十三轮服务在线性根治。
-**主线下一项 = #76 B5**（信号组/观察行随 `.wp` 工程存档与恢复）；其后 #87②（模块全接口
-Ctrl+4）；侧栏/整体 UI 重构为并行方案线（08 §2）。
+*最后更新：2026-09-10（第十八轮：**#76 B5 落地 —— 画布观察行随 `.wp` 工程存档与恢复**；
+**#76 至此收口：B1 ✅ + B4 ✅ + B3 ✅ + B5 ✅**，B2 已按第十二轮口径撤销）。`ui-bridge.js` 存档桥由
+「源码桥」**泛化**为 `injectArchiveFields(json, fields)`（文本拼接口径不变）+ `archiveSimWatches`
+（**只存找回元数据** `{path,name,width,reference}`）+ `applyArchivedExtras`（坏载荷静默 → **先清
+`vcd`/`outputs`/`simWatches`（画布换人）** → 恢复源码 → 恢复观察行 → 面板就绪则刷新 + 状态栏合并
+文案）+ `applySourceFilesFromArchive`/`applySimWatchesFromArchive`/`adoptArchivedWatchRows`
+（「行名 == 观察路径」认领 + 补回 `width`/`kind`/`msb`/`lsb`，幂等）+ `syncSimRows`「**无 VCD 时
+回退工程带回来的行**」+ `resetSourceFiles` 「新工程全复位」+ `__wpsim.designSignalNames` 探针。
+**信号组无需另存**（核心已逐字段存还原，`GroupManager` 纯函数派生）。验证 regression **79/79** +
+e2e-rtl **52/52**（I1~I6：存档含 `simWatches`、载入回注入语义 + 位宽补回、观察行不进激励、新建全
+复位、反复往返 + 旧工程兼容、坏 JSON 不抛）+ e2e-ui 73/73 + e2e-sim 0 失败 + probe-param 全过 +
+真 exe 冒烟通过，exe 重建 `22:23:52`（`v0.4.0 build 2026-09-10 22:23:51 5ec07e7`，`5ec07e7` = **构建时
+HEAD**，不代表落后）；**未改 `wavepaint.clean.js` 与 `sim/engine.js` 一行**（C9 守住）。新增
+04 §4.16（§1 快照 + §2 时间线补记第十七/十八轮 + §4.4 #76 收口 + §6 补 B5 口径）、06 P35（观察行随
+工程存档三坑）、07 D18（B5 存档口径）、03 表 F/H #76 状态（**B1~B5 全部完成**）、08 文件头/§1/§1.2
+（B5 ✅ + #87② 开工点）、09 全篇切第十九轮、`05-LOGS.md` 索引、本页脚、`memory/logs/2026-09-10.md`
+「第十八轮」。同轮序列：第十七轮 #76 B3、第十六轮 #76 B4、第十五轮 #76 B1、第十四轮 #86 A1~A4、
+第十三轮服务在线性根治。**主线下一项 = #87②**（模块全部接口一键入波形，仿 nWave `Ctrl+4`）；其后
+侧栏/整体 UI 重构为并行方案线（08 §2，**先出方案给用户 review**）；#84/#77 已推迟远期。
 维护者：任何接手的 AI。*
