@@ -2,6 +2,7 @@ import { buildAutoTestbench, buildSimulationPayload, createPortStimulus, createS
 import { formatVectorValue, normalizeVectorValue } from "./project-model.js";
 import { buildRtlNav, buildSymbolIndex, collectModuleDefs, findSymbols, moduleAtLine, resolveModuleDef, resolveSymbolVcdPaths } from "./rtl-nav.js";
 import { buildVcdHierarchy, findVcdPathsByName } from "./vcd-index.js";
+import { installSimPanelLayout } from "./panel-layout.js";
 import { highlightRtlRow, highlightVcdSignal, installCodeEditor, renderRtlTree, renderVcdTree } from "./rtl-panel.js";
 
 const DEFAULT_SOURCE = `module counter(
@@ -35,6 +36,7 @@ const state = {
 
 const refs = {};
 let sourceCodeView = null;      // #75 P0：CodeMirror 6 控制器（installCodeEditor 返回值）
+let panelLayout = null;         // 第二十一轮：侧栏「可拖拽多面板」布局控制器（panel-layout.js）
 let rtlRefreshTimer = null;     // 编辑后防抖刷新 RTL 树
 let activeSyncTimer = null;     // #76 B3：光标移动 → 反向高亮的防抖（索引是全量解析，别每键都算）
 let activeHighlight = null;     // #76 B3：当前「代码 → 树」联动状态 {name,fileIndex,line,target,path,fallbackTarget}
@@ -408,6 +410,8 @@ function el(id) {
 
 function initRefs() {
   refs.panel = el("sim-panel");
+  refs.panelBody = el("sim-panel-body");
+  refs.resizeHandle = el("sim-resize-x");
   refs.toggleBtn = el("sim-toggle-btn");
   refs.header = el("sim-panel-header");
   refs.waveView = el("wave-view");
@@ -430,7 +434,6 @@ function initRefs() {
   refs.addSignals = el("sim-addsignals");
   refs.tbBtn = el("sim-tb");
   refs.runBtn = el("sim-run");
-  refs.collapseBtn = el("sim-collapse");
   refs.tbSource = el("tb-source");
   refs.tbCopy = el("sim-tb-copy");
 }
@@ -1908,11 +1911,6 @@ function bindEvents() {
     document.body.classList.remove("sim-open");
     render();
   });
-  refs.collapseBtn?.addEventListener("click", () => {
-    refs.panel.classList.add("collapsed");
-    document.body.classList.remove("sim-open");
-    render();
-  });
   refs.addFile?.addEventListener("click", addFile);
   refs.importFile?.addEventListener("click", importSourceFiles);
   refs.removeFile?.addEventListener("click", removeFile);
@@ -1958,11 +1956,29 @@ function bindEvents() {
   });
 }
 
+// 第二十一轮：侧栏「可拖拽多面板」装配（折叠 / 高度分割 / 宽度 / session 持久化）。
+// 布局失败（DOM 缺节点）不影响仿真功能：installSimPanelLayout 返回 null，
+// 侧栏退回 CSS 兜底（四张卡片均分高度、无拖拽），既有 id/class 语义不变。
+function initPanelLayout() {
+  if (!refs.panel || !refs.panelBody) return;
+  panelLayout = installSimPanelLayout({
+    panel: refs.panel,
+    body: refs.panelBody,
+    handle: refs.resizeHandle,
+    onLayout: (info) => {
+      // 高度分割后代码区（CM6）要重新测量一次；宽度变化由 panel-layout 自行派发
+      // window resize（核心 editor/measure.js 监听它重排画布），这里不重复。
+      if (String(info?.reason || "").startsWith("split")) sourceCodeView?.remeasure?.();
+    }
+  });
+}
+
 function init() {
   initRefs();
   if (!refs.panel || !refs.sourceEditor) return;
   initSourceCodeView();
   bindEvents();
+  initPanelLayout();
   renderFileTabs();
   refreshStructureTrees();
   document.body.classList.add("sim-open");
@@ -2001,6 +2017,10 @@ window.__wpsim = {
   get sourceFiles() { return state.files.map((file) => ({ name: file.name, content: file.content })); },
   get active() { return state.active; },
   get archiveInstalled() { return archiveBridgeInstalled; },
+  // 第二十一轮：侧栏多面板布局状态（e2e 核验折叠 / 权重 / 宽度；产品逻辑不读它）
+  get panelLayout() { return panelLayout ? panelLayout.getState() : null; },
+  setPanelWidth(px) { return panelLayout ? panelLayout.setWidth(px) : null; },
+  resetPanelLayout() { return panelLayout ? panelLayout.reset() : null; },
   // #76 B1：符号索引 / 例化路径 / 符号 → VCD 全路径候选（供 e2e 核验与后续 B3/B4 接线复用）
   get symbolIndex() {
     const index = currentSymbolIndex();

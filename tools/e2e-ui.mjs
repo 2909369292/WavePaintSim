@@ -18,6 +18,9 @@
 //   H. 步数/子步变化时 Clock/数据行重建语义（Task4 #91）：步数增减重叠区原样保留、
 //      时钟按「块序列最小周期」延续 / 数据延续最后值 / 子步数变化按主步内分数时间
 //      中点重采样，绝不把 cell 层 0101 抹成全 0/全 1；私有 subSteps 行 divisor 恒定
+//   I. 侧栏「可拖拽多面板」（第二十一轮）：4 卡装配 / 卡片折叠（相邻 splitter 禁用）/
+//      纵向 splitter 键盘 ±16px / 侧栏宽度 clamp(280..min(760,视口*60%)) /
+//      sessionStorage v1 持久化 / reset 回默认。不触发仿真、不碰服务在线性。
 // 用法：node tools/e2e-ui.mjs   （自带 dev-server；需本机 Edge；退出码非 0 表示有失败）
 // ⚠ Edge profile / 组件更新 / 系统 TEMP 全部指到 D:/Files/Code/波形/.e2e-tmp（已 git 本地排除）。
 //   即使 --user-data-dir 在 D 盘，headless Edge 的组件更新器仍会往 C 盘 %TEMP% 写
@@ -1142,6 +1145,174 @@ else {
     check('H: 期间无页面运行时错误', errH === 0, String(errH));
   }
 }
+
+// ---------------------------------------------------------------- I. 侧栏可拖拽多面板（第二十一轮）
+// 覆盖：panelLayout 装配（4 卡 + 3 splitter）→ 卡片折叠/展开（相邻 splitter disabled、
+//       aria 同步、卡片体 display:none）→ 纵向 splitter 键盘 ArrowDown/Up ±16px →
+//       侧栏宽度直设 + 上下限 clamp → sessionStorage v1 持久化 → reset 回默认。
+try {
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  await sleep(200);
+
+  const i0 = await ev(`(() => {
+    const cards = [...document.querySelectorAll('[data-sim-card]')];
+    const splits = [...document.querySelectorAll('[data-sim-split]')];
+    const st = window.__wpsim ? window.__wpsim.panelLayout : null;
+    return JSON.stringify({
+      api: !!(window.__wpsim && typeof window.__wpsim.setPanelWidth === 'function'),
+      st, cardKeys: cards.map((el) => el.dataset.simCard),
+      grows: cards.map((el) => Number(el.style.flexGrow)),
+      bases: cards.map((el) => el.style.flexBasis),
+      heights: cards.map((el) => el.offsetHeight),
+      splitCount: splits.length
+    });
+  })()`);
+  console.log('  侧栏多面板:', i0);
+  const I0 = JSON.parse(i0);
+  check('I0: 装配 4 张卡片 + 3 条 splitter + 调试探针可用',
+    I0.api && I0.cardKeys.length === 4 && I0.splitCount === 3
+      && ['source', 'rtl', 'vcd', 'tb'].every((k) => I0.cardKeys.includes(k)),
+    i0);
+  const growSum = I0.grows.reduce((s, v) => s + (Number.isFinite(v) ? v : 0), 0);
+  check('I1: 展开态 flex-grow 归一化到 100、flex-basis=0（窗口缩放按比例自适应）',
+    Math.abs(growSum - 100) < 0.5 && I0.bases.every((b) => b === '0px' || b === '0')
+      && I0.heights.every((h) => h > 0),
+    JSON.stringify({ growSum, bases: I0.bases, heights: I0.heights }));
+
+  // ---- I2. 折叠 source 卡：高度塌到标题行 + source:rtl splitter 禁用 ----
+  const hBefore = await ev(`document.getElementById('sim-card-source').offsetHeight`);
+  await ev(`document.querySelector('[data-sim-card-toggle="source"]').click()`);
+  await sleep(80);
+  const i2 = await ev(`(() => {
+    const card = document.getElementById('sim-card-source');
+    const split = document.querySelector('[data-sim-split="source:rtl"]');
+    const head = document.querySelector('[data-sim-card-toggle="source"]');
+    return JSON.stringify({
+      collapsed: card.classList.contains('collapsed'),
+      bodyDisplay: getComputedStyle(card.querySelector('.sim-card-body')).display,
+      height: card.offsetHeight,
+      splitDisabled: split.classList.contains('disabled'),
+      ariaDisabled: split.getAttribute('aria-disabled'),
+      ariaExpanded: head.getAttribute('aria-expanded')
+    });
+  })()`);
+  const I2 = JSON.parse(i2);
+  check('I2: 折叠 source → .collapsed + 卡片体 display:none + 高度显著缩小',
+    I2.collapsed && I2.bodyDisplay === 'none' && I2.height < hBefore, i2);
+  check('I2: 折叠后相邻 splitter disabled + aria 同步（aria-expanded=false）',
+    I2.splitDisabled && I2.ariaDisabled === 'true' && I2.ariaExpanded === 'false', i2);
+
+  // ---- I3. 再次点击展开还原 ----
+  await ev(`document.querySelector('[data-sim-card-toggle="source"]').click()`);
+  await sleep(80);
+  const i3 = await ev(`(() => {
+    const card = document.getElementById('sim-card-source');
+    const split = document.querySelector('[data-sim-split="source:rtl"]');
+    return JSON.stringify({
+      collapsed: card.classList.contains('collapsed'),
+      height: card.offsetHeight,
+      splitDisabled: split.classList.contains('disabled')
+    });
+  })()`);
+  const I3 = JSON.parse(i3);
+  check('I3: 再次点击展开还原（高度恢复、splitter 解禁）',
+    !I3.collapsed && I3.height >= hBefore * 0.9 && !I3.splitDisabled, i3);
+
+  // ---- I4. 纵向 splitter 键盘：ArrowDown 让 source 变高、rtl 变矮 ----
+  const i4a = await ev(`(() => {
+    const st = window.__wpsim.panelLayout;
+    const w = {}; for (const c of st.cards) w[c.key] = c.weight;
+    return JSON.stringify({
+      w,
+      hA: document.getElementById('sim-card-source').offsetHeight,
+      hB: document.getElementById('sim-card-rtl').offsetHeight
+    });
+  })()`);
+  const I4a = JSON.parse(i4a);
+  await ev(`(() => {
+    const split = document.querySelector('[data-sim-split="source:rtl"]');
+    split.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+  })()`);
+  await sleep(60);
+  const i4b = await ev(`(() => {
+    const st = window.__wpsim.panelLayout;
+    const w = {}; for (const c of st.cards) w[c.key] = c.weight;
+    return JSON.stringify(w);
+  })()`);
+  const I4b = JSON.parse(i4b);
+  check('I4: splitter 键盘 ArrowDown → source = 原高+16 / rtl = 原高-16（相邻两卡总高守恒）',
+    I4b.source === I4a.hA + 16 && I4b.rtl === I4a.hB - 16
+      && Math.abs((I4b.source + I4b.rtl) - (I4a.hA + I4a.hB)) < 1.01,
+    JSON.stringify({ before: I4a, after: I4b }));
+
+  // ---- I5. 侧栏宽度：直设 + 上下限 clamp ----
+  const widthProbe = (px) => ev(`(() => {
+    const ret = window.__wpsim.setPanelWidth(${px});
+    const css = getComputedStyle(document.documentElement).getPropertyValue('--sim-panel-w').trim();
+    return JSON.stringify({ ret, css });
+  })()`);
+  const w420 = JSON.parse(await widthProbe(420));
+  check('I5a: setPanelWidth(420) → 返回 420 且 --sim-panel-w=420px',
+    w420.ret === 420 && w420.css === '420px', JSON.stringify(w420));
+  const wMin = JSON.parse(await widthProbe(100));
+  check('I5b: 宽度下限 clamp 到 280', wMin.ret === 280 && wMin.css === '280px', JSON.stringify(wMin));
+  const wMax = JSON.parse(await widthProbe(9999));
+  const expectMax = Math.min(760, Math.round(1440 * 0.6));
+  check('I5c: 宽度上限 clamp 到 min(760, 视口*60%)',
+    wMax.ret === expectMax && wMax.css === expectMax + 'px', JSON.stringify({ got: wMax, expectMax }));
+
+  // ---- I6. sessionStorage 持久化（防抖 220ms 后写入）----
+  await ev(`document.querySelector('[data-sim-card-toggle="vcd"]').click()`);
+  await sleep(400);
+  const i6 = await ev(`JSON.stringify({ raw: sessionStorage.getItem('wavepaint.sim-panel-layout.v1') || null,
+    state: window.__wpsim.panelLayout })`);
+  const I6 = JSON.parse(i6);
+  const saved = I6.raw ? JSON.parse(I6.raw) : null;
+  check('I6: sessionStorage 落盘 v1 结构（权重/折叠/宽度齐全，vcd 折叠已记录）',
+    !!saved && saved.v === 1 && saved.c && saved.c.vcd === true
+      && typeof saved.width === 'number' && saved.w && typeof saved.w.source === 'number',
+    i6);
+
+  // ---- I7. reset：回默认（宽 328、全部展开、权重回默认）----
+  await ev(`window.__wpsim.resetPanelLayout()`);
+  await sleep(120);
+  const i7 = await ev(`(() => {
+    const st = window.__wpsim.panelLayout;
+    return JSON.stringify({ st, width: getComputedStyle(document.documentElement).getPropertyValue('--sim-panel-w').trim() });
+  })()`);
+  const I7 = JSON.parse(i7);
+  check('I7: reset → 宽度 328 / 四卡全展开 / 权重回默认 300-245-245-190',
+    I7.st.width === 328 && I7.st.cards.every((c) => !c.collapsed)
+      && I7.st.cards.find((c) => c.key === 'source').weight === 300
+      && I7.st.cards.find((c) => c.key === 'tb').weight === 190,
+    i7);
+
+  // ---- I8. 矮窗口（750x485）「运行仿真」仍可点（历史 bug：源码卡被压到 80px、
+  //          工具栏被 overflow 裁掉 → 坐标点击落到 VCD 卡上，仿真点不动）----
+  await send('Emulation.setDeviceMetricsOverride', { width: 750, height: 485, deviceScaleFactor: 1, mobile: false });
+  await sleep(200);
+  const i8 = await ev(`(() => {
+    const btn = document.getElementById('sim-run');
+    const r = btn.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    const panelBody = document.getElementById('sim-panel-body');
+    return JSON.stringify({
+      h: r.height, hitIsRun: !!(hit && hit.closest && hit.closest('#sim-run')),
+      hitId: hit && hit.id, hitTag: hit && hit.tagName,
+      sourceMinH: document.getElementById('sim-card-source').style.minHeight,
+      bodyScrollable: panelBody.scrollHeight > panelBody.clientHeight
+    });
+  })()`);
+  const I8 = JSON.parse(i8);
+  check('I8: 矮窗口 750x485 下「运行仿真」按钮未被裁（命中测试命中自身）',
+    I8.hitIsRun && I8.h > 0, i8);
+
+  const errI = await ev(`window.__errCount ? window.__errCount() : -1`);
+  check('I: 期间无页面运行时错误', errI === 0, String(errI));
+} catch (eI) {
+  check('I: 侧栏多面板测试执行未抛异常', false, String((eI && eI.message) || eI));
+}
+await send('Emulation.clearDeviceMetricsOverride', {});
 
 // ---------------------------------------------------------------- 收尾
 console.log('\n资源加载失败(404等)：' + netFails);

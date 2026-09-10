@@ -5,22 +5,22 @@
 
 ---
 
-## 1. 当前状态快照（2026-09-10）
+## 1. 当前状态快照（2026-09-11）
 
 | 项 | 状态 |
 |---|---|
 | 当前版本 | `v0.4.0 build <自动时间> <git短哈希>` |
 | 代码状态 | 主线可用，`main` 分支 |
 | 构建产物 | `D:\Files\Code\波形\WavePaintClean.exe` |
-| 最近完成（第二十轮） | **侧栏 / 整体 UI 重构设计方案已交付（2026-09-10 第二十轮，见 §4.18 + `08-ROADMAP.md` §2.1~§2.9）** —— 只出方案、**未动任何受版本控制代码**（`index.html`/`css/`/`js/` 一行未改），因此**本轮不重建 exe**（C1 未触发，exe 仍是 `2026-09-10 22:49:32` 那版）。方案含：现状问题清单（P1 空间 / P2 数量 / P3 语义遗留 / P4 结构 / P5 CSS 双轨，全部实测）、仿 Verdi「三区 + 一条控制带」目标布局、面板与按钮归位表、六条主线衔接点、**契约面冻结清单**（24 个 id + class/dataset + VCD 行 `title` 全路径 + 状态类）、P0/P1/P2 分期计划、「UI 设计交给其它 AI」评估 + 现状交互清单。**状态 = 待用户 review（拍板后按 08 §2.6 P0 开工）** |
-| 最近完成需求 | **#87②：模块/实例全部接口一键入波形（2026-09-10 第十九轮落地，见 §4.17）** —— 代码区按 **`Ctrl+Alt+4`** 即可把光标所在**模块（或实例）的全部接口（端口）**一次加为观察行（唯一作用域直加；同名模块/实例多作用域 → **代码区旁轻量浮层**选作用域；重复触发幂等；无 VCD 数据 / 未 dump 给中文说明）。**刻意不用 `Ctrl+4`** —— Chromium/Edge 把 `Ctrl+数字` 当浏览器级「切换标签页」加速键，页面收不到 keydown（与 `Ctrl+W` 同源，见 06 P33/P36）。**「全部接口」= 模块端口（`kind === "port"`）**，体内 `wire/reg` 仍走 B4 单点加入。**未改 `js/wavepaint.clean.js` 与 `sim/engine.js` 一行**（C9 守住）。此前 **#76 已收口**：B5（第十八轮，§4.16）、B3（第十七轮）、B4（第十六轮）、B1（第十五轮）、**#86 A1~A4**（第十四轮）、**#86 服务在线性**（第十三轮）、**#85**（第十轮）、第十二轮 RTL 树瘦身、第六轮 5 项 + #93 收官 |
-| 最近完成文档 | **第十九轮记忆同步**（2026-09-10）：新增 §4.17（#87② 落地全记录）、06 P36（`Ctrl+4` 被浏览器吞 + **实例符号 `moduleName` 被索引覆盖** + 「只 splice 不清登记 → render 会复活行」的测试陷阱）、07 D19（`Ctrl+Alt+4` 选型 + 「全部接口 = 端口」口径 + 多候选复用代码区旁轻量浮层 `mode="scope"`）、03 表 F/H #87 状态（**①②③ 全部落地**）、08 文件头/§1/§1.2 + **新增 §1.3**（#87② ✅ + 主线下移）、本文件 §1 快照 / §2 时间线 / §4.4 / §6、09 全篇切第二十轮、当日日志「第十九轮」、`05-LOGS.md` 索引、`INDEX.md` 页脚。叠加生效的仍是**第十二轮澄清**：加信号主路径 = 代码内点/选中变量（“中追”式 = #87①/#76 B4，**已落地**）；RTL 结构树为纯代码层级浏览（文件→模块→实例），不显示接口信号、不承载加信号交互（原 #76 B2 撤销）。见 §4.10 / 03 表 F/H / 08 §1.2/§2 |
-| 最近一轮（第十九轮，2026-09-10） | **#87② 落地：模块/实例全部接口一键入波形（详见 §4.17）**。① `js/sim/rtl-panel.js`：`installCodeEditor` 增第 7 参 `onAddScope`；触发块重构为 `request(via, event, handler)`（handler 缺省回落 B4 单符号入口；**未接线的手势静默放过、不吞事件**）；keydown 捕获阶段识别 **`Ctrl/Cmd+Alt+4`**（`key==="4" || code==="Digit4" || code==="Numpad4"`）→ `preventDefault()+stopPropagation()` → `onAddScope`；`Ctrl+Alt+W`（B4）行为不变。② `js/sim/ui-bridge.js`：浮层泛化 `openPicker(title, items, anchor, mode)`（`items=[{label,title,onPick}]`、`box.dataset.pickerMode`）+ 薄封装 `showSymbolPicker`（mode `"symbol"`，**B4 选项文本仍是 VCD 全路径、探针口径不变**）/ `showScopePicker`（mode `"scope"`）；新增 `moduleScopes` / `modulePorts`（`kind==="port"` 按名去重）/ **`addVcdPathsToWave`**（**批量、只 render 一次**、末尾滚动定位、**不设状态栏**，返回 `{ready,added[],existed[],missing[]}`）/ `modulePortsStatus`（唯一汇总文案入口）/ `addModulePortsToWave` / `addModulePortsFromCode`；接线 `onAddScope`；三处提示追加 `Ctrl+Alt+4`；`__wpsim` 增探针（`addModulePortsFromCode`/`moduleScopesOf`/`modulePortsOf`/`addVcdPathsToWave`/`get pickerMode`）。③ `tools/e2e-rtl.mjs` +9 条 J 段（J0~J7）。**修掉一个真 bug**：分支①（光标在实例名上）若用 `findSymbols` 命中项的 `moduleName` 查作用域是**错的** —— 符号索引把实例符号的 `moduleName` 覆盖成**定义所在模块** → 改为按「**实例名后缀**」直接查 `index.instancePaths`。exe 已重建（22:49:32） |
+| 最近完成（第二十一轮） | **侧栏「可拖拽多面板」落地（2026-09-11 第二十一轮，见 §4.19 + 08 §2.2/§2.6）** —— 用户拍板「面板形态采用可拖拽多面板，暂不将层次树左置，实践步骤自行规划」后，**当轮直接落地**（不再是原 P2 远期）：`#sim-panel` 内 4 张卡片（源码 / RTL 树 / VCD 树 / TB）改为 `<section class="sim-card">` + `.sim-card-head`（可折叠）+ 卡片间 **3 条纵向 `.sim-split` 拖拽分隔条**；侧栏左缘新增 `#sim-resize-x` 竖向拖拽改宽度（clamp 280 ~ min(760, 视口*60%)）；布局状态**只存 `sessionStorage`**（key `wavepaint.sim-panel-layout.v1`，**绝不进 `.wp`**）；**所有既有 id/class 一个未改**（契约面全数保住）。新增 `js/sim/panel-layout.js`（约 520 行）。**顺带修掉一个真 bug（= 用户反复报「点仿真无响应」的又一根因）**：矮窗口（750×485）下源码卡被压到 80px、170px 的 `.source-toolbar` 被裁 → `#sim-run` 点击坐标落到 VCD 卡上、仿真根本不触发 → 新增 `measureMinHeight`/`applyMinHeights` + `.sim-panel-body{overflow-y:auto}` + `#sim-status{position:sticky}` 修复。exe 已重建（22,012,416 B / 2026-09-11 00:15:01） |
+| 最近完成需求 | **#87②：模块/实例全部接口一键入波形（2026-09-10 第十九轮落地，见 §4.17）**；**第二十一轮新增「UI 形态拍板」：可拖拽多面板 + 侧栏保持右侧 + 层次树暂不左置（见 §4.19 / 08 §2.2）**。此前 **#76 已收口**：B5（第十八轮，§4.16）、B3（第十七轮）、B4（第十六轮）、B1（第十五轮）、**#86 A1~A4**（第十四轮）、**#86 服务在线性**（第十三轮）、**#85**（第十轮）、第十二轮 RTL 树瘦身、第六轮 5 项 + #93 收官 |
+| 最近完成文档 | **第二十一轮记忆同步**（2026-09-11）：新增 §4.19（可拖拽多面板落地全记录 + 矮窗口工具栏裁剪修复）、08 §2.2/§2.6 把三条取舍写成**已拍板结论**并重写分期（本轮一次落地原 P2 核心）、07 D20 升级为「**已采纳：可拖拽多面板**」+ 新增 **D21**、09 §3 切第二十一轮、当日日志「第二十一轮」、`05-LOGS.md` 索引、`INDEX.md` 页脚、03「其它规划」段。叠加生效的仍是**第十二轮澄清**：加信号主路径 = 代码内点/选中变量（“中追”式 = #87①/#76 B4，**已落地**）；RTL 结构树为纯代码层级浏览（文件→模块→实例），不显示接口信号、不承载加信号交互（原 #76 B2 撤销）。见 §4.10 / 03 表 F/H / 08 §1.2/§2 |
+| 最近一轮（第二十一轮，2026-09-11） | **侧栏「可拖拽多面板」落地（用户拍板后首轮 UI 实施，详见 §4.19）**。用户三条裁决：① 面板形态 = **可拖拽多面板**（splitter）；② 侧栏**保持右侧**、`#main-area` 骨架不动；③ 层次树**暂不左置**；实施步骤授权 AI 自定 → **当轮一次落地（原 P2 核心，不再远期）**。① `index.html`：`#main-area` padding-right 与 `#sim-panel` width 改读 `var(--sim-panel-w,328px)`；新增 `.sim-panel-body`（纵向 flex + `overflow-y:auto`）/`.sim-card*`（卡片+折叠头）/`.sim-split`（10px 纵向拖拽条 + `.disabled`）/`#sim-resize-x`（左缘 7px 宽度条）/`body.sim-resizing`；**`#sim-status` 加 `position:sticky;bottom:0`**；DOM 重排为 4 个 `<section class="sim-card" data-sim-card>` + 3 个 `<div class="sim-split" data-sim-split>`，新增 `#sim-panel-body`/`#sim-resize-x`，**所有既有 id/class 一个未改**；`#sim-tb-copy` 移进 TB 卡片头；`#sim-addsignals` 的 `title` 降级说明。② `js/sim/panel-layout.js`（新增约 520 行）：`installSimPanelLayout({panel,body,handle,storageKey,onLayout})` —— 折叠（标题行内 button/a/input/select/textarea/label 点击不折叠，保护 `#sim-tb-copy`）、像素权重高度（`flex-grow=权重/总权重*100`+`flex-basis:0`，默认 `{source:300,rtl:245,vcd:245,tb:190}`）、**`measureMinHeight`/`applyMinHeights`**（固定块按实测高、弹性块按自身 min-height，`min-height=min(实测, 面板可视高*0.8)`）、splitter 拖拽（`resizePair` 重分配 + `body.sim-resizing` + 折叠则 `.disabled`）、`setWidth` clamp 280~min(760,视口*60%) + rAF 节流派发 `window resize`、**仅 `sessionStorage`**（`wavepaint.sim-panel-layout.v1`，`{v,w,c,width}`，220ms 防抖）、键盘可达（splitter `ArrowUp/Down` ±16px、`#sim-resize-x` `ArrowLeft/Right`）、导出 `{getState,setWidth,reset,destroy}`。③ `js/sim/ui-bridge.js`：接入 `installSimPanelLayout` + `initPanelLayout()`（`bindEvents()` 后）、`refs.panelBody`/`refs.resizeHandle`、**删死引用 `el("sim-collapse")`**、`__wpsim` 增 `panelLayout`/`setPanelWidth`/`resetPanelLayout` 探针。④ `js/sim/rtl-panel.js`：`installCodeEditor` 返回值加 `remeasure()`（CM6 ResizeObserver <75ms 跳过保护会导致拖 splitter 漏重排）。⑤ `tools/e2e-ui.mjs` +**I0~I8（13 条）→ 86/86**。**本轮真 bug 修复**：headless Edge 视口 750×485 下源码卡只剩 80px、其 `.source-toolbar` 实测 170px → 工具栏被裁 → `#sim-run` 坐标点击落到 VCD 卡、仿真不触发（= 用户反复报的「点仿真无响应」又一根因）；`verify-recovery2` D1/D1b 首跑即复现，修复后 17/17。exe 重建（22,012,416 B / 2026-09-11 00:15:01）。**未改 `wavepaint.clean.js` 与 `sim/engine.js` 一行**（C9） |
 | 当前阻塞 | 无 |
-| 下一步主线 | **第二十轮：侧栏 / 整体 UI 重构设计方案已交付（§4.18 + 08 §2.1~§2.9），状态 = 待用户 review**。用户拍板后按 **08 §2.6 分期开工**：**P0** = 纯 CSS/布局（分区标题 + 卡片折叠 + 自适应高度 + `#sim-collapse` 死引用与 `#sim-addsignals` 文案清理，不动 id/class/DOM 层级，风险低）；**P1** = DOM 重排（VCD 树移入波形区 / TB 折叠 / 控制带收敛，保 id/class、只改父容器）；**P2** = 多面板拖拽 + 面板状态持久化（session 级）。**每期独立 commit + push `main`，且每期都要 C1 重建 exe + C8 核验 + 全量测试 + C17 记忆同步**。此前 **#87② 已完成（第十九轮）→ #76 + #87①②③ 全部收口**。**#84 波形查看增强 / #77 Active Annotation 仍为远期**（08 §3，除非用户再拍板）。RTL 树仍只做代码层级浏览；服务自愈（§4.11）是独立专项 | 
-| 测试基线 | regression **79/79**；e2e-rtl **61/61**（第十九轮新增 **J0~J7 共 9 条**）；e2e-ui 73/73；e2e-sim 0 失败；probe-param 全过；**2026-09-10 第十九轮实测复跑（全部实测）：regression 79/79、e2e-rtl 61/61、e2e-ui 73/73、e2e-sim 0 失败、probe-param 全过、真 exe 冒烟通过**（B4 起「仿真后不全量灌信号」的 e2e-sim 断言仍在守） |
-| UI 基线 | e2e-rtl **61/61**（含 #85 D1~D6 + 第十二轮 B3 RTL 树纯层级浏览 + 第十四轮 E1~E6 + 第十五轮 F1~F9 + 第十六轮 G1~G7 + 第十七轮 H1/H2/H3/H4/H4b/H5/H6 + 第十八轮 I1~I6 + **第十九轮 J0~J7：模块体一次加 4 端口 / 重复触发幂等 / 同名两例化弹 `mode="scope"` 选择器且点选后加对作用域 / 光标在实例名上唯一作用域直加（真 bug 修复点）/ `Ctrl+Alt+4` 与 `Ctrl+Alt+W` 同链路 / 只按 `Ctrl+4` 不触发 / 探针 `modulePortsOf`+`moduleScopesOf`+RTL 树仍无端口行 / `addVcdPathsToWave` 三桶分类**）；e2e-ui 73/73（真实 Edge）；probe-tutorial / probe-addbtn / probe-simfail 全过；真 exe 冒烟通过（端口 17817、core/wpf/doc/canvas/汉化全在、无异常）；第十三轮自愈专测 `verify-recovery2.mjs` 17/17 + 真实 Edge 协议探针 `probe-protocol.mjs` |
-| 交付提醒 | 重启应用、从唯一路径启动、面板版本号自查（应显示 `v0.4.0 build 2026-09-10 22:49:32 a201338`；⚠ `a201338` = **构建时 HEAD**（第十八轮 B5 的 commit），承载第十九轮 #87② 代码的 commit 是它的**下一个** —— **别误判 exe 落后**，口径见 05/09 第十六轮补记）；本次 exe 内置第十九轮 **#87②（模块/实例全部接口一键入波形 `Ctrl+Alt+4`）**、第十八轮 #76 B5、第十七轮 #76 B3、第十六轮 #76 B4（+ 不再仿真后全量灌信号）、第十五轮 #76 B1、第十四轮 #86 A1~A4、第十三轮服务自愈（固定端口 17817 + `WPServiceGuard` + `#sim-recover` 按钮）、第十二轮 RTL 树瘦身、#85 与第六轮收官 clean.js。**首次**自愈时浏览器会弹一次「是否允许打开 wavepaint:」，勾选「始终允许」后无感（浏览器安全策略，无法绕过） |
+| 下一步主线 | **UI 重构已进入实施（第二十一轮一次落地「可拖拽多面板」）**。用户三条拍板：① 面板形态 = **可拖拽多面板**（splitter）；② 侧栏**保持右侧**、`#main-area` 骨架不动；③ 层次树**暂不左置**；实施步骤由 AI 自定 → 本轮已全部落地。08 §2.6 分期据此重写：**原 P0/P1/P2 核心已在第二十一轮合并完成**；后续 UI 项只剩「VCD 树移入波形区 / TB 控制带收敛（可选）」与「层次树左置（暂缓，等用户再拍板）」。**#84 波形查看增强 / #77 Active Annotation 仍为远期**（08 §3）。RTL 树仍只做代码层级浏览；服务自愈（§4.11）是独立专项 |
+| 测试基线 | regression **79/79**；e2e-rtl **61/61**；**e2e-ui 86/86**（第二十一轮新增 **I0~I8 共 13 条**：可拖拽多面板装配 / flex-grow 归一 / 折叠展开 / splitter 键盘调高 / 宽度 clamp / sessionStorage 落盘 / reset / 矮窗口 `#sim-run` 命中）；e2e-sim 0 失败；probe-param 全过；**2026-09-11 第二十一轮实测复跑（全部实测）：regression 79/79、e2e-ui 86/86、e2e-rtl 61/61、e2e-sim 0 失败、probe-param 全过、真 exe 冒烟通过、`verify-recovery2` 17/17**（B4 起「仿真后不全量灌信号」的 e2e-sim 断言仍在守） |
+| UI 基线 | e2e-rtl **61/61**（含 #85 D1~D6 + 第十二轮 B3 RTL 树纯层级浏览 + 第十四轮 E1~E6 + 第十五轮 F1~F9 + 第十六轮 G1~G7 + 第十七轮 H1/H2/H3/H4/H4b/H5/H6 + 第十八轮 I1~I6 + 第十九轮 J0~J7）；**e2e-ui 86/86**（真实 Edge；第二十一轮新增 **I0~I8：4 卡 + 3 splitter 装配 / `flex-grow` 归一化 100 且 `flex-basis:0px` / 折叠 `.collapsed`+`display:none`+相邻 splitter disabled+aria / 展开还原 / `ArrowDown` `source=原高+16`·`rtl=原高-16` / 宽度 420·下限 280·上限 760 / sessionStorage v1 落盘 / reset 回 328+展开+300-245-245-190 / 矮窗口 750×485 下 `#sim-run` 命中自身**）；probe-tutorial / probe-addbtn / probe-simfail 全过；真 exe 冒烟通过（端口 17817、core/wpf/doc/canvas/汉化全在、无异常）；第十三轮自愈专测 `verify-recovery2.mjs` 17/17 + 真实 Edge 协议探针 `probe-protocol.mjs` |
+| 交付提醒 | 重启应用、从唯一路径启动、面板版本号自查（应显示 `v0.4.0 build 2026-09-11 00:15:01 69b84d0`；⚠ `69b84d0` = **构建时 HEAD**（第二十轮方案 commit），承载第二十一轮多面板代码的 commit 是它的**下一个** —— **别误判 exe 落后**，口径见 05/09 第十六轮补记）；本次 exe 内置第二十一轮 **可拖拽多面板（卡片折叠 + 纵向 splitter + 侧栏宽度 + session 级持久化 + 矮窗口工具栏裁剪修复）**、第十九轮 #87②（`Ctrl+Alt+4`）、第十八轮 #76 B5、第十七轮 #76 B3、第十六轮 #76 B4（+ 不再仿真后全量灌信号）、第十五轮 #76 B1、第十四轮 #86 A1~A4、第十三轮服务自愈（端口 17817 + `WPServiceGuard` + `#sim-recover` 按钮）、第十二轮 RTL 树瘦身、#85 与第六轮收官 clean.js。**首次**自愈时浏览器会弹一次「是否允许打开 wavepaint:」，勾选「始终允许」后无感（浏览器安全策略，无法绕过） |
 
 ---
 
@@ -54,6 +54,7 @@
 | 2026-09-10 | 第十八轮：**#76 B5 落地**（画布观察行随 `.wp` 工程存档与恢复） | 先做范围勘察（读核心 `js/wavepaint.clean.js`，**一行未改**）：① **信号组无需另存** —— `buildDocumentJson`（L1449~1451）逐字段存 `groupName`/`groupColor`/`groupPath`、`loadFromFileContent`（L1642~1644）逐字段还原，`GroupManager`（L1163~1404）纯函数派生无独立状态 → 天然闭环；② **观察行必须桥兜底** —— 核心把它当普通信号写进 `signals`，载入后丢 `__simInjected`/`__simWatchPath`/`width`/`msb`/`lsb`（脏激励 + 名字列丢 `[3:0]`）。`ui-bridge.js`：`injectArchiveSourceFiles` → **`injectArchiveFields(json, fields)`** 泛化；新增 `archiveSimWatches`（只存 `{path,name,width,reference}`）/ `applyArchivedExtras`（**先清 `vcd`/`outputs`/`simWatches`** 再恢复，坏载荷静默跳过）/ `applySourceFilesFromArchive` / `applySimWatchesFromArchive` / `adoptArchivedWatchRows`（「行名 == 观察路径」认领 + 补回位宽字段，幂等）；`syncSimRows` 增「无 VCD 时回退工程带回来的行」；`resetSourceFiles` 扩为「新工程全复位」；`__wpsim` 增 `designSignalNames` 探针。`tools/e2e-rtl.mjs` 新增 I1~I6（7 条落点 6 条断言，真实 Edge + 真实 VCD）。**首跑即 52/52 全 PASS**。regression 79/79、e2e-rtl **52/52**、e2e-ui 73/73、e2e-sim 0 失败、probe-param 全过、真 exe 冒烟通过；exe 重建（22:23:52、21,969,408 B、`v0.4.0 build 2026-09-10 22:23:51 5ec07e7`）。踩坑记入 06 P35、决策 07 D18；下一项 = **#87②**（模块全接口 Ctrl+4） |
 | 2026-09-10 | 第十九轮：**#87② 落地**（模块/实例全部接口一键入波形，仿 nWave `Ctrl+4`；实际触发键 `Ctrl+Alt+4`） | 两条硬口径：① **触发键 = `Ctrl+Alt+4`**（**不用 `Ctrl+4`** —— Chromium/Edge 把 `Ctrl+数字` 当浏览器级「切换标签页」加速键，页面收不到 keydown，与 `Ctrl+W` 同源，见 06 P36）；② **「全部接口」= 模块端口**（`kind === "port"`，`modulePorts` 按名去重），体内 `wire/reg` 仍走 B4 单点加入、不批量灌；目标作用域 = **例化路径**（顶层模块 → `tb.dut`）。`rtl-panel.js`：`installCodeEditor` 第 7 参 `onAddScope`，触发块统一 `request(via,event,handler)`（未接线手势静默放过、不吞事件），捕获阶段识别 `key==="4"||code==="Digit4"||code==="Numpad4"`；`ui-bridge.js`：浮层泛化 `openPicker(title,items,anchor,mode)` + `showScopePicker`（`mode="scope"`）+ `moduleScopes`/`modulePorts`/**`addVcdPathsToWave`**（批量、只 render 一次、三桶返回、不设状态栏）/`modulePortsStatus`/`addModulePortsToWave`/`addModulePortsFromCode`；三处提示追加 `Ctrl+Alt+4`；`__wpsim` 增探针。**修掉一个真 bug**：光标在实例名上不能用 `findSymbols` 命中项的 `moduleName` 查作用域（`buildSymbolIndex` 把它覆盖成「定义所在模块」）→ 按实例名后缀查 `instancePaths`。`tools/e2e-rtl.mjs` +J0~J7（9 条）→ **61/61**（首跑 58/61：2 条测试自身设计错误 + 1 条真 bug）。regression 79/79、e2e-ui 73/73、e2e-sim 0 失败、probe-param 全过、真 exe 冒烟通过；exe 重建（22:49:32）。**未改 `wavepaint.clean.js` 与 `sim/engine.js` 一行**（C9） |
 | 2026-09-10 | 第二十轮：**侧栏 / 整体 UI 重构设计方案交付（纯规划文档，本轮唯一交付物）** | 用户指令「按照规划继续」（承接第十九轮，其下一项 = 侧栏 / 整体 UI 重构设计方案）。**只出方案、未动任何受版本控制代码** → 不触发 C1、**本轮不重建 exe**。先做只读调研并建临时审计脚本 `.e2e-tmp/ui-audit.mjs`（`.gitignore` 覆盖，不入库），实测：`index.html` 904 行 / 静态 id 82 个 /「js 引用但 DOM 无 id」31 个 / 内联 `<style>` L26~L471 / 侧栏 DOM L733~L803 / 仿真栏 24 个 id 全部由 `ui-bridge.js` `el(...)` 抓取；顺带**纠正上一轮两处口径**（e2e-rtl 实为 28 处 CSS 选择器依赖；侧栏已无「收起」按钮，`el("sim-collapse")` 是死引用）。方案落盘 `08-ROADMAP.md` §2.1~§2.9：现状问题清单（P1 空间 / P2 数量 / P3 语义遗留 / P4 结构 / P5 CSS 双轨）+ 仿 Verdi「三区 + 一条控制带」目标布局 + 面板归位表 + 三条取舍选项 + 六条主线衔接点 + **契约面冻结清单**（24 id / class-dataset / `title` 全路径 / 状态类）+ P0/P1/P2 分期 +「UI 设计交给其它 AI」评估 + 交互清单。**状态 = 待用户 review**；用户拍板后按 08 §2.6 P0 开工（P0 起才动代码，届时须 C1 重建 exe + C8 核验 + 全量测试 + C17 记忆同步 + C2/C3 commit/push）。详见 04 §4.18、08 §2、07 D20、日志 2026-09-10 第二十轮 |
+| 2026-09-11 | 第二十一轮：**侧栏「可拖拽多面板」落地（用户拍板后首轮 UI 实施）** | 用户拍板：① 面板形态 = **可拖拽多面板**；② 侧栏**保持右侧**、`#main-area` 骨架不动；③ 层次树**暂不左置**；实施步骤授权 AI 自定 → **当轮一次落地（原 P2 核心，不再远期）**。`index.html` 4 卡改 `<section class="sim-card">` + `.sim-card-head`（可折叠）+ 3 条纵向 `.sim-split` 拖拽条 + 侧栏左缘 `#sim-resize-x` 改宽度（clamp 280~min(760,视口*60%)）；新增 `js/sim/panel-layout.js`（约 520 行 `installSimPanelLayout`：折叠 / 像素权重高度 / splitter / 宽度 / 键盘可达，**只存 sessionStorage**）；`ui-bridge.js` 接线 + 删 `sim-collapse` 死引用 + 探针；`rtl-panel.js` `installCodeEditor` 加 `remeasure()`。**所有既有 id/class 一个未改**（契约面全数保住）。**顺带修掉一个真 bug（= 用户反复报「点仿真无响应」的又一根因）**：矮窗口 750×485 下源码卡只剩 80px、170px 工具栏被裁 → `#sim-run` 坐标点击落到 VCD 卡、仿真不触发 → `measureMinHeight`/`applyMinHeights` + `.sim-panel-body{overflow-y:auto}` + `#sim-status` 吸底修复。`tools/e2e-ui.mjs` +I0~I8（13 条）→ 86/86。验证：regression 79/79、e2e-ui 86/86、e2e-rtl 61/61、e2e-sim 0 失败、probe-param 全过、真 exe 冒烟通过、`verify-recovery2` 17/17；exe 重建（22,012,416 B / 2026-09-11 00:15:01）；**未改 `wavepaint.clean.js` 与 `sim/engine.js` 一行**（C9） |
 
 ---
 
@@ -1041,6 +1042,98 @@ C1 未触发）；`wavepaint.clean.js`、`sim/engine.js`、`index.html`、`css/`
 用户拍板后按 08 §2.6 **P0 开工**。详见 08 §2、07 D20、日志 2026-09-10 第二十轮。
 
 ---
+### 4.19 ✅ 已完成：侧栏「可拖拽多面板」落地（第二十一轮 2026-09-11）—— 用户拍板后的首轮 UI 实施
+
+> 用户指令：「面板形态采用可拖拽多面板，暂不将层次树左置，至于具体的实践步骤和实践方式，
+> 自行规划」。→ 三条裁决（① 面板形态 = **可拖拽多面板**；② 侧栏**保持右侧**、`#main-area`
+> 骨架不动；③ 层次树**暂不左置**）+ 实施步骤授权 AI 自定 → **本轮一次性落地**（不是原 P2 远期）。
+> 08 §2.6 分期据此重写；07 D20 由「待 review」升级为「**已采纳**」。
+
+**本轮做了什么**
+
+1. `index.html`
+   - `#main-area` 的 `padding-right` 与 `#sim-panel` 的 `width` 改读 CSS 变量
+     `var(--sim-panel-w, 328px)`；新增 `body.sim-resizing #main-area{transition:none}`（拖拽时关过渡）。
+   - 新增整套 CSS：`.sim-panel-body`（纵向 flex 容器，`overflow-y:auto; overflow-x:hidden`）、
+     `.sim-card` / `.sim-card-head` / `.sim-card-chevron` / `.sim-card-body`、`.sim-split`
+     （10px 纵向 splitter + `.disabled` 态）、`#sim-resize-x`（侧栏左缘 7px 竖向拖拽条）。
+   - **`#sim-status` 加 `position:sticky; bottom:0`**（面板区整体滚动时状态条吸底，仿真进度不被顶出视口）。
+   - DOM 重排：4 张卡片 = `<section class="sim-card" id="sim-card-source|rtl|vcd|tb" data-sim-card="…">`，
+     每张含 `.sim-card-head`（`data-sim-card-toggle`）+ `.sim-card-body`；卡片间 3 条
+     `<div class="sim-split" data-sim-split="source:rtl|rtl:vcd|vcd:tb">`；新增 `#sim-panel-body` 与 `#sim-resize-x`。
+   - **所有既有 id / class 一个未改**（契约面全数保住）；`#sim-tb-copy` 从 `.tb-title-row` 移进 TB 卡片头；
+     `#sim-addsignals` 的 `title` 顺带改为「按端口给画布建激励（不加入 VCD 观察行；加波形请在代码里双击变量）」。
+
+2. `js/sim/panel-layout.js`（**新增，约 520 行**）
+   - 导出 `installSimPanelLayout({panel, body, handle, storageKey, onLayout})`，**只做布局**：
+     - **折叠**：点卡片头（或聚焦 Enter/Space）切 `.collapsed`；标题行内
+       `button/a/input/select/textarea/label` 的点击**不折叠**（保护 `#sim-tb-copy`）。
+     - **高度**：按「像素权重」记账，写 `flex-grow = 权重/总权重*100` + `flex-basis:0`；
+       默认权重 `{source:300, rtl:245, vcd:245, tb:190}`。
+     - **`measureMinHeight` / `applyMinHeights`**（本轮关键修复）：固定块按实测 `offsetHeight`、
+       弹性块按自身 `min-height`，再补卡片体 padding / rowGap；`card.el.style.minHeight =
+       min(实测最小高, 面板可视高*0.8)`；在 `commit()`、初始装配、`setWidth()`、`window resize` 都调用。
+     - **splitter 拖拽**：`pointerdown` 记录相邻两卡 `offsetHeight`，按 `resizePair` 重分配；
+       拖拽时 `body.sim-resizing`；相邻卡片折叠 → splitter `.disabled`。
+     - **宽度**：`setWidth` 写 `--sim-panel-w`，clamp 280 ~ min(760, 视口*60%)；拖拽时 rAF 节流派发
+       `window` `resize`（`js/editor/measure.js:187` 监听它重排画布）。
+     - **持久化：仅 `sessionStorage`**（key `wavepaint.sim-panel-layout.v1`，结构
+       `{v:1,w:{},c:{},width}`），220ms 防抖。**绝不进 `.wp`**。
+     - **键盘可达**：splitter `ArrowUp/Down` ±16px；`#sim-resize-x` `ArrowLeft` 加宽 / `ArrowRight` 变窄。
+     - 导出 `{getState, setWidth, reset, destroy}`；DOM 缺节点 → 返回 `null`（CSS 兜底）。
+
+3. `js/sim/ui-bridge.js`
+   - 新增 `import { installSimPanelLayout } from "./panel-layout.js"` + 模块级 `let panelLayout = null`；
+     `initRefs()` 新增 `refs.panelBody` / `refs.resizeHandle`；**删除死引用**
+     `refs.collapseBtn = el("sim-collapse")` 及其 `bindEvents` 死分支（第二十轮登记的 P3 语义遗留之一，本轮顺手清掉）。
+   - 新增 `initPanelLayout()`（在 `init()` 中 `bindEvents()` 后调用）；`onLayout` 中 reason 以 `split`
+     开头时调 `sourceCodeView?.remeasure?.()`。
+   - `window.__wpsim` 新增探针：`get panelLayout()`、`setPanelWidth(px)`、`resetPanelLayout()`。
+
+4. `js/sim/rtl-panel.js`
+   - `installCodeEditor` 返回值新增 `remeasure()`（内部 `view.requestMeasure()`，无 CM 时空转）。
+     原因：CM6 自带 ResizeObserver 有「刚更新过 <75ms 就跳过」保护，拖 splitter 时可能漏重排。
+
+5. `tools/e2e-ui.mjs` —— 新增 I 段（本轮唯一入库测试改动）
+   - `I0~I8` 共 13 项检查：装配 4 卡 + 3 splitter + 探针 / `flex-grow` 归一化到 100 且 `flex-basis:0px` /
+     折叠 source（`.collapsed` + `display:none` + 高度缩小 + 相邻 splitter disabled + aria 同步）/
+     展开还原 / splitter `ArrowDown`（`source=原高+16`、`rtl=原高-16`）/
+     宽度直设 420·下限 280·上限 `min(760, 1440*0.6)=760` / sessionStorage v1 落盘 /
+     reset 回默认（328 / 全展开 / 300-245-245-190）/
+     **I8 回归守卫：矮窗口 `750x485` 下 `#sim-run` 命中测试命中自身**。
+
+**本轮发现并修复的真 bug（重要）**
+
+- **现象**：`.e2e-tmp/verify-recovery2.mjs` 的 D1 失败 —— 点 `#sim-run` 后仿真不启动
+  （状态栏停在「暂无仿真结果」），D1b 同时失败。**这正是用户反复报的「点仿真无响应」的另一个根因。**
+- **根因**：headless Edge 默认视口 **750x485**。四卡按权重分配后源码卡只剩 **80px**，而其
+  `.source-toolbar` 实测 **170px**（`.source-actions` 的 9 个按钮 grid 折行后高 134px）→ 工具栏被
+  `overflow` 裁掉 → 坐标点击 `#sim-run`（中心 y=342）实际落在 VCD 卡上 → **仿真根本不触发**。
+- **修复**：即上面的 `measureMinHeight` / `applyMinHeights`（源码卡在 750x485 下 `min-height`
+  写到 **272px**）+ `.sim-panel-body` 改 `overflow-y:auto` + `#sim-status` 吸底。修复后 D1/D1b 全部通过。
+
+**验证（全绿，均已实测复跑）**
+
+| 命令 | 结果 |
+|---|---|
+| `node --check js/sim/panel-layout.js` / `tools/e2e-ui.mjs` | ✅ exit 0 |
+| `node tools/regression.mjs` | ✅ **79/79** |
+| `node tools/e2e-ui.mjs` | ✅ **86/86**（73 → +13），资源 404 = 0，控制台异常 = 无 |
+| `node tools/e2e-rtl.mjs` | ✅ **61/61**，资源 404 = 0，控制台异常 = 无 |
+| `node tools/e2e-sim.mjs` | ✅ 失败 0 |
+| `node tools/probe-param.mjs` | ✅ 全过 |
+| `node tools/exe-smoke.mjs` | ✅ 通过（弹窗汉化正常 / 异常 无） |
+| `.e2e-tmp/verify-recovery2.mjs` | ✅ **17/17**（修复后 D1/D1b 恢复） |
+| `build.ps1` | ✅ `csc exit: 0`，`res count: 52`，`build.ps1` 仍 UTF-8 BOM |
+| C8 特征串核验 | ✅ `applyMinHeights`=5 / `measureMinHeight`=2 / `MIN_CARD_CAP_RATIO`=2 / `installSimPanelLayout`=4 / `sim-resize-x`=12 / `sim-panel-body`=7 / `sim-card`=39 / `sim-split`=16 |
+
+**范围与后续**：`js/wavepaint.clean.js` 与 `js/sim/engine.js` **一行未改**（C9 守住）。
+面板状态**只存 sessionStorage、绝不进 `.wp`**（守住 B5 存档契约）。exe 已重建
+（**22,012,416 B / 2026-09-11 00:15:01**，`version.txt` = `v0.4.0 build 2026-09-11 00:15:01 69b84d0`）。
+详见 08 §2.2/§2.6、07 D20/D21、日志 2026-09-11 第二十一轮。
+
+---
+
 ## 5. 已知未排期方向
 
 - 边缘对齐辅助线

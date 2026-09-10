@@ -375,6 +375,17 @@ export function installCodeEditor({ host, textarea, doc = "", onChange, onAddSym
     getText() {
       return textarea.value;
     },
+    // 第二十一轮：侧栏面板改为可拖拽多面板后，代码区高度会随 splitter 变化。
+    // CM6 自带 ResizeObserver，但它有「刚更新过（<75ms）就跳过」的保护，
+    // 拖拽场景下可能漏一次重排 → 提供显式补测入口（调用方按需调用，无副作用）。
+    remeasure() {
+      if (!view) return;
+      try {
+        view.requestMeasure();
+      } catch {
+        /* 忽略：测量失败不影响编辑 */
+      }
+    },
     // 程序性切换文档（切文件/新建/载入）。CM 可用时重建 EditorView：
     //   1) 每次切换重置 undo/redo 历史（否则 Ctrl+Z 会把上一文件的全文回滚进来）；
     //   2) 不触发 onChange（程序性写入，由调用方负责保存旧文件）。

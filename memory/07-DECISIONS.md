@@ -413,21 +413,23 @@
 
 ---
 
-## D20 · UI 重构口径：先方案后实施 + 契约面冻结 + 三期推进（2026-09-10 第二十轮）
+## D20 · UI 重构口径：先方案后实施 + 契约面冻结 + 分期推进（2026-09-10 第二十轮；2026-09-11 第二十一轮已采纳并落地）
 
 - **背景**：侧栏 / 整体 UI 重构设计的优先级已由用户提高（第十一轮），但侧栏现状同时承载
   代码编辑、RTL 树、VCD 树、仿真控制与状态区；更关键的是 **e2e 对 DOM 有硬依赖** —— 盲目动手
   极易打断已收口的 B3/B4/B4②/B5 触发链。
 - **决策**：
   1. **先方案后实施**：先产出《UI 重构设计方案》（`08-ROADMAP.md` §2.1~§2.9），用户 review
-     拍板后才动代码；`08 §2.6` 是唯一实施顺序。
+     拍板后才动代码；`08 §2.6` 是唯一实施顺序。**→ 2026-09-11 第二十一轮用户已拍板并落地**
+     （裁决：可拖拽多面板 / 侧栏保持右侧 / 层次树暂不左置），本条的「拍板前不动代码」已满足并解除。
   2. **契约面冻结**：重构期间**不得改名、不得移除** —— 24 个仿真栏 id、`.rtl-inst`/`.rtl-active`/
      `.vcd-signal-row`/`.vcd-active`/`[data-rtl-kind]`/`[data-vcd-path]`/`.tool-btn[data-tool]`/
      `.sim-symbol-picker-item`、VCD 信号行 `title` 全路径、`body.sim-open`/`#sim-panel.collapsed`/
      `wavedrom-debug-open` 等状态类。
-  3. **三期推进**：**P0** 纯 CSS/布局（低风险）→ **P1** DOM 重排（保 id/class、只改父容器）→
-     **P2** 多面板拖拽 + 面板状态持久化（session 级）。**每期独立 commit + push `main`，且每期都要
-     C1 重建 exe + C8 核验 + 全量测试 + C17 记忆同步。**
+  3. **分期推进**：**P0** 纯 CSS/布局 → **P1** DOM 重排（保 id/class、只改父容器）→ **P2** 多面板拖拽 +
+     面板状态持久化（session 级）。**→ 2026-09-11 第二十一轮用户授权 AI 自定步骤，已把 P0+P1+P2 核心
+     一次性落地**（`04 §4.19` / `07 D21`）；「每批次独立 commit + push `main`、C1 重建 exe + C8 核验 +
+     全量测试 + C17 记忆同步」的纪律**继续适用**。
   4. **四区方向**：层级树区（RTL 树纯层级浏览）/ 代码区（加信号主路径 + Active Annotation 预留位）/
      波形区（画布 + **VCD 树移入**）/ 一条仿真控制带。三条红线不变：**不新增「信号层次选择框」**、
      **不给 RTL 树加端口/信号行**、**不恢复「仿真后全量灌信号」**。
@@ -450,3 +452,54 @@
     「其它规划」段标注方案已成文（08 §2.1~§2.9）。
   - **本轮未动任何受版本控制代码 → 不触发 C1、不重建 exe**（exe 仍为 `2026-09-10 22:49:32` 那版）。
   - 用户拍板后按 08 §2.6 **P0 开工**，届时恢复「C1 重建 exe + C8 核验 + 全量测试」节奏。
+
+---
+
+## D21 · 侧栏「可拖拽多面板」落地口径（2026-09-11 第二十一轮，D20 的执行）
+
+- **背景**：D20 定下「先方案后实施 + 契约面冻结 + 分期推进」。2026-09-11 用户拍板三条：
+  ① 面板形态 = **可拖拽多面板**（splitter）；② 侧栏**保持右侧**，`#main-area` 骨架不动；
+  ③ 层次树**暂不左置**；实施步骤授权 AI 自定 → 本轮把 08 §2.6 的 **P0+P1+P2 核心**一次性落地。
+- **决策（落地口径，后续维护必须遵守）**：
+  1. **卡片化 + 折叠**：侧栏 4 个功能区各成 `<section class="sim-card" data-sim-card>`
+     （`source`/`rtl`/`vcd`/`tb`），标题行 `.sim-card-head[data-sim-card-toggle]` 可点击折叠
+     （切 `.collapsed` + `aria-expanded`）；**标题行内的 `button`/`a`/`input`/`select`/`textarea`/`label`
+     点击不触发折叠**（保护 `#sim-tb-copy` 等控件）。
+  2. **像素权重高度**：纵向用 `flex-grow = 权重/总权重*100` + `flex-basis:0`
+     （默认 `{source:300, rtl:245, vcd:245, tb:190}`），卡片按权重伸缩。
+  3. **`measureMinHeight` 保护（本轮真 bug 修复，勿删）**：卡片 `min-height = min(实测内容高,
+     面板可视高*0.8)`（`MIN_BODY_PX=24`、`MIN_CARD_CAP_RATIO=0.8`），在 `commit()` / 初始装配 /
+     `setWidth()` / `window resize` 均重算；配 `.sim-panel-body{overflow-y:auto}` +
+     `#sim-status{position:sticky;bottom:0}`。**理由**：headless 750x485 下源码卡只剩 80px，
+     `.source-toolbar`（170px，`.source-actions` 9 按钮折行）被 overflow 裁掉 → 坐标点击 `#sim-run`
+     落到 VCD 卡 → **「点仿真无响应」**；修复后真点击命中自身（e2e-ui I8 回归护栏）。
+  4. **splitter**：4 卡之间 3 条 `<div class="sim-split" data-sim-split="source:rtl|rtl:vcd|vcd:tb">`，
+     `pointerdown` → `resizePair` 在相邻两卡间重分配权重（`body.sim-resizing` 关过渡；相邻卡折叠则
+     splitter 加 `.disabled`）；拖拽时 rAF 节流派发 `window` `resize`。
+  5. **侧栏宽度可拖**：`#sim-resize-x`（7px 左缘竖条）→ `setWidth(px)`，clamp
+     `280 ~ min(760, 视口*60%)`，由 CSS 变量 `--sim-panel-w` 驱动 `#sim-panel` 宽与 `#main-area` 右 padding。
+  6. **持久化只走 sessionStorage**：key `wavepaint.sim-panel-layout.v1`，载荷 `{v:1,w:{},c:{},width}`，
+     220ms 防抖。**绝不写进 `.wp` 工程存档**（D20 否决 3 的延续）。
+  7. **键盘可达**：splitter `ArrowUp/Down` ±16px、`#sim-resize-x` `ArrowLeft/Right`。
+  8. **契约面零改动**：24 个 id / class / dataset / 状态类**一个未改名、未移除**（`#sim-tb-copy` 只是移进
+     TB 卡片头，id 不变）；`#sim-addsignals` 的 `title` 降级为「按端口给画布建激励（不加入 VCD 观察行；
+     加波形请在代码里双击变量）」（**按钮文案未改**）。新增的 `[data-sim-card]` / `[data-sim-split]` /
+     `.sim-card*` / `.sim-panel-body` / `#sim-resize-x` **不属冻结面**（是新增）。
+- **理由**：
+  - 侧栏是「四张卡片挤 328px 单栏」的**空间问题** → 多面板 + 折叠 + 可拖拽直接解决；
+  - 持久化只做 session 级 = 不碰 `.wp` 存档契约（用户尚未拍板存档格式变更）；
+  - 契约面冻结是 e2e 基线（86 项）能持续通过的前提。
+- **否决方案**：
+  1. **把层次树左置**（用户本轮明确「暂不」）；
+  2. **把面板折叠态/宽度写进 `.wp`**（同 D20 否决 3，会污染 #76 B5 的观察行契约）；
+  3. **一次性重排整体骨架**（`#main-area` 骨架不动，只在侧栏内部卡片化）。
+- **影响**：
+  - 新增 `js/sim/panel-layout.js`（≈520 行，唯一导出 `installSimPanelLayout`，返回
+    `{getState,setWidth,reset,destroy}`，缺 DOM 节点返回 `null` 走 CSS 兜底）；`index.html` CSS + DOM
+    重排；`js/sim/ui-bridge.js` 接线 + `__wpsim` 探针（并删死引用 `refs.collapseBtn` 与 `bindEvents`
+    死分支）；`js/sim/rtl-panel.js` `installCodeEditor` 返回值新增 `remeasure()`。
+  - `tools/e2e-ui.mjs` 新增 I 段 I0~I8（+13 → **86/86**）。
+  - 触发 C1 → exe 重建 `v0.4.0 build 2026-09-11 00:15:01 69b84d0`（`69b84d0` = **构建时 HEAD**，
+    承载本轮代码的 commit 是它的下一个）。
+  - **08 §2.6 的「P0/P1/P2」视为完成**；剩余可选/暂缓项（VCD 树移入波形区 / TB 控制带收敛 /
+    层次树左置）未开工，动前先与用户确认。

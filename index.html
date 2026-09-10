@@ -127,13 +127,15 @@
         /* 仿真工具面板 */
                 /* 右侧仿真栏 */
         #main-area { transition: padding-right 0.2s ease; }
-        body.sim-open #main-area { padding-right: 328px; }
+        body.sim-open #main-area { padding-right: var(--sim-panel-w, 328px); }
+        /* 第二十一轮：拖拽侧栏宽度时临时关掉过渡，否则画布跟随迟滞（拖完自动恢复） */
+        body.sim-resizing #main-area { transition: none; }
         #sim-panel {
             position: fixed;
             right: 0;
             top: 92px;
             bottom: 0;
-            width: 328px;
+            width: var(--sim-panel-w, 328px);
             background: var(--toolbar-bg, #f8faf8);
             border-left: 1px solid var(--border-color, #ccc);
             z-index: 100;
@@ -154,17 +156,120 @@
             cursor: pointer;
             background: var(--header-bg, #f0f4f0);
         }
-        .sim-panel-body { flex: 1; overflow: auto; padding: 12px; display: grid; gap: 12px; align-content: start; }
-        /* 源文件区 / TB 区做成卡片，风格与主界面一致 */
-        .sim-panel-body > div:not(.sim-status):not(.sim-btns) {
+        /* ── 可拖拽多面板（第二十一轮，仿 Verdi 多窗格）────────────────────────
+           .sim-panel-body 由「单栏滚动」改为「纵向 flex 容器」：卡片之间用
+           .sim-split（splitter）分隔，各自 flex-grow 权重由 panel-layout.js 维护
+           （默认按像素比例分配，窗口缩放时按比例自适应）；每张卡片内部自己滚动，
+           不再出现「四条滚动条挤在一起、任何一屏都看不到全局」。
+           折叠 = 点卡片标题（.sim-card.collapsed 只留标题行）；
+           侧栏宽度 = 拖左缘 #sim-resize-x（写 CSS 变量 --sim-panel-w，不进工程存档）。 */
+        /* 窗口很矮时（各卡片 min-height 之和 > 可视高）面板区整体纵向滚动；
+           窗口够高时四卡按权重铺满、无滚动条。min-height 由 panel-layout.js 按内容实测写入。 */
+        .sim-panel-body { flex: 1 1 auto; min-height: 0; padding: 6px 10px 10px; display: flex; flex-direction: column; gap: 0; overflow-y: auto; overflow-x: hidden; }
+        .sim-card {
+            flex: 1 1 0; /* 兜底：JS 未接线时四张卡片均分高度 */
+            display: flex;
+            flex-direction: column;
+            min-height: 24px;
             background: var(--section-bg, #f8faf8);
             border: 1px solid var(--section-border, #e0e8e0);
             border-radius: var(--radius-md, 10px);
-            padding: 10px;
-            display: grid;
+            overflow: hidden;
+        }
+        .sim-card.collapsed { flex-grow: 0; flex-basis: auto; }
+        .sim-card.collapsed > .sim-card-body { display: none; }
+        .sim-card-head {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            cursor: pointer;
+            user-select: none;
+            background: var(--header-bg, #f0f4f0);
+            border-bottom: 1px solid var(--section-border, #e0e8e0);
+        }
+        .sim-card.collapsed > .sim-card-head { border-bottom-color: transparent; }
+        .sim-card-head:hover { background: var(--hover-bg, #e8f0e8); }
+        .sim-card-head .sim-sec-title { flex: 1 1 auto; min-width: 0; }
+        .sim-card-head #sim-tb-copy { flex: 0 0 auto; padding: 2px 8px; font-size: 11px; }
+        .sim-card-chevron { flex: 0 0 auto; font-size: 10px; opacity: .6; transition: transform .15s ease; }
+        .sim-card.collapsed .sim-card-chevron { transform: rotate(-90deg); }
+        .sim-card-body {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow: auto;
+            padding: 8px 10px;
+            display: flex;
+            flex-direction: column;
             gap: 8px;
             align-content: start;
         }
+        /* 卡片内「不参与伸缩」的固定块 */
+        .sim-card-body > .source-toolbar,
+        .sim-card-body > .helper-box { flex: 0 0 auto; }
+        /* 卡片内「吃满剩余高度」的内容区（原先把 180 / 240 / 160px 写死，改为自适应） */
+        .sim-card-body > #verilog-cm-host,
+        .sim-card-body > #verilog-source { flex: 1 1 auto; min-height: 64px; height: auto; resize: none; }
+        .sim-card-body > #tb-source { flex: 1 1 auto; min-height: 56px; height: auto; resize: none; }
+        .sim-card-body > .rtl-tree,
+        .sim-card-body > .vcd-tree { flex: 1 1 auto; min-height: 40px; max-height: none; }
+        /* ── 卡片之间的 splitter（拖拽调高）── */
+        .sim-split {
+            flex: 0 0 auto;
+            height: 10px;
+            position: relative;
+            cursor: row-resize;
+            touch-action: none;
+        }
+        .sim-split::before {
+            content: "";
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: 42px;
+            height: 3px;
+            border-radius: 2px;
+            background: var(--border-color, #d0dcd0);
+            opacity: .55;
+            transition: opacity .15s ease, background .15s ease;
+        }
+        .sim-split:hover::before,
+        .sim-split:focus-visible::before,
+        .sim-split.dragging::before { opacity: 1; background: var(--accent, #4CAF50); }
+        .sim-split:focus-visible { outline: none; }
+        /* 相邻卡片被折叠时，这条 splitter 没有可分配的高度 → 禁用（否则一拖就把折叠态扯回来） */
+        .sim-split.disabled { cursor: default; pointer-events: none; }
+        .sim-split.disabled::before { opacity: .18; }
+        /* ── 侧栏宽度 splitter（拖左缘）── */
+        #sim-resize-x {
+            position: absolute;
+            left: -2px;
+            top: 0;
+            bottom: 0;
+            width: 7px;
+            cursor: col-resize;
+            z-index: 3;
+            touch-action: none;
+        }
+        #sim-resize-x::after {
+            content: "";
+            position: absolute;
+            left: 3px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: transparent;
+            transition: background .15s ease;
+        }
+        #sim-resize-x:hover::after,
+        #sim-resize-x:focus-visible::after,
+        #sim-resize-x.dragging::after { background: var(--accent, #4CAF50); }
+        #sim-resize-x:focus-visible { outline: none; }
+        .sim-panel-body > #sim-status, .sim-panel-body > #sim-recover { flex: 0 0 auto; }
+        /* 面板区整体滚动时状态条吸底：仿真进度 / 结果不会被其它卡片顶出视口 */
+        .sim-panel-body > #sim-status { position: sticky; bottom: 0; z-index: 2; background: var(--toolbar-bg, #f8faf8); }
         .sim-sec-title { margin: 0; font-size: 12px; font-weight: 600; color: var(--text-muted, #5a6a5a); }
         .source-toolbar { display: grid; gap: 8px; align-items: start; }
         .source-files { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
@@ -744,54 +849,83 @@
             <span id="app-version" style="margin-left:auto;font-size:10px;opacity:.55;font-weight:400;"></span>
             <span>▾</span>
         </div>
-        <div class="sim-panel-body">
-            <div>
-                <div class="sim-sec-title">Verilog / SV 源码</div>
-                <div class="source-toolbar">
-                    <div id="source-files" class="source-files"></div>
-                    <div class="source-actions">
-                        <button id="sim-addfile" title="添加一个源文件标签页">添加文件</button>
-                        <button id="sim-import" title="从磁盘导入 .v/.sv 源码文件（可多选）">导入源码</button>
-                        <button id="sim-removefile" title="移除当前源文件">移除文件</button>
-                        <button id="sim-parse" title="解析 RTL，预览模块与端口">解析 RTL</button>
-                        <button id="sim-addsignals" title="自动识别 RTL 端口信号并添加到绘图区">自动加信号</button>
-                        <button id="sim-tb" title="根据当前波形生成 testbench">生成 TB</button>
-                        <button id="sim-run" class="primary-btn" title="生成 TB 并运行 iverilog 仿真">运行仿真</button>
+        <!-- ── 可拖拽多面板（第二十一轮）────────────────────────────────────────
+             四张卡片（源码 / RTL 结构树 / VCD 信号层次 / TB）之间由 .sim-split 分隔：
+               · 点卡片标题 = 折叠 / 展开该卡片；
+               · 拖 .sim-split = 调整上下两张卡片的高度分配；
+               · 拖 #sim-resize-x（侧栏左缘）= 调整侧栏宽度（画布跟随）。
+             布局状态只写 sessionStorage（刷新保留、关标签页即弃），不写 .wp 工程存档。
+             ⚠ 卡片内所有元素 id 与 class 一律未动（契约面，见 memory/08 §2.5）。 -->
+        <div id="sim-resize-x" role="separator" aria-orientation="vertical" tabindex="0" title="拖拽调整侧栏宽度（左右方向键微调）"></div>
+        <div class="sim-panel-body" id="sim-panel-body">
+            <section class="sim-card" id="sim-card-source" data-sim-card="source">
+                <div class="sim-card-head" data-sim-card-toggle="source" role="button" tabindex="0" aria-expanded="true" title="点击折叠 / 展开">
+                    <span class="sim-sec-title">Verilog / SV 源码</span>
+                    <span class="sim-card-chevron" aria-hidden="true">▾</span>
+                </div>
+                <div class="sim-card-body">
+                    <div class="source-toolbar">
+                        <div id="source-files" class="source-files"></div>
+                        <div class="source-actions">
+                            <button id="sim-addfile" title="添加一个源文件标签页">添加文件</button>
+                            <button id="sim-import" title="从磁盘导入 .v/.sv 源码文件（可多选）">导入源码</button>
+                            <button id="sim-removefile" title="移除当前源文件">移除文件</button>
+                            <button id="sim-parse" title="解析 RTL，预览模块与端口">解析 RTL</button>
+                            <button id="sim-addsignals" title="按端口给画布建激励（不加入 VCD 观察行；加波形请在代码里双击变量）">自动加信号</button>
+                            <button id="sim-tb" title="根据当前波形生成 testbench">生成 TB</button>
+                            <button id="sim-run" class="primary-btn" title="生成 TB 并运行 iverilog 仿真">运行仿真</button>
+                        </div>
+                    </div>
+                    <textarea id="verilog-source" spellcheck="false"></textarea>
+                    <!-- #75 P0：CodeMirror 6 宿主。可用时 ui-bridge 隐藏 textarea 并在此挂编辑器；
+                         bundle 缺失（开发降级）时保持隐藏，textarea 照常工作。 -->
+                    <div id="verilog-cm-host"></div>
+                    <div class="helper-box">
+                        <div id="port-preview" class="helper"></div>
+                        <div id="module-preview" class="helper"></div>
+                    </div>
+                    <!-- 多文件/多模块设计：解析后自动填入全部 module，默认选「未被实例化」的顶层；
+                         手动切换后生成 TB / 运行仿真都按选中的模块作为 DUT。 -->
+                    <div id="sim-top-row" style="display:none;align-items:center;gap:8px;margin:2px 0;font-size:12px;">
+                        <label for="sim-top-select" style="flex:none;">顶层模块：</label>
+                        <select id="sim-top-select" style="flex:1;min-width:0;padding:3px 6px;border:1px solid #bbb;border-radius:6px;font-size:12px;"></select>
                     </div>
                 </div>
-                <textarea id="verilog-source" spellcheck="false"></textarea>
-                <!-- #75 P0：CodeMirror 6 宿主。可用时 ui-bridge 隐藏 textarea 并在此挂编辑器；
-                     bundle 缺失（开发降级）时保持隐藏，textarea 照常工作。 -->
-                <div id="verilog-cm-host"></div>
-                <div class="helper-box">
-                    <div id="port-preview" class="helper"></div>
-                    <div id="module-preview" class="helper"></div>
-                </div>
-                <!-- 多文件/多模块设计：解析后自动填入全部 module，默认选「未被实例化」的顶层；
-                     手动切换后生成 TB / 运行仿真都按选中的模块作为 DUT。 -->
-                <div id="sim-top-row" style="display:none;align-items:center;gap:8px;margin:6px 0 2px;font-size:12px;">
-                    <label for="sim-top-select" style="flex:none;">顶层模块：</label>
-                    <select id="sim-top-select" style="flex:1;min-width:0;padding:3px 6px;border:1px solid #bbb;border-radius:6px;font-size:12px;"></select>
-                </div>
-            </div>
+            </section>
+            <div class="sim-split" data-sim-split="source:rtl" role="separator" aria-orientation="horizontal" tabindex="0" title="拖拽调整「源码 / RTL 结构树」高度（上下方向键微调）"></div>
             <!-- #75 P0 + 第十二轮：RTL 结构树 = 纯代码层级浏览（文件→模块→实例，点击跳源码行；
                  不渲染端口/参数分组，不显示接口信号，不承载加信号交互） -->
-            <div>
-                <div class="sim-sec-title">RTL 结构树</div>
-                <div id="rtl-tree" class="rtl-tree"></div>
-            </div>
+            <section class="sim-card" id="sim-card-rtl" data-sim-card="rtl">
+                <div class="sim-card-head" data-sim-card-toggle="rtl" role="button" tabindex="0" aria-expanded="true" title="点击折叠 / 展开">
+                    <span class="sim-sec-title">RTL 结构树</span>
+                    <span class="sim-card-chevron" aria-hidden="true">▾</span>
+                </div>
+                <div class="sim-card-body">
+                    <div id="rtl-tree" class="rtl-tree"></div>
+                </div>
+            </section>
+            <div class="sim-split" data-sim-split="rtl:vcd" role="separator" aria-orientation="horizontal" tabindex="0" title="拖拽调整「RTL 结构树 / VCD 信号层次」高度（上下方向键微调）"></div>
             <!-- #75 P0：VCD 信号层次（仿真后按 $scope 全路径列出；点击信号可查看完整路径） -->
-            <div>
-                <div class="sim-sec-title">VCD 信号层次</div>
-                <div id="vcd-tree" class="vcd-tree"></div>
-            </div>
-            <div>
-                <div class="tb-title-row">
+            <section class="sim-card" id="sim-card-vcd" data-sim-card="vcd">
+                <div class="sim-card-head" data-sim-card-toggle="vcd" role="button" tabindex="0" aria-expanded="true" title="点击折叠 / 展开">
+                    <span class="sim-sec-title">VCD 信号层次</span>
+                    <span class="sim-card-chevron" aria-hidden="true">▾</span>
+                </div>
+                <div class="sim-card-body">
+                    <div id="vcd-tree" class="vcd-tree"></div>
+                </div>
+            </section>
+            <div class="sim-split" data-sim-split="vcd:tb" role="separator" aria-orientation="horizontal" tabindex="0" title="拖拽调整「VCD 信号层次 / Testbench」高度（上下方向键微调）"></div>
+            <section class="sim-card" id="sim-card-tb" data-sim-card="tb">
+                <div class="sim-card-head" data-sim-card-toggle="tb" role="button" tabindex="0" aria-expanded="true" title="点击折叠 / 展开">
                     <span class="sim-sec-title">Testbench (TB)</span>
                     <button id="sim-tb-copy" type="button" title="复制 testbench 到剪贴板">复制</button>
+                    <span class="sim-card-chevron" aria-hidden="true">▾</span>
                 </div>
-                <textarea id="tb-source" spellcheck="false" readonly placeholder="点击「生成 TB」生成 testbench，或点「运行仿真」后自动生成。"></textarea>
-            </div>
+                <div class="sim-card-body">
+                    <textarea id="tb-source" spellcheck="false" readonly placeholder="点击「生成 TB」生成 testbench，或点「运行仿真」后自动生成。"></textarea>
+                </div>
+            </section>
             <div id="sim-status" class="sim-status"></div>
             <!-- 服务彻底死亡时的手动自愈入口（默认隐藏，ui-bridge 在自动恢复失败时显示）。
                  点击后用 wavepaint: 协议拉起 exe；首次浏览器会弹一次「是否允许打开
