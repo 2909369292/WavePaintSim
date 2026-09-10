@@ -1,7 +1,7 @@
 import { buildAutoTestbench, buildSimulationPayload, createPortStimulus, createSignalFromPort, diagnoseSimulation, parseVerilogDesign, vcdToProjectOutputs } from "./engine.js";
 import { formatVectorValue, normalizeVectorValue } from "./project-model.js";
-import { buildRtlNav, collectModuleDefs, resolveModuleDef } from "./rtl-nav.js";
-import { buildVcdHierarchy } from "./vcd-index.js";
+import { buildRtlNav, buildSymbolIndex, collectModuleDefs, resolveModuleDef, resolveSymbolVcdPaths } from "./rtl-nav.js";
+import { buildVcdHierarchy, findVcdPathsByName } from "./vcd-index.js";
 import { installCodeEditor, renderRtlTree, renderVcdTree } from "./rtl-panel.js";
 
 const DEFAULT_SOURCE = `module counter(
@@ -559,6 +559,14 @@ function refreshVcdTree() {
   if (!refs.vcdTree) return;
   const index = state.vcd ? buildVcdHierarchy(state.vcd) : null;
   renderVcdTree(refs.vcdTree, index, (path) => pickVcdSignalIntoWave(path));
+}
+
+// #76 B1：当前工程的「模块体内符号索引 + 例化路径」——纯计算、无副作用、不碰画布。
+// 顶层优先用用户选定的模块（多模块工程），否则交给自动判顶层（没有被例化过的模块）。
+// B4（代码内点变量 → 加波形）与 B3（代码 → 树反向定位）都从这里取数据。
+function currentSymbolIndex() {
+  const topName = state.selectedTop || state.design?.topModule?.name || "";
+  return buildSymbolIndex(buildRtlNav(state.files), { topName });
 }
 
 // 切到目标文件并跳到目标行（跨文件先同步当前编辑内容，再切标签页）。
@@ -1466,6 +1474,26 @@ window.__wpsim = {
   get sourceFiles() { return state.files.map((file) => ({ name: file.name, content: file.content })); },
   get active() { return state.active; },
   get archiveInstalled() { return archiveBridgeInstalled; },
+  // #76 B1：符号索引 / 例化路径 / 符号 → VCD 全路径候选（供 e2e 核验与后续 B3/B4 接线复用）
+  get symbolIndex() {
+    const index = currentSymbolIndex();
+    return {
+      topName: index.topName,
+      topNames: index.topNames,
+      moduleCount: index.modules.length,
+      symbolCount: index.symbols.length,
+      instancePaths: index.instancePaths
+    };
+  },
+  symbolsOf(fileIndex) {
+    return currentSymbolIndex().symbols.filter((symbol) => symbol.fileIndex === Number(fileIndex));
+  },
+  symbolVcdPaths(name, options) {
+    return resolveSymbolVcdPaths(currentSymbolIndex(), name, options || {});
+  },
+  vcdPathsByName(name) {
+    return findVcdPathsByName(state.vcd, name);
+  },
   setSourceFiles,
   resetSourceFiles,
   importSourceFiles

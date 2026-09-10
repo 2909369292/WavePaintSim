@@ -59,11 +59,11 @@
 | 命令 | 用途 | 期望 | 适用 |
 |---|---|---|---|
 | `node --check <改过的js>` | 语法 | OK | 任何 JS 改动 |
-| `node tools/regression.mjs` | 逻辑/快照回归 | 全过（当前 62 项） | 任何 JS 改动 |
+| `node tools/regression.mjs` | 逻辑/快照回归 | 全过（当前 **75 项**：第十四轮 68 + 第十五轮 #76 B1 新增 7） | 任何 JS 改动 |
 | `node tools/e2e-sim.mjs` | 真跑 iverilog 全链路 | 失败 0 项 | `sim/engine` / `ui-bridge` / `launcher` 改动 |
 | `node tools/probe-param.mjs` | 参数化设计真 iverilog 端到端 | 全过 | `engine` 参数 / TB 生成改动 |
 | `node tools/e2e-ui.mjs` | 真实 Edge 交互（73 项） | 73/73 | `editor` / `core` / `index.html` 改动 |
-| `node tools/e2e-rtl.mjs` | #75/#85 冒烟：CM6 / RTL Tree / VCD 树 / 观察行（16 项） | 16/16 | `rtl-nav/vcd-index/rtl-panel/ui-bridge/index.html` 改动 |
+| `node tools/e2e-rtl.mjs` | #75/#85/#86/#76-B1 冒烟：CM6 / RTL Tree / VCD 树 / 观察行 / 实例跳定义 / 符号→VCD 映射（**32 项**，含 B~F 段） | 32/32 | `rtl-nav/vcd-index/rtl-panel/ui-bridge/index.html` 改动 |
 | `node .e2e-tmp/verify-recovery2.mjs` | 服务自愈：判活 / 重连 / 重拉 / 自动重试（17 项） | 17/17 | `service-guard` / `ui-bridge` / `launcher` / `index.html` 改动 |
 | `node tools/exe-smoke.mjs` | 真实 exe 冒烟 | 通过 | exe 重建后 |
 | 浏览器人工验收 | UI 视觉/交互 | 用户确认 | AI 无法完整实测的 UI 改动，必须明确告知用户 |

@@ -8,6 +8,7 @@
 //   D. VCD 点信号 → 加画布观察行（#85）
 //   E. #86 A2/A3/A4：实例行 → 模块定义跳转（右键/Alt=例化点）、磁盘导入入口、
 //      源码集合随工程存档/恢复（.wp 往返）
+//   F. #76 B1：模块体内符号索引 → 真实 VCD 全路径映射（点代码变量 → 波形路径的底座）
 // 用法：node tools/e2e-rtl.mjs   （自带 dev-server；需本机 Edge；退出码非 0 表示有失败）
 // 与 e2e-ui.mjs 相同的防 C 盘爆盘策略：profile/TEMP 全部指到 D 盘 .e2e-tmp。
 // ============================================================================
@@ -26,6 +27,38 @@ mkdirSync(sysTmp, { recursive: true });
 const cwd = fileURLToPath(new URL('..', import.meta.url));
 const server = spawn(process.execPath, ['tools/dev-server.mjs', String(PORT)], { cwd, stdio: 'ignore' });
 const edge = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
+
+// F 段 fixture：两文件工程（counter 例化 sub，两个模块里都有 q → 跨模块同名）。
+// 行号是断言的一部分：counter.sv L5 = output 端口 q，L7 = 体内 reg q；sub.v L2 = 体内 reg q。
+const F_FILES = [
+  { name: 'counter.sv', content: [
+    'module counter (',
+    '  input clk,',
+    '  input rst_n,',
+    '  input en,',
+    '  output [3:0] q',
+    ');',
+    '  reg [3:0] q;',
+    '  wire [7:0] acc;',
+    '  parameter WIDTH = 4;',
+    '  assign acc = {4\'b0, q};',
+    '  sub u_sub (.clk(clk));',
+    '  always @(posedge clk or negedge rst_n) begin',
+    '    if (!rst_n) q <= 4\'d0;',
+    '    else if (en) q <= q + 4\'d1;',
+    '  end',
+    'endmodule',
+    ''
+  ].join('\n') },
+  { name: 'sub.v', content: [
+    'module sub (input clk);',
+    '  reg [3:0] q;',
+    '  always @(posedge clk) q <= q + 4\'d1;',
+    'endmodule',
+    ''
+  ].join('\n') }
+];
+const F_FILES_JSON = JSON.stringify(F_FILES);
 
 let results = [];
 function check(name, ok, detail) {
@@ -421,6 +454,99 @@ if (ready === 'ready') {
   const E6 = JSON.parse(importBtn || '{}');
   check('E6: 侧栏存在「导入源码」磁盘入口按钮（A3）',
     E6.exists === true && E6.label === '导入源码' && E6.hasClick === true, importBtn);
+
+  // ---- F. #76 B1：代码符号（名 / 文件 / 行）→ 真实 VCD 全路径 ----
+  // 自带两文件工程（counter 例化 sub，两模块都有 q）跑一次真实仿真后核验这条数据链：
+  // 它是 B4「代码内点变量 → 加波形（仿 Ctrl+W 中追）」的唯一底座，因此用真 VCD 做端到端核对。
+  const fState = await ev(`(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    window.__wpsim.setSourceFiles(${F_FILES_JSON});
+    await sleep(500);
+    const runBtn = document.getElementById('sim-run');
+    if (runBtn) runBtn.click();
+    let status = '';
+    for (let i = 0; i < 80; i++) {
+      await sleep(400);
+      status = String(document.getElementById('sim-status').textContent || '');
+      if (/仿真完成/.test(status) || /ERROR|失败/.test(status)) break;
+    }
+    const idx = window.__wpsim.symbolIndex;
+    const sym = (name, opts) => window.__wpsim.symbolVcdPaths(name, opts || {});
+    const sort = (arr) => arr.slice().sort();
+    const qReg = sym('q', { fileIndex: 0, line: 7 });
+    const qPort = sym('q', { fileIndex: 0, line: 5 });
+    const qSub = sym('q', { fileIndex: 1, line: 2 });
+    const qAll = sym('q');
+    const qByName = window.__wpsim.vcdPathsByName('q');
+    const covered = qAll.paths.every((p) => qByName.indexOf(p) >= 0);
+    const symWidths = window.__wpsim.symbolsOf(0).filter((s) => s.name === 'q').map((s) => s.width + '@' + s.line);
+    return JSON.stringify({
+      status: status.slice(0, 90),
+      done: /仿真完成/.test(status),
+      topName: idx.topName,
+      moduleCount: idx.moduleCount,
+      symbolCount: idx.symbolCount,
+      paths: idx.instancePaths.map((p) => p.path),
+      qReg: sort(qReg.paths),
+      qRegModule: (qReg.hits[0] || {}).moduleName,
+      qPort: sort(qPort.paths),
+      qSub: sort(qSub.paths),
+      qSubModule: (qSub.hits[0] || {}).moduleName,
+      qAll: sort(qAll.paths),
+      qByName: qByName,
+      covered: covered,
+      accTop: sort(sym('acc', { fileIndex: 0, line: 8 }).paths),
+      missing: sym('no_such_signal_xyz').paths,
+      oob: sort(sym('q', { fileIndex: 99, line: 999 }).paths),
+      symWidths: symWidths
+    });
+  })()`);
+  const F = JSON.parse(fState || '{}');
+  check('F1: 仿真完成且符号索引建出例化路径（topName=counter，含 tb.dut / tb.dut.u_sub）',
+    F.done === true && F.topName === 'counter' && F.moduleCount === 2 && F.symbolCount > 0
+    && F.paths.indexOf('tb.dut') >= 0 && F.paths.indexOf('tb.dut.u_sub') >= 0, fState);
+  check('F2: 点 counter.sv 体内 reg q（L7）→ 映射出 tb.dut.q（模块体符号 → VCD 全路径）',
+    Array.isArray(F.qReg) && F.qReg.length === 1 && F.qReg[0] === 'tb.dut.q' && F.qRegModule === 'counter', fState);
+  check('F3: 点端口行 q（L5）同样落到 tb.dut.q（端口与体内声明同名不歧义）',
+    Array.isArray(F.qPort) && F.qPort.length === 1 && F.qPort[0] === 'tb.dut.q', fState);
+  check('F4: 点 sub.v 体内 reg q（L2）→ tb.dut.u_sub.q（跨模块同名不串味）',
+    Array.isArray(F.qSub) && F.qSub.length === 1 && F.qSub[0] === 'tb.dut.u_sub.q' && F.qSubModule === 'sub', fState);
+  check('F5: 只给名字 q → 两个模块的候选都给出（跨模块同名 → 多候选，交给交互层选择）',
+    Array.isArray(F.qAll) && F.qAll.length === 2
+    && F.qAll[0] === 'tb.dut.q' && F.qAll[1] === 'tb.dut.u_sub.q', fState);
+  check('F6: 名字兜底 findVcdPathsByName 覆盖符号侧全部候选（隐式 net / TB 本地信号兜底可用）',
+    F.covered === true && Array.isArray(F.qByName) && F.qByName.indexOf('tb.dut.q') >= 0
+    && F.qByName.indexOf('tb.dut.u_sub.q') >= 0, fState);
+  check('F7: 位宽来自 RTL 声明（q 的端口/reg 两条各 4 位，行号 5/7）',
+    JSON.stringify(F.symWidths) === JSON.stringify(['4@5', '4@7']), fState);
+  check('F8: wire acc（L8）→ tb.dut.acc；不存在符号 → 空候选；越界 文件/行 → 因「收窄为空则忽略」回退到全部同名候选',
+    Array.isArray(F.accTop) && F.accTop.length === 1 && F.accTop[0] === 'tb.dut.acc'
+    && Array.isArray(F.missing) && F.missing.length === 0
+    && Array.isArray(F.oob) && F.oob.length === 2, fState);
+
+  // F9: 符号位宽 ↔ VCD 位宽交叉核验：用 VCD 树点行加波形，读回观察行的位宽/类型
+  const fWidth = await ev(`(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const row = [...document.querySelectorAll('#vcd-tree .vcd-signal-row')].find((r) => r.title.includes('tb.dut.q'));
+    if (!row) return JSON.stringify({ err: 'row-missing', titles: [...document.querySelectorAll('#vcd-tree .vcd-signal-row')].slice(0, 8).map((r) => r.title) });
+    row.click();
+    await sleep(400);
+    const dw = window.document_wave;
+    const added = dw.m_signals.find((s) => s && s.__simWatchPath === 'tb.dut.q');
+    const symWidth = (window.__wpsim.symbolsOf(0).find((s) => s.name === 'q' && s.line === 7) || {}).width;
+    const out = {
+      symWidth: symWidth,
+      vcdWidth: added ? added.width : -1,
+      kind: added ? added.kind : '',
+      vlen: added && Array.isArray(added.values) ? added.values.length : -1
+    };
+    const i = dw.m_signals.findIndex((s) => s && s.__simWatchPath === 'tb.dut.q');
+    if (i >= 0) { dw.removeSignal(i); window.drawWaveform && window.drawWaveform(); window.updateSidePanels && window.updateSidePanels(); }
+    return JSON.stringify(out);
+  })()`);
+  const F9 = JSON.parse(fWidth || '{}');
+  check('F9: 符号声明位宽与 VCD 实际位宽一致（q：RTL 4 位 = VCD vector 4 位）',
+    F9.symWidth === 4 && F9.vcdWidth === 4 && F9.kind === 'vector' && F9.vlen > 0, fWidth);
 }
 
 console.log('\n资源加载失败(404等)：' + netFails);

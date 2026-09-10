@@ -12,14 +12,14 @@
 | 当前版本 | `v0.4.0 build <自动时间> <git短哈希>` |
 | 代码状态 | 主线可用，`main` 分支 |
 | 构建产物 | `D:\Files\Code\波形\WavePaintClean.exe` |
-| 最近完成需求 | **#86 A1~A4：实例 → 模块定义源码跳转 + 磁盘导入源码 + 源码集合随 `.wp` 存档（2026-09-10 第十四轮落地，见 §4.12）**——`rtl-nav.js` 新增源码级实例扫描器 + 模块定义索引；RTL 树实例行**左键跳模块定义 / 右键(Alt+左键)跳例化点**；侧栏新增「导入源码」按钮；工程 JSON 追加 `sourceFiles`/`activeSourceIndex`。此前 **#86 子项「服务在线性」**（第十三轮，见 §4.11）、**#85：VCD 树点信号 → 画布「观察行」**（第十轮，见 §4.8）、第六轮 5 项 #90/#88/#92/#91/#89 与 #93 混淆残留清理均已收尾 |
-| 最近完成文档 | **第十四轮记忆同步**（2026-09-10）：新增 §4.12、06 P31（例化解析三坑）、03 表 H #86 状态、08 §1/§1.1/§1.2、09 §1/§3、当日日志「第十四轮」。叠加生效的仍是**第十二轮澄清**：加信号主路径 = 代码内点/选中变量（“中追”式 = #87①/#76 B4）；RTL 结构树为纯代码层级浏览（文件→模块→实例），不显示接口信号、不承载加信号交互（原 #76 B2 撤销）。见 §4.10 / 03 表 F/H / 08 §1.2/§2 |
-| 最近一轮（第十四轮，2026-09-10） | **#86 A1~A4 实施（详见 §4.12）**。A1 底层：`rtl-nav.js` 新增 `scanInstances`（源码级平衡括号扫描，覆盖多实例同语句 / 参数化例化 / generate 内例化）+ `collectModuleDefs`/`resolveModuleDef`（模块定义候选索引 + 同文件优先 + 大小写模糊标记）；A2 交互：实例行左键跳定义、右键/Alt 跳例化点，黑盒给中文提示；A3：侧栏「导入源码」磁盘多选入口（`showOpenFilePicker` + `<input type=file>` 兜底 + 同名去重）；A4：包裹核心 `buildDocumentJson`/`loadFromFileContent` 让源码集合随 `.wp` 存取（旧工程向后兼容）。全部套件复跑全绿，exe 已重建（20:36:16） |
+| 最近完成需求 | **#76 B1：模块体内符号索引 + 例化路径 + 符号 → VCD 全路径映射（2026-09-10 第十五轮落地，见 §4.13）**——`rtl-nav.js` 新增 `scanModuleSymbols`/`buildInstancePaths`/`buildSymbolIndex`/`moduleAtLine`/`findSymbols`/`resolveSymbolVcdPaths`（`buildRtlNav` 每模块新增 `endLine` + `symbols`）；`vcd-index.js` 新增 `findVcdPathsByName`；`ui-bridge.js` 暴露 `__wpsim.symbolIndex/symbolsOf/symbolVcdPaths/vcdPathsByName`。**纯数据层，界面上无可见变化**（B4 才接线）。此前 **#86 A1~A4**（第十四轮，见 §4.12）、**#86 子项「服务在线性」**（第十三轮，见 §4.11）、**#85：VCD 树点信号 → 画布「观察行」**（第十轮，见 §4.8）、第六轮 5 项 #90/#88/#92/#91/#89 与 #93 混淆残留清理均已收尾 |
+| 最近完成文档 | **第十五轮记忆同步**（2026-09-10）：新增 §4.13、06 P32（符号索引三坑）、03 表 H #76 状态（B1 ✅）、08 §1/§1.2、09 §1/§3、当日日志「第十五轮」。叠加生效的仍是**第十二轮澄清**：加信号主路径 = 代码内点/选中变量（“中追”式 = #87①/#76 B4）；RTL 结构树为纯代码层级浏览（文件→模块→实例），不显示接口信号、不承载加信号交互（原 #76 B2 撤销）。见 §4.10 / 03 表 F/H / 08 §1.2/§2 |
+| 最近一轮（第十五轮，2026-09-10） | **#76 B1 数据层实施（详见 §4.13）**。`rtl-nav.js` 新增符号索引六件套（`DATA_DECL_KEYWORDS` 26 词 / `blankInnerScopes` 抹白函数与任务体 / `declRangeInfo` 位宽解析 / `readDeclStatement` 声明语句读取 / `mergeSymbols` 去重排序）+ 例化路径 `buildInstancePaths`（自动判顶层、带环保护）+ 统一索引 `buildSymbolIndex`；`findSymbols` 的**收窄契约**（收窄后为空则忽略该条件）；`vcd-index.js` 补 `findVcdPathsByName` 名称兜底；`ui-bridge.js` 只做探针暴露（`currentSymbolIndex()`，纯计算无副作用）。regression 62→**75/75**、e2e-rtl 23→**32/32**（F1~F9），exe 已重建（21:06:52） |
 | 当前阻塞 | 无 |
-| 下一步主线 | **#86 A1~A4 已完成**（第十四轮）→ 开工 **#76**（B1 模块体内符号索引/scope 映射 → **B4 代码点变量加波形 = 唯一加信号主路径** → B3 双向跳转 / B5 信号组入 `.wp`，拆解见 08 §1.2）→ **#87②**；#84/#77 已推迟远期（08 §3）。RTL 树仍只做代码层级浏览（不承载端口/参数/加信号，见 §4.10）；服务自愈（§4.11）是**独立专项**，不改变上述顺序 |
-| 测试基线 | regression **68/68**（#86 A1 新增 6 条实例扫描/定义索引断言）；e2e-sim 0 失败；probe-param 全过；**2026-09-10 第十四轮复跑再确认：regression 68/68、e2e-sim 0 失败、e2e-rtl 23/23、e2e-ui 73/73、probe-param 全过、真 exe 冒烟通过** |
-| UI 基线 | e2e-rtl **23/23**（含 #85 D1~D6 + 第十二轮 B3 RTL 树纯层级浏览 + **第十四轮 E1~E6：存档桥/实例跳定义/黑盒提示/右键跳例化点/`.wp` 源码往返/导入按钮**）；e2e-ui 73/73（真实 Edge，含 D2/F/G/H 段）；probe-tutorial / probe-addbtn / probe-simfail 全过；真 exe 冒烟通过（#82：收窗 5→1 + 端到端仿真 + UIA 真实点击 RUN→RESULT）；第十三轮新增自愈专测 `verify-recovery2.mjs` 17/17 + 真实 Edge 协议探针 `probe-protocol.mjs`（iframe 可拉起 exe、顶层跳转被拦） |
-| 交付提醒 | 重启应用、从唯一路径启动、面板版本号自查（应显示 `v0.4.0 build 2026-09-10 20:36:16 327acf7`）；本次 exe 内置第十四轮 #86 A1~A4（实例跳定义/导入源码/源码集合存档 + `sim-import` 按钮 + `__wpsim` 探针入口）、第十三轮服务自愈（固定端口 17817 + `WPServiceGuard` + `#sim-recover` 按钮）、第十二轮 RTL 树瘦身、#85（`simWatches`/`pickVcdSignalIntoWave`）与第六轮收官 clean.js。**首次**自愈时浏览器会弹一次「是否允许打开 wavepaint:」，勾选「始终允许」后无感（浏览器安全策略，无法绕过） |
+| 下一步主线 | **#76 B1 ✅ 已完成**（第十五轮）→ 开工 **#76 B4：代码内点/选中变量 → 加波形**（“中追”式 / 仿 Ctrl+W = **唯一加信号主路径**：`symbolVcdPaths`/`findSymbols` → `state.simWatches` + `pickVcdSignalIntoWave`（#85）→ `scrollWaveToWatchPath`；多候选只对代码操作弹选择器，**不引入单独“信号层次选择框”**；同步统一「运行仿真后不再全量自动加信号」）→ B3 代码↔树双向跳转 → B5 信号组入 `.wp` → **#87②**（拆解见 08 §1.2）；#84/#77 已推迟远期（08 §3）。RTL 树仍只做代码层级浏览（不承载端口/参数/加信号，见 §4.10）；服务自愈（§4.11）是**独立专项**，不改变上述顺序 |
+| 测试基线 | regression **75/75**（第十四轮 68 + 第十五轮 B1 新增 7 条符号索引/例化路径/名称兜底断言）；e2e-sim 0 失败；probe-param 全过；**2026-09-10 第十五轮复跑再确认：regression 75/75、e2e-sim 0 失败、e2e-rtl 32/32、e2e-ui 73/73、probe-param 全过、真 exe 冒烟通过** |
+| UI 基线 | e2e-rtl **32/32**（含 #85 D1~D6 + 第十二轮 B3 RTL 树纯层级浏览 + 第十四轮 E1~E6 + **第十五轮 F1~F9：符号索引摘要 / 代码符号→VCD 全路径 / 跨模块同名不串味 / 只给名字的多候选 / `vcdPathsByName` 名称兜底 / 不存在符号为空 / 越界行号回退 / 符号位宽 == VCD 位宽**）；e2e-ui 73/73（真实 Edge，含 D2/F/G/H 段）；probe-tutorial / probe-addbtn / probe-simfail 全过；真 exe 冒烟通过（端口 17817、core/wpf/doc/canvas/汉化全在、无异常）；第十三轮自愈专测 `verify-recovery2.mjs` 17/17 + 真实 Edge 协议探针 `probe-protocol.mjs`（iframe 可拉起 exe、顶层跳转被拦） |
+| 交付提醒 | 重启应用、从唯一路径启动、面板版本号自查（应显示 `v0.4.0 build 2026-09-10 21:06:52 db7a98f`）；本次 exe 内置第十五轮 #76 B1（符号索引/例化路径/符号→VCD 全路径映射 + `__wpsim` 探针入口，**界面无可见变化**）、第十四轮 #86 A1~A4、第十三轮服务自愈（固定端口 17817 + `WPServiceGuard` + `#sim-recover` 按钮）、第十二轮 RTL 树瘦身、#85 与第六轮收官 clean.js。**首次**自愈时浏览器会弹一次「是否允许打开 wavepaint:」，勾选「始终允许」后无感（浏览器安全策略，无法绕过） |
 
 ---
 
@@ -46,6 +46,8 @@
 | 2026-09-09 | 第十一轮：优先级重排（纯规划文档） | 用户拍板：近期主线改 **#86 → #76**（底层支持更多 Verilog 代码互动 + 解析能力增强；交互层仿 Verdi）；#87 优先级提高（① 并入 #76、② 紧随其后）；侧栏/整体 UI 重构设计优先级提高（方案线）；**#84 波形查看增强、#77 Active Annotation 推迟打入远期**；更新 03/04/05/08/09 与当日日志，未动代码无需重建 exe |
 | 2026-09-09 | 第十二轮首批实施：RTL 树瘦身完成 | 用户拍板「代码内点变量 = 加信号唯一主路径、RTL 树仅层级浏览」后同会话实施：`rtl-panel.js renderRtlTree` 删「端口 Ports / 参数 Parameters」分组与模块行端口计数（模块 meta 只显示实例数+行号），实例/模块跳转保留；`index.html` 注释同步口径；e2e-rtl 新增 B3 断言（无 .rtl-port/.rtl-param、无端口/参数文案）→ 16/16；regression 62/62 + e2e-ui 73/73 + 真 exe 冒烟通过；exe 重建（22:19:04，特征串「纯代码层级浏览」命中） |
 | 2026-09-10 | 第十三轮插队专项：#86 服务在线性根治（本地仿真服务自愈） | 用户报「本地仿真失败/请求无响应」→ 查清四类并存死因（进程死 / 每次随机换端口 / 端口被第三方占 / **换版本后首次启动 `ivlRoot` 为 null 必崩**，日志 `IVL repair failed: ArgumentNullException`）；逐条根治：固定首选端口 **17817** + `/api/ping` 带 `PING_TAG` 身份标识 + extract 分支统一 `ivlRoot` 赋值与 `EnsureIvlReady` 每轮兜底 + `wavepaint://start?port=` 同端口重拉；新增 `js/core/service-guard.js`（192 行，隐藏 iframe 重拉、`recover → alive/restarted/elsewhere/dead`、**绝不自动跳转**）；ui-bridge 失败路径改三段自愈 + `#sim-recover` 手动入口；dev-server `/api/ping` 对齐身份格式。验证：regression 62/62、e2e-sim 0 失败、e2e-rtl 16/16、e2e-ui 73/73、exe 冒烟通过、`verify-recovery2` 17/17、真实 Edge 协议探针证明「隐藏 iframe 可拉起 exe，顶层跳转被浏览器拦」；exe 重建（20:05:06） |
+| 2026-09-10 | 第十四轮：#86 A1~A4 全部落地 | 源码级实例扫描器 `scanInstances` + `maskStrings` 抹白 + `mergeInstances`（扫描器优先、engine 兜底过两道闸）+ 模块定义索引 `collectModuleDefs`/`resolveModuleDef`（同名多处→同文件优先、`fuzzy` 标记）；实例行**左键跳模块定义 / 右键(Alt+左键)跳例化点**，黑盒给中文提示；侧栏「导入源码」按钮（磁盘多选 → `state.files` → 自动重解析，不做全盘扫盘）；**源码集合随 `.wp` 存档/恢复**（包裹核心 `buildDocumentJson`/`loadFromFileContent`，旧工程向后兼容）。regression 62→**68/68**、e2e-rtl 16→**23/23**（E1~E6）、e2e-ui 73/73、真 exe 冒烟通过；exe 重建（20:36:16） |
+| 2026-09-10 | 第十五轮：#76 B1 数据层落地（模块体内符号索引 + 例化路径 + 符号→VCD 全路径映射） | `rtl-nav.js` 新增 `scanModuleSymbols`（体内声明/端口/参数/实例名 → 行号 + 位宽 + 方向 + 值；`blankInnerScopes` 先抹白 function/task/specify/table 体，保证函数局部变量不进表且行号等长不失真）、`buildInstancePaths`（例化点分作用域前缀，自动判顶层、带环保护）、`buildSymbolIndex`（统一索引 + `moduleAtLine`/`findSymbols`/`resolveSymbolVcdPaths`，`findSymbols` 收窄后为空则忽略该条件）；`buildRtlNav` 每模块新增 `endLine`/`symbols`；`vcd-index.js` 新增 `findVcdPathsByName`（名称末段兜底）；`ui-bridge.js` 只加探针 `__wpsim.symbolIndex/symbolsOf/symbolVcdPaths/vcdPathsByName`（纯计算无副作用，**不动 UI**）。regression 68→**75/75**、e2e-rtl 23→**32/32**（F1~F9，跑真实 VCD 核对宽度）、e2e-ui 73/73、真 exe 冒烟通过；exe 重建（21:06:52）。**未改 `sim/engine.js` 一行** |
 
 ---
 
@@ -501,6 +503,101 @@ scope 映射）→ **B4**（代码内点/选中变量加波形 = 唯一加信号
 
 ---
 
+### 4.13 ✅ 已完成：#76 B1 —— 模块体内符号索引 + 例化路径 + 符号→VCD 全路径映射（2026-09-10 第十五轮，近期主线第二项第一顺位）
+
+用户指令：「OK, 继续回到原来的任务，继续进行，按规划进行」→ 按 08 §1.2 开工 **#76**，本轮
+完成**第一顺位 B1（底层解析底座）**。B1 是 B4（代码内点变量 → 加波形 = 唯一加信号主路径）与
+B3（代码↔树双向跳转）的**共同底座**，因此本轮只做**数据层**，不碰 UI 交互（B4 才接线）。
+**界面上无任何可见变化**。
+
+**1. `js/sim/rtl-nav.js`（核心新增，只增不改：`buildRtlNav` 既有语义保持）**
+
+- 关键字表：`DATA_DECL_KEYWORDS`（wire/reg/logic/bit/integer/genvar/tri/time/real/shortint/…
+  共 26 个）、`IMPLICIT_WIDTHS`（integer/int=32、time/longint=64、shortint=16、byte=8、
+  real/realtime=64、shortreal=32）、`DECL_TYPE_WORDS`、`DECL_SCAN_KEYWORDS`（数据关键字 +
+  input/output/inout + parameter/localparam）。
+- 内部工具：`blankInnerScopes(text)`（`function…endfunction` / `task…endtask` /
+  `specify…endspecify` / `table…endtable` **整体抹成等长空格**、保留换行 → 函数/任务形参与
+  局部变量**不进符号表**）；`declRangeInfo(rangeText)`（`[7:0]` → `{msb,lsb,width,range}`，
+  参数化位宽 width=0 但保留 `range` 原文）；`findStatementEnd`（深度 0 的 `;`）；
+  `splitDeclItems`（深度 0 逗号切分）；`declItemInfo`（单项 → `{name,ownRange,value}`）；
+  `readDeclStatement`（吞类型词 → 取位宽 → 取标识符列表；`parameter type T = logic;` 放弃）。
+- **导出 `scanModuleSymbols(content, blanked, from, to)`**：在
+  `blankInnerScopes(maskStrings(blanked))` 上跑关键字扫描，产出
+  `{name, kind:'port'|'parameter'|'localparam'|'reg'|'wire'|'logic'|'integer'|'genvar'|…,
+  direction, width, msb, lsb, range, value, line}`；行号用 `lineNumberOf(原文, 真实下标)`。
+- 内部 `mergeSymbols(groups)`：同名同行去重（key=`name|line`）+ 按行号排序（稳定 sort 保同行
+  内优先级）。
+- **导出 `buildInstancePaths(nav, options)`** → `{topName, topNames, paths:[{moduleName,file,
+  fileIndex,line,path,depth}]}`；`path` = **不含信号名**的作用域前缀（`tb.dut`、`tb.dut.u_a`）；
+  options = `{topName, tbScope='tb', topInstance='dut', maxDepth=32}`；顶层未指定时**自动判**
+  （没被任何模块例化过的模块）；带**例化环保护**（`stack` 按 defKey + `seen` 按 `key|path`）。
+- **导出 `buildSymbolIndex(nav, options)`** → `{topName, topNames, modules:[…], symbols:[已展平，
+  带 moduleName/file/fileIndex], instancePaths}`；`moduleAtLine(index, fileIndex, line)`（含该行的
+  **最外层**模块，越界 null）；`findSymbols(index, name, options)`（`{moduleName,fileIndex,line}`
+  逐级收窄，**收窄后为空则忽略该条件**；大小写不一致标 `fuzzy`）；
+  `resolveSymbolVcdPaths(index, name, options)` → `{paths, hits, fuzzy}`。
+- `buildRtlNav` 每模块结果新增 `endLine` 与 `symbols`（= `mergeSymbols([体内声明, 端口, 头部参数,
+  实例名])`，**体内声明在前**：唯一重叠是体内 localparam，体内扫描的关键字更准）。
+- 注释里写明三条**有意为之**的边界：不索引 `assign` 隐式 net、不索引自定义类型变量、
+  不索引 named begin 内局部变量。
+
+**2. `js/sim/vcd-index.js`（+1 导出）**：`findVcdPathsByName(parsed, name)` —— 按信号名**末段**
+在 `parsed.signals` 取全部全路径（scope 点分 + name），去重保序、空入参安全。用途 = 代码符号
+没能在模块体符号索引命中时（隐式 net / TB 本地信号 / 自定义类型变量）做**兜底候选**。
+
+**3. `js/sim/ui-bridge.js`（仅接线 + 探针）**：import 扩为 `buildRtlNav, buildSymbolIndex,
+collectModuleDefs, resolveModuleDef, resolveSymbolVcdPaths` + `buildVcdHierarchy,
+findVcdPathsByName`；新增 `currentSymbolIndex()`（`refreshVcdTree` 之后：
+`buildSymbolIndex(buildRtlNav(state.files), { topName: state.selectedTop ||
+state.design?.topModule?.name || "" })`，**纯计算、无副作用、不碰画布**）；
+`window.__wpsim` 增 `get symbolIndex()`（返回 `{topName, topNames, moduleCount, symbolCount,
+instancePaths}`）、`symbolsOf(fileIndex)`、`symbolVcdPaths(name, options)`、
+`vcdPathsByName(name)`。
+
+**4. `tools/regression.mjs`（+7 条，62→75）**：rtl-nav 组末尾 6 条（fixture `B1_TOP_SRC` /
+`B1_SUB_SRC` / `b1Files()`）：体内声明索引（wire/parameter/localparam/instance、按行有序）、
+ANSI+非 ANSI 端口与同名 `output q`/`reg q`、位宽与 signed、function 内局部变量与形参不进表、
+integer=32、注释/字符串里的 `wire` 不索引、例化路径（含自动判顶层与**例化环不挂死**）、
+符号→VCD 候选与收窄/fuzzy、`moduleAtLine`；vcd-index 组末尾 1 条 `findVcdPathsByName`
+（两条同名 q、空入参安全）。
+
+**5. `tools/e2e-rtl.mjs`（+9 条 F 段，23→32）**：F 段自带两文件 fixture（`counter.sv` 例化
+`sub.v`，**两个模块里都有 q** → 跨模块同名），`setSourceFiles` 后**跑一次真实仿真**，再用
+`__wpsim` 探针核对「代码符号 → 真实 VCD 全路径」。
+
+**验证（全绿）**：
+
+| 套件 | 结果 |
+|---|---|
+| `node --check`（rtl-nav / vcd-index / ui-bridge / e2e-rtl） | 全过 |
+| `node tools/regression.mjs` | **75/75**（第十四轮 68 + B1 新增 7 条） |
+| `node tools/e2e-rtl.mjs` | **32/32**（真实 Edge；第十四轮 23 + F1~F9） |
+| `node tools/e2e-sim.mjs` | 失败 0 项 |
+| `node tools/probe-param.mjs` | 全部通过 |
+| `node tools/e2e-ui.mjs` | **73/73**（真实 Edge） |
+| `node tools/exe-smoke.mjs` | 真 exe 冒烟通过（端口 17817、core/wpf/doc/canvas/汉化全在、无异常） |
+
+**F 段实测输出（真实 VCD 核对）**：`symbolIndex` = `topName:counter / moduleCount:2 /
+symbolCount:10 / paths:["tb.dut","tb.dut.u_sub"]`；点 `counter.sv` L7 的 reg q →
+`["tb.dut.q"]`；点 L5 端口 q → `["tb.dut.q"]`；点 `sub.v` L2 的 reg q → `["tb.dut.u_sub.q"]`
+（跨模块同名不串味）；只给名字 `q` → 两条候选；名称兜底 `vcdPathsByName('q')` =
+`["tb.q","tb.dut.q","tb.dut.u_sub.q"]`（覆盖符号侧全部候选）；`wire acc`(L8) → `tb.dut.acc`；
+不存在符号 → 空候选；越界 fileIndex/line → 因「收窄为空则忽略」回退到全部同名候选；
+**符号声明位宽 4 == VCD 实际位宽 4（vector）**。
+
+**exe**：已按 C1 重建 —— `WavePaintClean.exe` **21,930,496 B**、时间戳 **2026-09-10 21:06:52**、
+`version.txt` = `v0.4.0 build 2026-09-10 21:06:52 db7a98f`。C8 特征串（`rg -a -c`）：
+`buildSymbolIndex`=3、`scanModuleSymbols`=2、`findVcdPathsByName`=3。
+
+**范围与后续**：#76 B1 **数据层闭环**（本轮无阻塞）。下一步 = **B4 代码内点/选中变量 → 加波形**
+（复用 `__wpsim.symbolVcdPaths` / `findSymbols` → `state.simWatches` +
+`pickVcdSignalIntoWave`（#85）→ `scrollWaveToWatchPath`；候选 >1 只对代码操作弹选择器，
+**不引入单独“信号层次选择框”**；同步统一「运行仿真后不再全量自动加信号」）→ B3 → B5 →
+**#87②**。**未改 `sim/engine.js` 一行**（C9 守住）。
+
+---
+
 ## 5. 已知未排期方向
 
 - 边缘对齐辅助线
@@ -553,6 +650,17 @@ scope 映射）→ **B4**（代码内点/选中变量加波形 = 唯一加信号
   `window.buildDocumentJson`/`loadFromFileContent` 注入与恢复（文本拼接、不二次 parse）；
   旧工程不带该字段 → 保持现状不清空用户源码。**这意味着「源码集合」是 `.wp` 的一等公民**，
   以后新增的代码侧上下文（如 B5 信号组）照同一包裹口径扩展。
+- **符号索引（#76 B1）**：`rtl-nav.buildSymbolIndex(buildRtlNav(files), {topName})` 是**纯计算
+  函数**（无副作用、不碰画布）；`buildRtlNav` 每个模块现在多了 `endLine` 与 `symbols`
+  （组序 = 体内声明 → 端口 → 头部参数 → 实例名）。符号扫描一律跑在
+  `blankInnerScopes(maskStrings(blanked))` 上 —— **抹白必须等长**（否则行号失真），
+  函数/任务体被整体抹白是**故意**的（局部变量不该进符号表）。三条有意边界（不索引 `assign`
+  隐式 net / 自定义类型变量 / named begin 局部变量）由 `vcd-index.findVcdPathsByName` 兜底。
+- **`findSymbols` 收窄契约（B1，给 B4 用）**：`{moduleName, fileIndex, line}` **能收窄才收窄，
+  收窄后为空则忽略该条件** —— 行号不精确时不会返回空；有 e2e-rtl F8 断言守着，改前先看它。
+- **B1 只是数据层**：`__wpsim.symbolIndex / symbolsOf / symbolVcdPaths / vcdPathsByName` 是
+  **探针入口**，不是交互；**B4 才把它们接到代码区的点选/快捷键上**。不要因为 B1 完成就去改
+  RTL 树（RTL 树仍是纯层级浏览，B2 已撤销）。
 
 ---
 

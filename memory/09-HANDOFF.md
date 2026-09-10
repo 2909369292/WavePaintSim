@@ -11,11 +11,11 @@
 |---|---|
 | 主线 | `main` |
 | 当前版本 | `v0.4.0 build <自动时间> <git短哈希>` |
-| 最近完成 | **#86 A1~A4：实例 → 模块定义源码跳转 + 磁盘导入源码 + 源码集合随 `.wp` 存档（2026-09-10 第十四轮）** —— ① `rtl-nav.js` 新增源码级实例扫描器 `scanInstances` + 模块定义索引 `collectModuleDefs`/`resolveModuleDef`；② RTL 树实例行**左键跳模块定义 / 右键(Alt+左键)跳例化点**，黑盒给中文提示；③ 侧栏新增「导入源码」按钮；④ 包裹核心 `buildDocumentJson`/`loadFromFileContent` 让源码集合随 `.wp` 存取（旧工程向后兼容）。详见 04 §4.12、06 P31、日志 2026-09-10 第十四轮。此前：**第十三轮服务在线性根治（自愈）**、**#85：VCD 树点信号 → 画布「观察行」**（第十轮）、第六轮 #90/#88/#92/#91/#89 与 #93 混淆清理收官、**第十二轮 RTL 树瘦身** |
-| 最近完成文档 | **第十四轮记忆同步**（2026-09-10）：04 新增 §4.12、06 新增 P31（例化解析三坑）、03 表 H #86 状态、08 §1/§1.1/§1.2、本文件、当日日志「第十四轮」。叠加生效的仍是**第十二轮澄清**：加信号主路径 = 代码内点/选中变量（“中追”式 = #87①/#76 B4），**RTL 结构树为纯代码层级浏览**（文件→模块→实例，跳源码），不显示接口信号、不承载加信号交互（原 #76 B2 撤销）——见 04 §4.10 / 03 表 F/H / 08 §1.2/§2；第十一轮规划重排仍生效（#86 → #76 → #87①/②，#84/#77 远期） |
-| 测试基线 | regression **68/68**（基线 62 + #86 A1 新增 6 条实例扫描/定义索引断言）；e2e-sim 0 失败；probe-param 全过；e2e-rtl **23/23**（含 #85 D1~D6 + 第十二轮 B3 + **第十四轮 E1~E6**）；e2e-ui 73/73（真实 Edge，含 D2/F/G/H 段）；probe-tutorial/addbtn/simfail 全过；#82 真机冒烟（收窗 5→1 + 端到端仿真 + UIA 真实点击 RUN→RESULT）通过；#93 绑定一致性 BINDINGS OK；**2026-09-10 第十四轮全量复跑全绿（regression 68/68、e2e-sim 0 失败、e2e-rtl 23/23、e2e-ui 73/73、probe-param 全过、真 exe 冒烟通过）+ 第十三轮自愈专测 `verify-recovery2.mjs` 17/17 + 真实 Edge 协议探针 `probe-protocol.mjs`（隐藏 iframe 可拉起 exe；顶层跳转/`window.open`/`<a target=_blank>` 被 `user gesture` 拦）** |
+| 最近完成 | **#76 B1：模块体内符号索引 + 例化路径 + 符号 → VCD 全路径映射（2026-09-10 第十五轮）** —— ① `rtl-nav.js` 新增 `scanModuleSymbols`/`buildInstancePaths`/`buildSymbolIndex`/`moduleAtLine`/`findSymbols`/`resolveSymbolVcdPaths`（`buildRtlNav` 每模块加 `endLine`/`symbols`）；② `vcd-index.js` 新增 `findVcdPathsByName`（名称末段兜底）；③ `ui-bridge.js` 暴露 `__wpsim.symbolIndex/symbolsOf/symbolVcdPaths/vcdPathsByName`（**纯数据层，界面无可见变化**）。详见 04 §4.13、06 P32、日志 2026-09-10 第十五轮。此前：**#86 A1~A4**（第十四轮，04 §4.12/06 P31）、**第十三轮服务在线性根治（自愈）**、**#85：VCD 树点信号 → 画布「观察行」**（第十轮）、第六轮 #90/#88/#92/#91/#89 与 #93 混淆清理收官、**第十二轮 RTL 树瘦身** |
+| 最近完成文档 | **第十五轮记忆同步**（2026-09-10）：04 新增 §4.13（并在 §2 时间线补记第十四/十五轮）、06 新增 P32（符号索引三坑）、03 表 H #76 状态（B1 ✅）、08 §1/§1.2、本文件 §1/§3/§4/§6/§9、当日日志「第十五轮」、`INDEX.md` 页脚。叠加生效的仍是**第十二轮澄清**：加信号主路径 = 代码内点/选中变量（“中追”式 = #87①/#76 B4），**RTL 结构树为纯代码层级浏览**（文件→模块→实例，跳源码），不显示接口信号、不承载加信号交互（原 #76 B2 撤销）——见 04 §4.10 / 03 表 F/H / 08 §1.2/§2；第十一轮规划重排仍生效（#86 → #76 → #87①/②，#84/#77 远期） |
+| 测试基线 | regression **75/75**（第十四轮 68 + **第十五轮 B1 新增 7 条**符号索引/例化路径/名称兜底断言）；e2e-sim 0 失败；probe-param 全过；e2e-rtl **32/32**（含 #85 D1~D6 + 第十二轮 B3 + 第十四轮 E1~E6 + **第十五轮 F1~F9**）；e2e-ui 73/73（真实 Edge，含 D2/F/G/H 段）；probe-tutorial/addbtn/simfail 全过；#82 真机冒烟（收窗 5→1 + 端到端仿真 + UIA 真实点击 RUN→RESULT）通过；#93 绑定一致性 BINDINGS OK；**2026-09-10 第十五轮全量复跑全绿（regression 75/75、e2e-sim 0 失败、e2e-rtl 32/32、e2e-ui 73/73、probe-param 全过、真 exe 冒烟通过）+ 第十三轮自愈专测 `verify-recovery2.mjs` 17/17 + 真实 Edge 协议探针 `probe-protocol.mjs`（隐藏 iframe 可拉起 exe；顶层跳转/`window.open`/`<a target=_blank>` 被 `user gesture` 拦）** |
 | 当前阻塞 | 无 |
-| 下一步 | **#86 已收官（A1~A4，第十四轮 2026-09-10）**。主线下一项 = **#76 B1：模块体内符号索引 + VCD scope 映射**（拆解见 08 §1.2）→ **B4 代码内点/选中变量加波形 = 唯一加信号主路径**（“中追”式）→ B3 双向跳转 / B5 信号组入 `.wp` → **#87②**。RTL 树只做代码层级浏览，不承载加信号。侧栏/整体 UI 重构（08 §2）为**并行方案线**：先出方案给用户 review，不直接开工。开工前先读 `08-ROADMAP.md` §1.2、`03-REQUIREMENTS.md` 表 H、04 §4.10~§4.12、06 P31 与 `memory/logs/2026-09-10.md` 第十三/十四轮 |
+| 下一步 | **#76 B1 ✅ 已完成（第十五轮 2026-09-10）**。主线下一项 = **#76 B4：代码内点/选中变量 → 加波形**（“中追”式 / 仿 Ctrl+W = **唯一加信号主路径**；拆解见 08 §1.2）→ B3 双向跳转 / B5 信号组入 `.wp` → **#87②**。RTL 树只做代码层级浏览，不承载加信号。侧栏/整体 UI 重构（08 §2）为**并行方案线**：先出方案给用户 review，不直接开工。开工前先读 `08-ROADMAP.md` §1.2、`03-REQUIREMENTS.md` 表 H、04 §4.10~§4.13、06 P31/P32 与 `memory/logs/2026-09-10.md` 第十三/十四/十五轮 |
 
 ---
 
@@ -31,26 +31,33 @@
 
 ---
 
-## 3. 下一项任务：#76 B1 模块体内符号索引 + VCD scope 映射（#86 已收官）
+## 3. 下一项任务：#76 B4 代码内点/选中变量 → 加波形（B1 已完成）
 
-> **2026-09-10 第十四轮（当前生效）**：**#86 A1~A4 已全部落地**并随 exe 重建交付
-> （`v0.4.0 build 2026-09-10 20:36:16 327acf7`）：实例→模块定义跳转 / 右键跳例化点 /
-> 磁盘导入源码 / 源码集合随 `.wp` 存档。实现与验证见 04 §4.12、踩坑见 06 P31。
-> **主线下一项 = #76 B1**。拆解：`08-ROADMAP.md` §1.2（#76 B1~B5，B2 已撤销）；
-> 台账 03 表 H；04 §4.12（#86）。第十一轮重排仍生效（#86 → #76 → #87①/②，#84/#77 远期）；
-> 第十二轮澄清仍生效：加信号主路径 = **代码内点/选中变量（#76 B4）**，RTL 树只做代码层级浏览。
+> **2026-09-10 第十五轮（当前生效）**：**#76 B1 已落地**并随 exe 重建交付
+> （`v0.4.0 build 2026-09-10 21:06:52 db7a98f`）：模块体内符号索引 + 例化路径 + 符号→VCD
+> 全路径映射（**纯数据层，界面无可见变化**）。实现与验证见 04 §4.13、踩坑见 06 P32。
+> **主线下一项 = #76 B4**。拆解：`08-ROADMAP.md` §1.2（#76 B1~B5，B2 已撤销）；
+> 台账 03 表 H；04 §4.12（#86）/§4.13（B1）。第十一轮重排仍生效（#86 → #76 → #87①/②，
+> #84/#77 远期）；第十二轮澄清仍生效：加信号主路径 = **代码内点/选中变量（#76 B4）**，
+> RTL 树只做代码层级浏览。
 
 ### 3.1 目标
 
-**#76（下一步，从 B1 起；全文见 08 §1.2）**
-1. **B1 底层：模块体内符号索引 + VCD scope 映射（本批核心、开工点）**：`parseVerilogDesign`/
-   `rtl-nav` 只覆盖模块头；需补模块体内声明索引（reg/wire/参数/端口/实例名 → 行号），并把
-   符号映射到 VCD 点分 scope（模块例化路径 + 信号名）。**复用 A1 的 `maskStrings` 做安全扫描**，
-   并产出「同名模块多次例化」的 instance scope 候选数据（供 B4 弹选择器）。
-2. **B4 交互：代码内点/选中变量 → 加波形**（= #87① / “中追”式 = **唯一加信号主路径**；仿
+**#76（下一步，从 B4 起；全文见 08 §1.2）**
+
+1. **B1 ✅ 底层：模块体内符号索引 + VCD scope 映射（第十五轮完成，勿重做）**：产物 =
+   `rtl-nav.scanModuleSymbols` / `buildInstancePaths` / `buildSymbolIndex` / `moduleAtLine` /
+   `findSymbols` / `resolveSymbolVcdPaths`、`vcd-index.findVcdPathsByName`、
+   `__wpsim.symbolIndex/symbolsOf/symbolVcdPaths/vcdPathsByName`。改之前先读 04 §4.13 与 06 P32。
+2. **B4 交互：代码内点/选中变量 → 加波形（下一项、开工点）**（= #87① / “中追”式 = **唯一加信号主路径**；仿
    Ctrl+W）。复用 `state.simWatches` 链路（`pickVcdSignalIntoWave`/`toNativeSignal`，见 #85）；
-   候选选择器只对代码操作，**不引入单独“信号层次选择框”**（用户明确不想要）。**同时把
+   映射用 B1 的 `symbolVcdPaths` / `findSymbols`（候选 >1 时**只对代码操作**弹选择器），
+   **不引入单独“信号层次选择框”**（用户明确不想要）。**同时把
    “运行仿真后全量自动加信号/回填”（#83③c 遗留）与 B4 统一为“用户主动点”**。
+   建议落点：`js/editor/` 代码区（CM6 视图）监听「右键菜单 / Ctrl+W / 双击变量」→ 取光标处
+   标识符 → `__wpsim.symbolVcdPaths(name, {fileIndex, line})` → 命中即
+   `pickVcdSignalIntoWave(path)` + `scrollWaveToWatchPath`；未命中 → 名称兜底
+   `vcdPathsByName` 给候选；多候选弹轻量选择器（**挂在代码区，不是新面板**）。
 3. **B3 树 ↔ 代码双向跳转**：已有“树 → 代码”（#86 A2 已扩为“实例→定义/例化点”双语义）；
    补“代码符号/行 → 反向高亮 RTL 树与 VCD 树节点”。
 4. **B5 信号组入 `.wp`**：GroupManager 组 + 观察行（`simWatches`）随工程存档恢复；
@@ -62,11 +69,12 @@
 
 1. ✅ **#85（VCD 树点信号 → 观察行，第十轮完成）**：VCD 侧别重做。
 2. ✅ **#86 A1~A4 + 服务在线性子项（第十三/十四轮完成）**：别重做。
-3. **#76 B1 → B4 → B3 → B5**：B1 先做（解析底座，`maskStrings`/`collectModuleDefs` 可直接复用）；
-   B4 是主路径（复用 #85 `pickVcdSignalIntoWave` 口径）；B3/B5 收尾。
-4. **#87②（模块全接口 Ctrl+4）** 紧跟 #76。
-5. **侧栏 / 整体 UI 重构（08 §2）并行方案线**：先出「UI 重构设计方案」给用户 review，
-   确认后再实施，不直接开工。
+3. ✅ **#76 B1（第十五轮完成）**：别重做。
+4. **#76 B4 → B3 → B5**：B4 是主路径（复用 B1 的 `symbolVcdPaths`/`findSymbols` + #85 的
+   `pickVcdSignalIntoWave` 口径，见 04 §4.13）；B3/B5 收尾。
+5. **#87②（模块全接口 Ctrl+4）** 紧跟 #76。
+6. **侧栏 / 整体 UI 重构（08 §2）并行方案线**：先出「UI 重构设计方案」给用户 review，
+  确认后再实施，不直接开工。
 
 ### 3.3 不要做
 
@@ -82,6 +90,10 @@
 - 不要重做 #86 A1~A4（第十四轮已完成且全绿）：实例扫描器 `scanInstances`、模块定义索引
   `collectModuleDefs`/`resolveModuleDef`、实例行双语义跳转、导入源码按钮、`.wp` 源码存档桥
   —— 都是 #76 B1/B5 的地基，动之前先读 04 §4.12 与 06 P31。
+- 不要重做 #76 B1（第十五轮已完成且全绿）：符号索引 `scanModuleSymbols`/`buildSymbolIndex`/
+  `findSymbols`/`resolveSymbolVcdPaths`、例化路径 `buildInstancePaths`、名称兜底
+  `findVcdPathsByName` —— **B4 直接调用它们即可**，不要再写第二套符号解析；也不要因为 B1
+  完成就去动 RTL 树或画布（**B1 是纯数据层，接线是 B4 的事**）。动之前先读 04 §4.13 与 06 P32。
 - 不要动服务自愈的设计口径（2026-09-10 第十三轮）：端口固定 `17817`、`/api/ping` 必须带
   `PING_TAG`、**恢复一律不跳转**、外部协议只用隐藏 iframe —— 动之前先读 07 D15 与 06 P28/P29/P30。
 - 不要重做第十三轮的服务在线性根治（已完成且全绿）；若又见「点仿真无响应」，先按
@@ -97,7 +109,7 @@ node tools/regression.mjs
 node tools/e2e-sim.mjs
 node tools/probe-param.mjs
 node tools/e2e-ui.mjs
-node tools/e2e-rtl.mjs   # #75 P0/#85/#86 浏览器冒烟 23 项含 B/C/D/E 段（需真实 Edge，非沙箱执行）
+node tools/e2e-rtl.mjs   # #75 P0/#85/#86/#76-B1 浏览器冒烟 32 项含 B/C/D/E/F 段（需真实 Edge，非沙箱执行）
 .\build.ps1
 ```
 
@@ -162,6 +174,12 @@ e2e-sim 0 失败。exe 已重建并核验特征串（`CloseLegacyWindows`/`EnumW
 - `memory/logs/2026-09-09.md` 第四轮记录了 #82（遗留窗口收拢）的完整排查与验证；
   交付出现在凌晨（2026-09-09 深夜~次日）。用户若再报“无法仿真”，先查桌面是不是还
   有多个「WavePaint 波形编辑」窗口 / 是不是旧 exe 进程还活着 —— 而不是先怀疑代码。
+- `memory/logs/2026-09-10.md` 记录了第十三/十四/十五轮：第十三轮服务自愈、第十四轮 #86
+  A1~A4、第十五轮 #76 B1。做 #76 B4 前建议通读「第十五轮」段（含 F 段实测输出与三条边界）。
+- 行尾差异：`js/`、`tools/`、`memory/` 为 **LF**；**`index.html` 是 CRLF** —— 用脚本改写时
+  别把 `index.html` 换成 LF（会产出整文件 diff）。
+- PowerShell 环境（本机 Codex desktop）：**无 `sed`**、`head` 不可用（用
+  `Select-Object -First/Last`）；内联 JS 会被转义破坏 → 探针一律写成 `.mjs` 再 `node` 跑。
 
 ---
 
@@ -170,8 +188,9 @@ e2e-sim 0 失败。exe 已重建并核验特征串（`CloseLegacyWindows`/`EnumW
 1. 重启应用。
 2. 从唯一路径启动：
    `D:\Files\Code\波形\WavePaintClean.exe`
-3. 在面板查看版本号，确认不是旧副本（本批应显示 `v0.4.0 build 2026-09-10 20:36:16 327acf7`，
-   内置第十四轮 #86 A1~A4 + 第十三轮服务自愈 + 第十二轮 RTL 树瘦身 + #85 观察行链路）。
+3. 在面板查看版本号，确认不是旧副本（本批应显示 `v0.4.0 build 2026-09-10 21:06:52 db7a98f`，
+   内置第十五轮 #76 B1 + 第十四轮 #86 A1~A4 + 第十三轮服务自愈 + 第十二轮 RTL 树瘦身 +
+   #85 观察行链路）。**本批对用户界面无可见变化**（B1 是纯数据层，可感知的新行为要等 B4）。
 4. 若此前桌面/任务栏堆积了多个「WavePaint 波形编辑」窗口，先全部关掉，再确认没有
    `WavePaintClean.exe` 旧进程残留后重新启动一次（#82 起 launcher 会自动收旧窗）。
 
@@ -218,6 +237,21 @@ e2e-sim 0 失败。exe 已重建并核验特征串（`CloseLegacyWindows`/`EnumW
 
 ## 9. 本轮遗留
 
+- 2026-09-10 第十五轮完成 **#76 B1 数据层落地**：① `rtl-nav.js` 新增 `scanModuleSymbols`
+  （关键字表 26 词 + `blankInnerScopes` 抹白 function/task/specify/table 体（**等长**，行号从
+  原文取）+ `declRangeInfo` 位宽 + `readDeclStatement`/`splitDeclItems` 声明语句读取 +
+  `mergeSymbols` 同名同行去重排序），产出 `{name,kind,direction,width,msb,lsb,range,value,line}`；
+  ② `buildInstancePaths`（例化点分作用域前缀，自动判顶层 + 例化环保护）、`buildSymbolIndex`
+  （统一索引 + `moduleAtLine`/`findSymbols`/`resolveSymbolVcdPaths`，**收窄后为空则忽略该条件**、
+  大小写不一致标 `fuzzy`）；`buildRtlNav` 每模块加 `endLine`/`symbols`；
+  ③ `vcd-index.js` `findVcdPathsByName`（名称末段兜底：隐式 net / TB 本地信号 / 自定义类型变量）；
+  ④ `ui-bridge.js` 暴露 `__wpsim.symbolIndex/symbolsOf/symbolVcdPaths/vcdPathsByName`
+  （`currentSymbolIndex()` 纯计算无副作用）。验证：regression **75/75**（+7）、e2e-rtl **32/32**
+  （F1~F9，真实 VCD 核对含「符号位宽 == VCD 位宽」）、e2e-ui 73/73、e2e-sim 0 失败、
+  probe-param 全过、真 exe 冒烟通过；exe 重建 **21,930,496 B / 21:06:52**，C8 特征串
+  （`buildSymbolIndex`=3、`scanModuleSymbols`=2、`findVcdPathsByName`=3）核验通过；
+  **未改 `sim/engine.js` 一行**。对应 03 表 H / 04 §4.13 / 06 P32 / 08 §1/§1.2 / 本日志第十五轮。
+  **下一项 = #76 B4**（代码内点/选中变量 → 加波形）。
 - 2026-09-10 第十四轮完成 **#86 A1~A4 全部落地**：① `rtl-nav.js` 新增源码级实例扫描器
   `scanInstances`（字符流 + `matchParen` 平衡括号 + 多实例循环 + `;` 收尾；行号取真实下标）
   + `maskStrings`（字符串换等长空格）+ `mergeInstances`（扫描器优先、engine 兜底过两道闸）
@@ -241,7 +275,8 @@ e2e-sim 0 失败。exe 已重建并核验特征串（`CloseLegacyWindows`/`EnumW
 - 2026-09-09 第十一轮完成「优先级重排」（纯文档，未动代码）：近期主线 #86 → #76 →
   #87①/②，#87 优先级提高，侧栏/整体 UI 重构设计提级（并行方案线 08 §2），#84/#77 推迟
   远期（08 §3）。对应台账 03 表 H / 04 §4.9 / 08 §1~§3 / 本日志第十一轮。无需重建 exe。
-- 无功能阻塞。#76 Verdi P1（点变量加波形 / 双向跳转 / 信号组入 `.wp`）为下一主线。
+- 无功能阻塞。#76 进行中（**B1 ✅ 第十五轮**；B4 点变量加波形 / B3 双向跳转 / B5 信号组入
+  `.wp` 待做），#87② 紧随其后 —— 为下一主线。
 - 2026-09-09 第十轮完成 #85（VCD 树点信号 → 画布观察行：regression 62/62、e2e-rtl 15/15、
   e2e-ui 73/73、e2e-sim 0 失败，exe 重建 19:31:28）；下一主线 = #86 → #76 → #87①/②
   （第十一轮重排），开工前先读 08 §1 / 03 表 H / 04 §4.5/§4.9 与当日日志第十一轮。

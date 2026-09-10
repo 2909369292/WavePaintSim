@@ -28,7 +28,19 @@
 > `loadFromFileContent`，旧工程向后兼容）—— A4 已由用户「按规划进行」拍板实施，不再是待定项。
 > 验证全绿（regression 68/68、e2e-rtl 23/23、e2e-ui 73/73、e2e-sim 0 失败、真 exe 冒烟），
 > exe 重建 `2026-09-10 20:36:16 327acf7`（详见 04 §4.12、06 P31、日志 2026-09-10 第十四轮）。
-> **主线下一项 = #76 B1**（模块体内符号索引 + VCD scope 映射）。
+> **第十五轮实施（2026-09-10，用户「继续回到原来的任务，按规划进行」）**：
+> ⑨ **#76 B1 数据层落地** —— `rtl-nav.js` 新增 `scanModuleSymbols`（模块体内声明/端口/参数/
+> 实例名 → 行号 + 位宽 + 方向 + 值；先 `blankInnerScopes` 抹白 `function/task/specify/table`
+> 体，函数局部变量不进表、抹白等长故行号不失真）、`buildInstancePaths`（例化点分作用域前缀，
+> 自动判顶层 + 例化环保护）、`buildSymbolIndex`（统一索引 + `moduleAtLine`/`findSymbols`/
+> `resolveSymbolVcdPaths`，`findSymbols` 收窄后为空则忽略该条件）；`buildRtlNav` 每模块新增
+> `endLine`/`symbols`；`vcd-index.js` 新增 `findVcdPathsByName`（名称末段兜底候选）；
+> `ui-bridge.js` 只加探针 `__wpsim.symbolIndex/symbolsOf/symbolVcdPaths/vcdPathsByName`
+> （纯计算无副作用，**界面无可见变化**）。验证全绿（regression **75/75**、e2e-rtl **32/32**
+> 含 F1~F9 真实 VCD 宽度核对、e2e-ui 73/73、e2e-sim 0 失败、真 exe 冒烟），exe 重建
+> `2026-09-10 21:06:52 db7a98f`；**未改 `sim/engine.js` 一行**（C9）。
+> 详见 04 §4.13、06 P32、日志 2026-09-10 第十五轮。
+> **主线下一项 = #76 B4**（代码内点/选中变量 → 加波形 = 唯一加信号主路径）。
 
 ---
 
@@ -45,7 +57,7 @@
 | 期 | 内容 | 状态 | 关键点 |
 |---|---|---|---|
 | #86 | 实例 → 模块定义源码跳转 + 源码文件导入 + 例化解析增强 | ✅ **A1~A4 全部完成 2026-09-10（第十四轮）**；服务在线性子项 ✅ 同日第十三轮 | 底层：模块定义索引（全量 module 表 `file+moduleLine` 已就绪）**已补**「源码级实例扫描器 + 模块定义候选索引」，覆盖参数化例化 `#(.p(v))`、命名/位置端口例化、generate 内例化、多实例同语句、多文件同名模块歧义（同文件优先）；交互（仿 nTrace）：实例行**左键跨文件跳定义行，右键/Alt 跳“例化点”**，黑盒给中文提示，磁盘多选导入 `.sv/.v` 进 `state.files`（= Verdi filelist 语义的本地等价）；**源码集合随 `.wp` 存档恢复**（A4）。**2026-09-10 第十三轮另做了独立子项「服务在线性根治」**（固定端口 17817 + 身份标识判活 + `ivlRoot` 首启崩溃修复 + 服务自愈，见 04 §4.11）。实现细节见 04 §4.12、06 P31 |
-| #76 | 代码点变量 → 加波形 + 树↔代码双向跳转 + 信号组入 `.wp` | ⬜ **近期下一项（#86 已收官，第一顺位开工 B1）**（#85 的 VCD 侧已完成） | 底层：**模块体内符号索引**（reg/wire/net/端口/实例名 → 行号 → 映射到 VCD scope 全路径）、多实例歧义候选数据（同名模块 N 次例化 → 让用户选 instance scope）；交互（仿 Verdi Get Signals/nWave）：**代码内点变量名加波形为唯一主路径**（B4，“中追”式 = #87①；第十二轮澄清 RTL 树不再点行加信号）、树↔代码双向跳转、信号组/观察行随 `.wp` 存档恢复（`sourceFiles` 已由 A4 打通，B5 直接沿用同一存档桥） |
+| #76 | 代码点变量 → 加波形 + 树↔代码双向跳转 + 信号组入 `.wp` | 🔄 **进行中：B1 ✅ 完成（2026-09-10 第十五轮）；下一顺位 = B4**（#85 的 VCD 侧已完成） | 底层：**模块体内符号索引**（reg/wire/net/端口/实例名 → 行号 → 映射到 VCD scope 全路径）**✅ B1 已落地**（`scanModuleSymbols`/`buildInstancePaths`/`buildSymbolIndex`/`findSymbols` + `vcd-index.findVcdPathsByName` 名称兜底；多实例歧义候选数据就绪 = `resolveSymbolVcdPaths` 返回多条 path）；交互（仿 Verdi Get Signals/nWave）：**代码内点变量名加波形为唯一主路径**（B4，“中追”式 = #87①；第十二轮澄清 RTL 树不再点行加信号）、树↔代码双向跳转、信号组/观察行随 `.wp` 存档恢复（`sourceFiles` 已由 A4 打通，B5 直接沿用同一存档桥）。实现细节见 04 §4.13、06 P32 |
 | #87①/② | 源码选中变量 → 加波形（Ctrl+W）、模块全部接口一键入波形（Ctrl+4） | ⬜ 优先级提高 | 用户将 #87 整体优先级提高；① 即“代码内点变量名→加波形”（与 #76 目标合流，建议并入 #76 实现而非另起）；② 是模块/实例全部接口批量入波形（= “Ctrl+4”），建议紧跟 #76 收尾落地；③ 信号组管理与 #76 信号组入 `.wp` 合流；④ Active Annotation 随 #77 移远期 |
 
 ### 1.1 #86 拆解（近期第一项，建议小步 commit）
@@ -81,15 +93,22 @@
 
 ### 1.2 #76 拆解（近期第二项，建议小步 commit；第十二轮口径：代码点变量 = 唯一加信号主路径）
 
-> **状态：⬜ 未开工；#86 已于第十四轮收官，本批为近期下一项（第一顺位 = B1）。**
+> **状态：🔄 B1 ✅ 已完成（2026-09-10 第十五轮，regression 75/75、e2e-rtl 32/32 全绿，
+> exe 重建 21:06:52）；下一项 = B4。**
 > 可直接复用 #86 A1 打好的解析底座：`rtl-nav.js` 的 `scanInstances` / `collectModuleDefs` /
 > `resolveModuleDef` / `maskStrings`（抹白字符串与注释，供符号扫描安全复用）；A4 的 `.wp`
 > 存档桥（`installProjectArchiveBridge` / `injectArchiveSourceFiles`）也是 B5 信号组存档的现成入口。
 
-- **B1 底层：模块体内符号索引 + scope 映射**：`parseVerilogDesign`/`rtl-nav` 只覆盖模块头
-（端口/参数/实例）；要“点代码变量加波形”，需补模块体内声明索引（reg/wire/参数/端口/
-实例名 → 行号），并把符号映射到 VCD 点分 scope（模块例化路径 + 信号名）。这是本批
-“解析能力增强”的核心，也是“双向跳转/反向高亮”的底座。
+- **B1 ✅ 底层：模块体内符号索引 + scope 映射（2026-09-10 第十五轮完成）**：
+  `rtl-nav.js` 新增 `scanModuleSymbols`（体内声明 → `{name,kind,direction,width,msb,lsb,
+  range,value,line}`，先 `blankInnerScopes` 抹白 function/task/specify/table 体）+
+  `buildInstancePaths`（例化点分作用域前缀 `tb.dut.u_a`，自动判顶层、带环保护）+
+  `buildSymbolIndex`（统一索引；`moduleAtLine`/`findSymbols`/`resolveSymbolVcdPaths`，
+  收窄后为空则忽略该条件、大小写不一致标 `fuzzy`）；`buildRtlNav` 每模块加 `endLine`/`symbols`；
+  `vcd-index.js` 新增 `findVcdPathsByName`（名称末段兜底：隐式 net / TB 本地信号 / 自定义类型
+  变量）；`ui-bridge.js` 暴露 `__wpsim.symbolIndex/symbolsOf/symbolVcdPaths/vcdPathsByName`
+  （纯计算探针，**不动 UI**）。验证：regression **75/75**、e2e-rtl **32/32**（F1~F9 真实 VCD
+  核对，含符号位宽 == VCD 位宽）。细节 04 §4.13、坑 06 P32。
 - **B2（撤销，第十二轮）**：原「RTL 树点行加波形」取消 —— 用户明确 RTL 树只做代码层级浏览，
   不显示接口/信号、不承担加信号交互。不再实施。**RTL 树瘦身（删端口/参数分组与端口计数）的
   首批实施已完成 2026-09-09**（rtl-panel.js UI 只删不增，数据层不变；e2e-rtl 16/16 +

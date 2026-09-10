@@ -46,3 +46,21 @@ export function buildVcdHierarchy(parsed) {
     tree: root
   };
 }
+
+// #76 B1：按「信号名」在 VCD 里找全部全路径（末段同名即可）。
+// 用途：代码里点的符号没能在模块体符号索引里定位（隐式 net / TB 本地信号 / 自定义类型变量）时，
+// 用信号名在 VCD 上做兜底候选 —— 与符号索引给出的路径合并去重后交给交互层。
+// 返回按 VCD 出现顺序去重后的全路径数组，例如 name='q' → ["tb.dut.q"]。
+export function findVcdPathsByName(parsed, name) {
+  const target = String(name || "").trim();
+  if (!target) return [];
+  const out = [];
+  for (const signal of (Array.isArray(parsed?.signals) ? parsed.signals : [])) {
+    const signalName = String(signal?.name || "");
+    if (signalName !== target) continue;
+    const scope = String(signal?.scope || "");
+    const full = scope ? `${scope}.${signalName}` : signalName;
+    if (!out.includes(full)) out.push(full);
+  }
+  return out;
+}

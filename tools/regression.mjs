@@ -647,6 +647,167 @@ test("rtl-nav #86 A1：同名模块多处定义时优先例化点所在文件", 
 });
 
 // ---------------------------------------------------------------------------
+// #76 B1：模块体内符号索引 + 例化路径（点代码变量 → 波形的解析底座）
+// ---------------------------------------------------------------------------
+
+const B1_TOP_SRC = `module top(
+  input clk,
+  input [7:0] din,
+  output [7:0] dout
+);
+  wire [7:0] mid;
+  parameter P = 3;
+  localparam Q = P + 1;
+  sub #(.W(8)) u_a (.clk(clk), .din(din), .dout(mid));
+  sub u_b (.clk(clk), .din(mid), .dout(dout));
+endmodule
+`;
+
+const B1_SUB_SRC = `module sub #(parameter W = 4) (input clk, input [W-1:0] din, output reg [W-1:0] dout);
+  reg [W-1:0] acc;
+  integer i;
+  function automatic [W-1:0] addone(input [W-1:0] v);
+    reg local_thing;
+    begin local_thing = 1'b0; addone = v + 1'b1; end
+  endfunction
+  always @(posedge clk) begin
+    acc <= din;
+    dout <= acc;
+  end
+endmodule
+`;
+
+function b1Files() {
+  return [{ name: "top.sv", content: B1_TOP_SRC }, { name: "sub.sv", content: B1_SUB_SRC }];
+}
+
+test("rtl-nav #76 B1：模块体内声明索引（reg/wire/参数/genvar，带位宽与精确行号）", () => {
+  const nav = rtlNav.buildRtlNav(b1Files());
+  assert.equal(nav.length, 2, "两个模块都要解析出来");
+  const top = nav[0];
+  const byName = new Map(top.symbols.map((s) => [s.name, s]));
+  assert.equal(byName.get("mid").kind, "wire");
+  assert.equal(byName.get("mid").line, 6, "wire 声明行号按原文计算（注释/字符串不漂移）");
+  assert.equal(byName.get("mid").width, 8);
+  assert.equal(byName.get("mid").range, "[7:0]");
+  assert.equal(byName.get("P").kind, "parameter");
+  assert.equal(byName.get("P").line, 7);
+  assert.equal(byName.get("P").value, "3");
+  assert.equal(byName.get("Q").kind, "localparam", "localparam 与 parameter 要区分开");
+  assert.equal(byName.get("Q").value, "P + 1");
+  assert.equal(byName.get("u_a").kind, "instance");
+  assert.equal(byName.get("u_a").moduleName, "sub", "实例名符号要带上被例化的模块名");
+  // 符号表按行号排序（就是代码从上到下的顺序）
+  const lines = top.symbols.map((s) => s.line);
+  assert.deepEqual(lines, [...lines].sort((a, b) => a - b), "symbols 必须按行号有序");
+});
+
+test("rtl-nav #76 B1：ANSI 头部端口与非 ANSI 方向声明都进符号表且同名同行去重", () => {
+  const ansi = rtlNav.buildRtlNav([{ name: "a.sv", content: B1_TOP_SRC }])[0];
+  const q = ansi.symbols.filter((s) => s.name === "dout");
+  assert.equal(q.length, 1, "同一个端口不得重复登记");
+  assert.equal(q[0].kind, "port");
+  assert.equal(q[0].direction, "output");
+  assert.equal(q[0].width, 8);
+  // 端口 + 体内独立声明同名（counter 那种 output q / reg q 写法）→ 两条都要留，行号各自正确
+  const counter = rtlNav.buildRtlNav([{
+    name: "counter.sv",
+    content: 'module counter(input clk, output [3:0] q);\n  reg [3:0] q;\n  always @(posedge clk) q <= q + 4\'d1;\nendmodule\n'
+  }])[0];
+  const qHits = counter.symbols.filter((s) => s.name === "q");
+  assert.equal(qHits.length, 2, "头部端口与体内 reg 声明是两条独立符号");
+  assert.equal(qHits[0].line, 1);
+  assert.equal(qHits[0].kind, "port");
+  assert.equal(qHits[1].line, 2);
+  assert.equal(qHits[1].kind, "reg");
+  // 非 ANSI：端口方向在体内声明
+  const nonAnsi = rtlNav.buildRtlNav([{
+    name: "m.v",
+    content: "module m(a, b);\n  input a;\n  output wire signed [7:0] b;\n  assign b = {7'b0, a};\nendmodule\n"
+  }])[0];
+  const nb = nonAnsi.symbols.filter((s) => s.name === "b");
+  assert.equal(nb.length, 1);
+  assert.equal(nb[0].kind, "port");
+  assert.equal(nb[0].direction, "output");
+  assert.equal(nb[0].width, 8, "非 ANSI 的 output wire signed [7:0] 要解析出位宽");
+  assert.equal(nb[0].line, 3, "方向声明所在行");
+  assert.ok(nonAnsi.symbols.some((s) => s.name === "a" && s.direction === "input"));
+});
+
+test("rtl-nav #76 B1：function/task 块内局部变量、注释与字符串里的声明都不进符号表", () => {
+  const sub = rtlNav.buildRtlNav(b1Files())[1];
+  const names = sub.symbols.map((s) => s.name);
+  assert.ok(names.includes("acc"), "模块体 reg 要能索引到");
+  assert.ok(!names.includes("local_thing"), "function 体内局部 reg 不属于模块作用域");
+  assert.ok(!names.includes("v"), "function 形参 input 不得被当成模块端口");
+  assert.ok(!names.includes("addone"), "function 名不是信号符号");
+  assert.equal(sub.symbols.find((s) => s.name === "i").width, 32, "integer 无显式位宽时按 32 位");
+  const tricky = rtlNav.buildRtlNav([{
+    name: "t.v",
+    content: 'module t;\n  // wire commented_out;\n  /* reg block_commented; */\n  wire real_one;\n  initial $display("wire inside_string;");\nendmodule\n'
+  }])[0];
+  const trickyNames = tricky.symbols.map((s) => s.name);
+  assert.deepEqual(trickyNames, ["real_one"], "注释/字符串里的 wire 声明不得被索引");
+});
+
+test("rtl-nav #76 B1：例化路径推导（顶层前缀、多次例化、自动判顶层、例化环保护）", () => {
+  const nav = rtlNav.buildRtlNav(b1Files());
+  const explicit = rtlNav.buildInstancePaths(nav, { topName: "top" });
+  const byModule = new Map(explicit.paths.map((p) => [`${p.moduleName}@${p.path}`, p]));
+  assert.ok(byModule.has("top@tb.dut"), "顶层模块的作用域前缀 = tb.dut（与 engine 生成的 TB 一致）");
+  assert.ok(byModule.has("sub@tb.dut.u_a"), "子模块第一次例化的路径");
+  assert.ok(byModule.has("sub@tb.dut.u_b"), "同一子模块第二次例化 → 第二条路径（歧义候选）");
+  assert.equal(explicit.paths.length, 3);
+  // 不指定 topName → 自动判顶层：没有被任何模块例化过的模块
+  const auto = rtlNav.buildInstancePaths(nav);
+  assert.equal(auto.topName, "top");
+  assert.equal(auto.paths.length, 3);
+  // 例化环不得挂死（a 例化 b、b 例化 a）
+  const cyclic = rtlNav.buildRtlNav([
+    { name: "a.v", content: "module a;\n  b u_b ();\nendmodule\n" },
+    { name: "b.v", content: "module b;\n  a u_a ();\nendmodule\n" }
+  ]);
+  const loop = rtlNav.buildInstancePaths(cyclic, { topName: "a" });
+  assert.equal(loop.paths.length, 2, "环保护只允许每个 (定义, 路径) 访问一次");
+});
+
+test("rtl-nav #76 B1：符号 → VCD 全路径候选（含同名歧义与逐级收窄）", () => {
+  const nav = rtlNav.buildRtlNav(b1Files());
+  const index = rtlNav.buildSymbolIndex(nav, { topName: "top" });
+  assert.equal(index.topName, "top");
+  assert.equal(index.symbols.length, nav[0].symbols.length + nav[1].symbols.length);
+  const din = rtlNav.resolveSymbolVcdPaths(index, "din");
+  assert.deepEqual(din.paths, ["tb.dut.din", "tb.dut.u_a.din", "tb.dut.u_b.din"],
+    "同名信号出现在顶层与两个子实例 → 给出全部候选");
+  // 收窄到子模块后只剩该模块的两条例化路径
+  const dinInSub = rtlNav.resolveSymbolVcdPaths(index, "din", { moduleName: "sub" });
+  assert.deepEqual(dinInSub.paths, ["tb.dut.u_a.din", "tb.dut.u_b.din"]);
+  // 收窄到具体行 → 唯一候选
+  const accLine = nav[1].symbols.find((s) => s.name === "acc").line;
+  const acc = rtlNav.resolveSymbolVcdPaths(index, "acc", { moduleName: "sub", line: accLine });
+  assert.deepEqual(acc.paths, ["tb.dut.u_a.acc", "tb.dut.u_b.acc"], "同一符号的每一处例化都是一条候选");
+  assert.equal(acc.hits.length, 1, "行号收窄后只剩一条符号命中");
+  // 不存在的名字 / 大小写不一致
+  assert.deepEqual(rtlNav.resolveSymbolVcdPaths(index, "nope").paths, []);
+  const fuzzy = rtlNav.resolveSymbolVcdPaths(index, "MID");
+  assert.deepEqual(fuzzy.paths, ["tb.dut.mid"]);
+  assert.equal(fuzzy.fuzzy, true, "大小写不一致要标 fuzzy");
+  // 例化路径里没有的模块（未参与层次）→ 无候选（交互层再走 VCD 名字兜底）
+  const lonely = rtlNav.buildSymbolIndex(rtlNav.buildRtlNav([{ name: "solo.v", content: B1_SUB_SRC }]), { topName: "sub" });
+  assert.deepEqual(rtlNav.resolveSymbolVcdPaths(lonely, "acc").paths, ["tb.dut.acc"]);
+});
+
+test("rtl-nav #76 B1：moduleAtLine 按行号定位所属模块（取最外层）", () => {
+  const nav = rtlNav.buildRtlNav(b1Files());
+  const index = rtlNav.buildSymbolIndex(nav, { topName: "top" });
+  assert.equal(rtlNav.moduleAtLine(index, 0, 1).name, "top");
+  assert.equal(rtlNav.moduleAtLine(index, 0, 9).name, "top", "endmodule 之前都算模块内");
+  assert.equal(rtlNav.moduleAtLine(index, 0, 99), null, "越界行不属于任何模块");
+  assert.equal(rtlNav.moduleAtLine(index, 1, 3).name, "sub");
+  assert.equal(rtlNav.moduleAtLine(index, 1, 3).fileIndex, 1);
+});
+
+// ---------------------------------------------------------------------------
 group("vcd-index.js（#75 P0 VCD 全路径索引，纯函数）");
 
 function sampleParsedVcd() {
@@ -720,6 +881,28 @@ test("buildVcdHierarchy 与真实 parseVcd 产物打通（parseVcd → 索引）
   assert.equal(idx.tree.scopes[0].path, "tb");
   assert.equal(idx.tree.scopes[0].scopes[0].path, "tb.dut");
   assert.deepEqual(idx.tree.scopes[0].scopes[0].signals.map((s) => s.name), ["clk", "data_in"]);
+});
+
+test("findVcdPathsByName 按末段信号名给出全部全路径（#76 B1 兜底候选）", () => {
+  const parsed = sim.parseVcd([
+    "$timescale 1ns $end",
+    "$scope module tb $end",
+    "$scope module dut $end",
+    "$var wire 1 ! q $end",
+    "$scope module u_a $end",
+    "$var wire 1 \" q $end",
+    "$upscope $end",
+    "$upscope $end",
+    "$upscope $end",
+    "$enddefinitions $end",
+    "#0",
+    "0!",
+    "0\""
+  ].join("\n"));
+  assert.deepEqual(vcdIndex.findVcdPathsByName(parsed, "q"), ["tb.dut.q", "tb.dut.u_a.q"]);
+  assert.deepEqual(vcdIndex.findVcdPathsByName(parsed, "nope"), []);
+  assert.deepEqual(vcdIndex.findVcdPathsByName(parsed, ""), []);
+  assert.deepEqual(vcdIndex.findVcdPathsByName(null, "q"), [], "入参为空要安全返回");
 });
 
 // ---------------------------------------------------------------------------
