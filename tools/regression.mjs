@@ -547,6 +547,105 @@ endmodule
   assert.equal(inst.line, 6, "实例行号应指向实例化语句（注释行不参与偏移）");
 });
 
+test("rtl-nav #86 A1：多实例同语句 / 参数化紧贴写法 / generate 内例化全部识别", () => {
+  const src = `module tb;
+  wire a1, a2, a3, b1, b2, b3, o1, o2, o3;
+  sub u1(a1), u2(a2), u3(a3);
+  mod#(.P(1)) u_p(.a(b1), .b(o1));
+  genvar i;
+  generate
+    for (i = 0; i < 2; i = i + 1) begin : g
+      sub u (.a(b2), .b(o2));
+    end
+  endgenerate
+  sub u_named (.a(b3), .b(o3));
+endmodule
+`;
+  const nav = rtlNav.buildRtlNav([{ name: "tb.v", content: src }]);
+  assert.equal(nav.length, 1);
+  const insts = nav[0].instances;
+  assert.equal(insts.length, 6, "应为 u1/u2/u3/u_p/u/u_named 共 6 个实例");
+  assert.deepEqual(insts.map((it) => it.instanceName), ["u1", "u2", "u3", "u_p", "u", "u_named"],
+    "实例顺序按源码行号（一条语句里的多实例不得被吞掉）");
+  const byName = new Map(insts.map((it) => [it.instanceName, it]));
+  assert.equal(byName.get("u2").moduleName, "sub");
+  assert.equal(byName.get("u2").line, 3, "u2 必须定位到真实行（engine 启发式会串到 u1 行）");
+  assert.equal(byName.get("u_p").moduleName, "mod");
+  assert.equal(byName.get("u_p").line, 4);
+  assert.ok(/\.P\(1\)/.test(byName.get("u_p").parameterOverride), "参数覆盖文本应保留");
+  assert.equal(byName.get("u").line, 8, "generate 内例化也要识别");
+  assert.equal(byName.get("u_named").line, 11);
+});
+
+test("rtl-nav #86 A1：扫描器排除关键字/字符串/说明性文本的误判", () => {
+  const src = 'module tb;\n' +
+    '  wire o, a, b, w;\n' +
+    '  and g1 (o, a, b);\n' +
+    '  initial $display("mod u(x); and g2(o,a,b);");\n' +
+    '  my_task(a);\n' +
+    '  assign o = a & b;\n' +
+    '  always @(posedge w) begin end\n' +
+    'endmodule\n';
+  const nav = rtlNav.buildRtlNav([{ name: "tb.v", content: src }]);
+  assert.equal(nav[0].instances.length, 0, "门原语/任务调用/赋值/字符串不得被当成实例化");
+});
+
+test("rtl-nav #86 A1：实例名与端口同名时行号仍取实例化语句（不再靠首次出现启发式）", () => {
+  const src = 'module tb(input clk, output y);\n' +
+    '  wire w;\n' +
+    '  sub clk (w);\n' +
+    '  assign y = w;\n' +
+    'endmodule\n';
+  const nav = rtlNav.buildRtlNav([{ name: "tb.v", content: src }]);
+  const inst = nav[0].instances[0];
+  assert.equal(inst.instanceName, "clk");
+  assert.equal(inst.line, 3, "实例名与端口同名时必须指向实例化语句行");
+});
+
+test("rtl-nav #86 A1：maskStrings 等长替换（下标/行号不漂移）", () => {
+  const src = 'a = "mod u(x);";\nb = "带中文";\nc = "未闭合\n';
+  const masked = rtlNav.maskStrings(src);
+  assert.equal(masked.length, src.length, "抹白后长度必须与原文本一致");
+  assert.equal(masked.split("\n").length, src.split("\n").length, "换行必须原样保留");
+  assert.ok(!/mod u/.test(masked), "字符串内容应被抹白");
+  assert.ok(masked.startsWith("a = "), "代码文本不受影响");
+  assert.equal(rtlNav.maskStrings('x = "a\\"b";').indexOf("b"), -1, "转义引号不得提前结束字符串");
+});
+
+test("rtl-nav #86 A1：collectModuleDefs / resolveModuleDef 支撑「实例→定义」查表", () => {
+  const fileA = 'module top;\n  sub u_here ();\nendmodule\n';
+  const fileB = 'module sub;\nendmodule\n';
+  const files = [{ name: "a.v", content: fileA }, { name: "b.v", content: fileB }];
+  const nav = rtlNav.buildRtlNav(files);
+  const defs = rtlNav.collectModuleDefs(nav);
+  assert.equal(defs.length, 2);
+  const top = rtlNav.resolveModuleDef(defs, "top", 0);
+  assert.equal(top.def.fileIndex, 0);
+  assert.equal(top.def.line, 1);
+  assert.equal(top.fuzzy, false);
+  // 黑盒（无源码定义）→ 无候选
+  assert.equal(rtlNav.resolveModuleDef(defs, "blackbox", 0).def, null);
+  // 大小写不一致 → fuzzy 命中
+  const fuzzy = rtlNav.resolveModuleDef(defs, "SUB", 0);
+  assert.equal(fuzzy.def.fileIndex, 1);
+  assert.equal(fuzzy.fuzzy, true);
+});
+
+test("rtl-nav #86 A1：同名模块多处定义时优先例化点所在文件", () => {
+  const dupA = 'module sub;\n  wire a;\nendmodule\n';
+  const dupB = 'module sub;\n  wire b;\nendmodule\n';
+  const nav = rtlNav.buildRtlNav([
+    { name: "a.v", content: dupA },
+    { name: "b.v", content: dupB }
+  ]);
+  const defs = rtlNav.collectModuleDefs(nav);
+  const inA = rtlNav.resolveModuleDef(defs, "sub", 0);
+  const inB = rtlNav.resolveModuleDef(defs, "sub", 1);
+  assert.equal(inA.candidates.length, 2, "同名模块两处定义都要作为候选");
+  assert.equal(inA.def.fileIndex, 0);
+  assert.equal(inB.def.fileIndex, 1, "preferFileIndex 命中同文件定义");
+});
+
 // ---------------------------------------------------------------------------
 group("vcd-index.js（#75 P0 VCD 全路径索引，纯函数）");
 

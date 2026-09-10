@@ -96,15 +96,26 @@ export function installCodeEditor({ host, textarea, doc = "", onChange }) {
 // ---------------------------------------------------------------------------
 // 2. RTL 结构树渲染
 // ---------------------------------------------------------------------------
-function makeJumpRow(doc, className, text, title, jump) {
+// jump：主入口（左键）。secondaryJump：次入口（右键 / Alt+左键）——
+// #86 A2：实例行的主入口 = 跳到该模块的**源码定义**（仿 Verdi nTrace 点实例跳定义），
+// 次入口 = 跳到**例化点行**（保留原有的“树 → 代码”能力）。
+function makeJumpRow(doc, className, text, title, jump, secondaryJump) {
   const row = elFromDoc(doc, "button", "rtl-jump-btn" + (className ? " " + className : ""), text);
   row.type = "button";
   if (title) row.title = title;
   row.addEventListener("click", (event) => {
     event.preventDefault();   // 阻止 <summary> 默认折叠切换
     event.stopPropagation();
-    if (typeof jump === "function") jump();
+    const action = (event.altKey && typeof secondaryJump === "function") ? secondaryJump : jump;
+    if (typeof action === "function") action();
   });
+  if (typeof secondaryJump === "function") {
+    row.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      secondaryJump();
+    });
+  }
   return row;
 }
 
@@ -163,10 +174,17 @@ export function renderRtlTree(container, modules, onJump) {
           const label = inst.instanceName
             ? `${inst.instanceName} : ${inst.moduleName}`
             : `${inst.moduleName}`;
+          const payload = {
+            fileIndex,
+            line: inst.line,
+            moduleName: inst.moduleName,
+            instanceName: inst.instanceName,
+            name: inst.instanceName || inst.moduleName
+          };
           return makeJumpRow(doc, "rtl-inst", `${label}  L${inst.line}`,
-            `${fileName}:${inst.line} — ${label}`, () => onJump && onJump({
-              fileIndex, line: inst.line, kind: "instance", name: inst.instanceName || inst.moduleName
-            }));
+            `${label}\n左键：跳到模块 ${inst.moduleName} 的源码定义\n右键 / Alt+左键：跳到例化点（${fileName}:${inst.line}）`,
+            () => onJump && onJump({ ...payload, kind: "instance" }),
+            () => onJump && onJump({ ...payload, kind: "instanceSite" }));
         });
         modDetails.append(groupRows(doc, "实例 Instances", mod.instances.length, rows));
       }

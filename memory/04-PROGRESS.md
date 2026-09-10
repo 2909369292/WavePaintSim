@@ -12,14 +12,14 @@
 | 当前版本 | `v0.4.0 build <自动时间> <git短哈希>` |
 | 代码状态 | 主线可用，`main` 分支 |
 | 构建产物 | `D:\Files\Code\波形\WavePaintClean.exe` |
-| 最近完成需求 | **#86 服务在线性根治：本地仿真服务自愈（2026-09-10 第十三轮落地，见 §4.11）**——固定首选端口 17817 + 身份标识判活 + `ivlRoot` 首启崩溃修复 + 页面侧自动重连/重拉并自动重试仿真。此前 **#85：VCD 树点信号 → 画布「观察行」**（2026-09-09 第十轮，见 §4.8）、第六轮 5 项 #90/#88/#92/#91/#89 与 #93 混淆残留清理均已收尾 |
-| 最近完成文档 | **第十二轮澄清**（2026-09-09）：加信号主路径 = 代码内点/选中变量（“中追”式 = #87①/#76 B4）；RTL 结构树降级为纯代码层级浏览（文件→模块→实例），删「端口 Ports / 参数 Parameters」分组、不显示接口信号、不承载加信号交互（原 #76 B2 撤销）。见 §4.10 / 03 表 F/H / 08 §1.2/§2 |
-| 最近一轮（第十三轮，2026-09-10） | **插队专项：本地仿真服务自愈根治（详见 §4.11）**。用户报「本地仿真失败 / 请求无响应」，要求「每次点击仿真必须调用仿真服务、必须仿真成功」。查清 **四类并存死因**（进程死 / 换端口 / 端口被占 / **换版本后首次启动必崩 `ivlRoot` null**），并逐条根治：launcher 固定端口 17817 + `PING_TAG` 身份标识 + `ivlRoot` extract 分支修复 + 协议 `wavepaint://start?port=` 同端口重拉；新增 `js/core/service-guard.js` 页面侧守卫；ui-bridge 失败路径改为「发现 → 自动重连/重拉 → 自动重试一次 → 手动按钮兜底」。全部套件复跑全绿，exe 已重建（20:05:06） |
+| 最近完成需求 | **#86 A1~A4：实例 → 模块定义源码跳转 + 磁盘导入源码 + 源码集合随 `.wp` 存档（2026-09-10 第十四轮落地，见 §4.12）**——`rtl-nav.js` 新增源码级实例扫描器 + 模块定义索引；RTL 树实例行**左键跳模块定义 / 右键(Alt+左键)跳例化点**；侧栏新增「导入源码」按钮；工程 JSON 追加 `sourceFiles`/`activeSourceIndex`。此前 **#86 子项「服务在线性」**（第十三轮，见 §4.11）、**#85：VCD 树点信号 → 画布「观察行」**（第十轮，见 §4.8）、第六轮 5 项 #90/#88/#92/#91/#89 与 #93 混淆残留清理均已收尾 |
+| 最近完成文档 | **第十四轮记忆同步**（2026-09-10）：新增 §4.12、06 P31（例化解析三坑）、03 表 H #86 状态、08 §1/§1.1/§1.2、09 §1/§3、当日日志「第十四轮」。叠加生效的仍是**第十二轮澄清**：加信号主路径 = 代码内点/选中变量（“中追”式 = #87①/#76 B4）；RTL 结构树为纯代码层级浏览（文件→模块→实例），不显示接口信号、不承载加信号交互（原 #76 B2 撤销）。见 §4.10 / 03 表 F/H / 08 §1.2/§2 |
+| 最近一轮（第十四轮，2026-09-10） | **#86 A1~A4 实施（详见 §4.12）**。A1 底层：`rtl-nav.js` 新增 `scanInstances`（源码级平衡括号扫描，覆盖多实例同语句 / 参数化例化 / generate 内例化）+ `collectModuleDefs`/`resolveModuleDef`（模块定义候选索引 + 同文件优先 + 大小写模糊标记）；A2 交互：实例行左键跳定义、右键/Alt 跳例化点，黑盒给中文提示；A3：侧栏「导入源码」磁盘多选入口（`showOpenFilePicker` + `<input type=file>` 兜底 + 同名去重）；A4：包裹核心 `buildDocumentJson`/`loadFromFileContent` 让源码集合随 `.wp` 存取（旧工程向后兼容）。全部套件复跑全绿，exe 已重建（20:36:16） |
 | 当前阻塞 | 无 |
-| 下一步主线 | 开工 **#86**（实例→模块定义源码跳转 + 源码文件导入 + 例化解析增强，拆解 A1~A4 见 08 §1.1）→ **#76**（B1 模块体内符号索引/scope 映射 → **B4 代码点变量加波形 = 唯一加信号主路径** → B3 双向跳转/B5 信号组入 `.wp`，拆解见 08 §1.2）→ **#87②**；#84/#77 已推迟远期（08 §3）。第十二轮首批实施（RTL 树瘦身）已完成，RTL 树不再承载端口/参数/加信号；第十三轮的服务自愈是**独立专项**，不改变上述顺序 |
-| 测试基线 | regression 62/62（含 #89 新增 4 断言）、e2e-sim 0 失败、probe-param 全过；**2026-09-10 复跑再确认：regression 62/62、e2e-sim 0 失败、e2e-rtl 16/16、e2e-ui 73/73** |
-| UI 基线 | e2e-rtl 16/16（含 #85 D1~D6 + 第十二轮 B3 RTL 树纯层级浏览断言）；e2e-ui 73/73（真实 Edge，含 D2/F/G/H 段）；probe-tutorial / probe-addbtn / probe-simfail 全过；真 exe 冒烟通过（#82：收窗 5→1 + 端到端仿真 + UIA 真实点击 RUN→RESULT）；**第十三轮新增自愈专测 `verify-recovery2.mjs` 17/17 + 真实 Edge 协议探针 `probe-protocol.mjs`（iframe 可拉起 exe、顶层跳转被拦）** |
-| 交付提醒 | 重启应用、从唯一路径启动、面板版本号自查（应显示 `v0.4.0 build 2026-09-10 20:05:06 72116e0`）；本次 exe 内置第十三轮服务自愈（固定端口 17817 + `WPServiceGuard` + `#sim-recover` 按钮）、第十二轮 RTL 树瘦身、#85（`simWatches`/`pickVcdSignalIntoWave`）与第六轮收官 clean.js。**首次**自愈时浏览器会弹一次「是否允许打开 wavepaint:」，勾选「始终允许」后无感（浏览器安全策略，无法绕过） |
+| 下一步主线 | **#86 A1~A4 已完成**（第十四轮）→ 开工 **#76**（B1 模块体内符号索引/scope 映射 → **B4 代码点变量加波形 = 唯一加信号主路径** → B3 双向跳转 / B5 信号组入 `.wp`，拆解见 08 §1.2）→ **#87②**；#84/#77 已推迟远期（08 §3）。RTL 树仍只做代码层级浏览（不承载端口/参数/加信号，见 §4.10）；服务自愈（§4.11）是**独立专项**，不改变上述顺序 |
+| 测试基线 | regression **68/68**（#86 A1 新增 6 条实例扫描/定义索引断言）；e2e-sim 0 失败；probe-param 全过；**2026-09-10 第十四轮复跑再确认：regression 68/68、e2e-sim 0 失败、e2e-rtl 23/23、e2e-ui 73/73、probe-param 全过、真 exe 冒烟通过** |
+| UI 基线 | e2e-rtl **23/23**（含 #85 D1~D6 + 第十二轮 B3 RTL 树纯层级浏览 + **第十四轮 E1~E6：存档桥/实例跳定义/黑盒提示/右键跳例化点/`.wp` 源码往返/导入按钮**）；e2e-ui 73/73（真实 Edge，含 D2/F/G/H 段）；probe-tutorial / probe-addbtn / probe-simfail 全过；真 exe 冒烟通过（#82：收窗 5→1 + 端到端仿真 + UIA 真实点击 RUN→RESULT）；第十三轮新增自愈专测 `verify-recovery2.mjs` 17/17 + 真实 Edge 协议探针 `probe-protocol.mjs`（iframe 可拉起 exe、顶层跳转被拦） |
+| 交付提醒 | 重启应用、从唯一路径启动、面板版本号自查（应显示 `v0.4.0 build 2026-09-10 20:36:16 327acf7`）；本次 exe 内置第十四轮 #86 A1~A4（实例跳定义/导入源码/源码集合存档 + `sim-import` 按钮 + `__wpsim` 探针入口）、第十三轮服务自愈（固定端口 17817 + `WPServiceGuard` + `#sim-recover` 按钮）、第十二轮 RTL 树瘦身、#85（`simWatches`/`pickVcdSignalIntoWave`）与第六轮收官 clean.js。**首次**自愈时浏览器会弹一次「是否允许打开 wavepaint:」，勾选「始终允许」后无感（浏览器安全策略，无法绕过） |
 
 ---
 
@@ -408,8 +408,96 @@ C8 特征串：`WAVEPAINT-SERVICE`=1 / `wavepaint:`=11 / `WPServiceGuard`=5 / `s
 模拟 OS 协议回调等价替代。
 
 **范围说明**：#86 在 03 表 H 的原定义是「实例→模块定义源码跳转 + 源码文件导入」（A1~A4），
-本轮做的是其中**独立子项「服务在线性」**（用户当轮唯一诉求）；**A1~A4 仍为 ⬜ 未开工**，
-仍是近期主线第一项。
+本轮做的是其中**独立子项「服务在线性」**（用户当轮唯一诉求）；当时 **A1~A4 仍为 ⬜ 未开工**，
+已在下一轮（第十四轮，见 §4.12）全部实施完成。
+
+### 4.12 ✅ 已完成：#86 A1~A4 —— 实例→模块定义源码跳转 + 磁盘导入源码 + 源码集合随工程存档（2026-09-10 第十四轮，近期主线第一项收口）
+
+用户指令：「OK, 继续回到原来的任务，继续进行，按规划进行」→ 按 `09-HANDOFF.md` §3 的
+「下一步任务」开工 **#86 A1~A4**，一次做完四项（A4 原为「待用户拍板」，本轮一并落地）。
+
+**A1 底层解析/索引增强（`js/sim/rtl-nav.js`，+311 行）**：
+
+- 新增**源码级实例扫描器** `scanInstances(text, from, to, lineOf)`：字符流 + 平衡括号
+  `matchParen` + 多实例循环（`sub u1(a), u2(b), u3(c);`）+ 必须以 `;` 收尾；实例名与
+  语句位置取自**真实下标** ⇒ 行号精确。覆盖：参数化例化 `mod#(.P(1)) u(…)`、命名/位置
+  端口连接、generate 内例化、一条语句多实例。
+- 新增 `maskStrings(source)`（字符串内容换等长空格）+ `blankComments` 已成对的抹白，
+  防字符串里的 `"mod u(x);"` 干扰扫描；**未闭合字符串按 `inner = scan - index - 1` 保证等长**。
+- `mergeInstances(scanned, fromEngine)`：以 `moduleName.toLowerCase()|instanceName` 为 key
+  去重，扫描器优先、engine 兜底（engine 条目过两道闸：`isReservedName` 排除门原语 +
+  抹白文本里必须真存在 `<实例名> (`），最后按行号排序。
+- 新增模块定义索引：`collectModuleDefs(nav)`（压平成 `{name,file,fileIndex,line,...}`）、
+  `findModuleDefCandidates`（精确 → 大小写不敏感模糊）、`resolveModuleDef(defs, moduleName,
+  preferFileIndex)`（同名多处定义 → **优先同文件**，否则第一处）。
+
+**A2 交互：实例行 → 模块定义跳转（`rtl-panel.js` + `ui-bridge.js`）**：
+
+- `makeJumpRow(...)` 增第 6 参 `secondaryJump`：**左键 = 主入口（跳模块定义）**，
+  **右键 `contextmenu` / Alt+左键 = 次入口（跳例化点）**；title 里写明两种语义。
+- 实例行 payload 扩为 `{fileIndex, line, moduleName, instanceName, name, kind}`
+  （`kind:"instance"` 跳定义 / `kind:"instanceSite"` 跳例化点）。
+- `refreshStructureTrees()` 里 `kind==="instance"` → `resolveModuleDef`：命中 → 跨文件
+  `gotoSource(def.fileIndex, def.line)`（先 `syncEditor()` 再切 `state.active` + `renderFileTabs()`）
+  + 状态栏「已定位到 module X 的定义（file:line）」（fuzzy / 多候选附加说明）；未命中
+  （黑盒 / 外部 IP）→ 中文提示并退回例化点。
+
+**A3 交互：磁盘导入源码（`index.html` + `ui-bridge.js`）**：
+
+- `.source-actions` 新增 `<button id="sim-import">导入源码</button>`（`accept=.v/.sv/.vh/.svh`、
+  多选）。`pickSourceFilesFromDisk()` 优先 `showOpenFilePicker`，不可用回退隐藏 `<input type=file>`。
+- `importSourceFiles()`：读文本 →（`uniqueSourceFileName` 同名追加 `_2`/`_3` 并提示，不静默覆盖）
+  → 进 `state.files` → `renderFileTabs()` → `parseDesign()` 自动解析刷新 RTL 树 → 状态栏报告。
+  **不做全盘扫盘**（= Verdi filelist 语义的本地等价）。
+
+**A4 源码集合随 `.wp` 工程存档/恢复（`ui-bridge.js`）**：
+
+- **不改核心**（`wavepaint.clean.js` 是解混淆产物）：改为**包裹核心两个顶层函数**
+  `window.buildDocumentJson` / `window.loadFromFileContent`（classic script 的顶层 function
+  声明 = 全局对象属性，`file-menu.js` 已在用 `window.saveToFile`，口径一致）。
+- 存档：`injectArchiveSourceFiles(json, files, activeIndex)` 用**文本拼接**在末尾 `}` 前
+  追加 `"sourceFiles":[…]` + `"activeSourceIndex":N`（不二次 parse/stringify；空文档 `{}` 不多逗号）。
+  当前编辑器里尚未回写的文本由 `flushEditorIntoSourceFiles()` 回写（**故意不用 `syncEditor()`**
+  —— 后者会清 `design`/`outputs`/TB，保存不该有副作用）。
+- 恢复：`applyArchivedSourceFiles(text)` —— 带 `sourceFiles` → 整体替换 + `renderFileTabs()`
+  + `parseDesign()`；**旧工程不带 → 保持现状**（不覆盖用户正在编辑的源码）。面板未就绪
+  （如启动即带 `#d=` 分享链接）时只写 `state.files`，由 `init()` 渲染。
+- **存档桥尽早安装**（模块求值期，早于 DOMContentLoaded）—— 分享链接自动载入发生在核心
+  初始化阶段，装晚了会漏掉那一次恢复。核心未暴露这两个函数时**静默降级**（`console.warn`，
+  工程仍可存取，只是不带源码集合）。
+- `js/editor/file-menu.js` 的「新建」在 `resetDocumentInPlace()` 后调 `__wpsim.resetSourceFiles()`，
+  源码集合一并复位（与 C12「新建就地重置」口径一致）。
+- 新增自动化/探针入口 `window.__wpsim = { sourceFiles, active, archiveInstalled,
+  setSourceFiles, resetSourceFiles, importSourceFiles }`（不参与产品逻辑）。
+
+**验证（全绿）**：
+
+| 套件 | 结果 |
+|---|---|
+| `node tools/regression.mjs` | **68/68**（#86 A1 新增 6 条：多实例/参数化/generate 全识别、关键字与字符串不误判、实例名与端口同名取实例化语句行号、`maskStrings` 等长、定义索引与模糊/多候选） |
+| `node tools/e2e-rtl.mjs` | **23/23**（真实 Edge；新增 E1~E6） |
+| `node tools/e2e-sim.mjs` | 失败 0 项 |
+| `node tools/probe-param.mjs` | 全部通过 |
+| `node tools/e2e-ui.mjs` | **73/73**（真实 Edge） |
+| `node tools/exe-smoke.mjs` | 真实 exe 冒烟通过（core/wpf/doc/canvas/汉化全在、无异常） |
+
+**E 段断言（`tools/e2e-rtl.mjs`，真实 Edge 实测）**：
+E1 存档桥已安装且 `__wpsim` 可用；E2 两文件工程（top 例化 sub）点实例行 → 状态栏
+「已定位到 module sub 的定义（sub.v:1）」+ 标签切到 `sub.v`；E3 黑盒 `ext_ip` →
+「未找到模块 ext_ip 的源码定义（可能是黑盒或外部 IP），已定位到例化点第 3 行。」；
+E4 实例行右键 → 「已定位到 sub 的例化点（第 3 行）。」且仍停在 `top.sv`；
+E5a `buildDocumentJson` 产物含 `sourceFiles`（2 条、内容取自当前编辑）+ `activeSourceIndex`；
+E5b 载入带 `sourceFiles` 的最小工程 → `__wpsim.sourceFiles` 被整体替换（`loaded_a.sv,
+loaded_b.v`，`activeSourceIndex=1` 生效）；E6 侧栏存在「导入源码」按钮。
+
+**exe**：已按 C1 重建 —— `WavePaintClean.exe` **21,910,016 B**、时间戳 **2026-09-10 20:36:16**、
+`version.txt` = `v0.4.0 build 2026-09-10 20:36:16 327acf7`（哈希为构建时的 HEAD，提交后
+比新 commit 差一轮，与本项目历次口径一致）。C8 特征串（`rg -a -c`）：`scanInstances`=2、
+`resolveModuleDef`=3、`collectModuleDefs`=3、`sim-import`=2、`archiveInstalled`=1、
+`__wpsim`=2、`setSourceFiles`=5、`injectArchiveSourceFiles`=2。
+
+**范围与后续**：#86 A1~A4 至此**全部收口**。下一步整线进入 **#76 B1**（模块体内符号索引 +
+scope 映射）→ **B4**（代码内点/选中变量加波形 = 唯一加信号主路径，仿 Verdi Ctrl+W）。
 
 ---
 
@@ -454,6 +542,17 @@ C8 特征串：`WAVEPAINT-SERVICE`=1 / `wavepaint:`=11 / `WPServiceGuard`=5 / `s
 - **恢复 = 改 `simApiBase` / 同端口重拉，禁止自动跳转**：本应用没有自动保存，整页跳转会
   丢用户未保存画布；`relaunch()` 只能用隐藏 iframe（顶层跳转会被手势策略拦、协议未注册时
   还会顶掉页面）。
+- **实例识别（#86 A1）**：RTL 树的实例一律走自写 `rtl-nav.scanInstances`（源码级平衡括号
+  扫描，行号取自真实下标），engine 的 `parseInstances` 只作兜底 —— 它漏多实例同语句、
+  会把字符串 `"mod u(x);"` 当例化。**不要**为了修这个去改 `engine.js`（仿真链路最易碎），
+  见 06 P31。
+- **实例行两种语义（#86 A2）**：左键 = 跳**模块定义**（`resolveModuleDef`，跨文件切 tab，
+  同名优先同文件、大小写模糊会在状态栏说明）；右键 / Alt+左键 = 跳**例化点**。黑盒/外部 IP
+  给中文提示并退回例化点。
+- **源码集合存档（#86 A4）**：`sourceFiles`/`activeSourceIndex` 由 ui-bridge **包裹核心**
+  `window.buildDocumentJson`/`loadFromFileContent` 注入与恢复（文本拼接、不二次 parse）；
+  旧工程不带该字段 → 保持现状不清空用户源码。**这意味着「源码集合」是 `.wp` 的一等公民**，
+  以后新增的代码侧上下文（如 B5 信号组）照同一包裹口径扩展。
 
 ---
 

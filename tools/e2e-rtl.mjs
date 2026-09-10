@@ -5,6 +5,9 @@
 //   A. CodeMirror 6 bundle 加载、挂载到 #verilog-cm-host、textarea 降级隐藏
 //   B. RTL 结构树渲染（模块/端口/实例）与「点击跳转 → 状态栏确认」
 //   C. 运行一次真实仿真（/api/sim）→ VCD 信号层次树按 $scope 全路径渲染
+//   D. VCD 点信号 → 加画布观察行（#85）
+//   E. #86 A2/A3/A4：实例行 → 模块定义跳转（右键/Alt=例化点）、磁盘导入入口、
+//      源码集合随工程存档/恢复（.wp 往返）
 // 用法：node tools/e2e-rtl.mjs   （自带 dev-server；需本机 Edge；退出码非 0 表示有失败）
 // 与 e2e-ui.mjs 相同的防 C 盘爆盘策略：profile/TEMP 全部指到 D 盘 .e2e-tmp。
 // ============================================================================
@@ -289,6 +292,135 @@ if (ready === 'ready') {
     D6.done === true && D6.before === 1 && D6.after === 1
     && D6.stillInjected === true && D6.stillWatch === true && D6.sameAsQ === true && D6.vlen > 0,
     rerunState);
+
+  // ---- E. #86 A2/A3/A4：实例→定义跳转 / 磁盘导入入口 / 源码集合存档 ----
+  // E1: 存档桥已安装，__wpsim 自动化入口可用（setSourceFiles 供探针造工程）
+  const bridgeState = await ev(`(() => {
+    const w = window.__wpsim;
+    if (!w) return JSON.stringify({ has: false });
+    return JSON.stringify({
+      has: true,
+      installed: w.archiveInstalled,
+      files: (w.sourceFiles || []).length,
+      hasSetter: typeof w.setSourceFiles === 'function'
+    });
+  })()`);
+  const E1 = JSON.parse(bridgeState || '{}');
+  check('E1: 源码存档桥已安装且 __wpsim 自动化入口可用',
+    E1.has === true && E1.installed === true && E1.files >= 1 && E1.hasSetter === true, bridgeState);
+
+  // E2: 两文件工程（top 例化 sub）→ 点实例行 → 跳到 sub 的「源码定义」并切到 sub.v 标签
+  const defJump = await ev(`(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    window.__wpsim.setSourceFiles([
+      { name: 'top.sv', content: 'module top;\\n  wire clk;\\n  sub u_sub (.clk(clk));\\nendmodule\\n' },
+      { name: 'sub.v', content: 'module sub (input clk);\\nendmodule\\n' }
+    ]);
+    await sleep(500);
+    const tree = document.getElementById('rtl-tree');
+    const inst = tree && tree.querySelector('.rtl-inst');
+    if (!inst) return JSON.stringify({ err: 'no-inst', tree: tree ? tree.textContent.slice(0, 200) : 'no-tree' });
+    inst.click();
+    await sleep(300);
+    const chip = document.querySelector('#source-files .source-chip.active');
+    return JSON.stringify({
+      label: inst.textContent,
+      status: (document.getElementById('sim-status').textContent || ''),
+      active: window.__wpsim.active,
+      chip: chip ? chip.textContent : ''
+    });
+  })()`);
+  const E2 = JSON.parse(defJump || '{}');
+  check('E2: 点实例行 → 跳到 module sub 源码定义并切到 sub 文件标签',
+    /已定位到 module sub 的定义/.test(E2.status || '') && E2.active === 1 && E2.chip === 'sub.v', defJump);
+
+  // E3: 例化一个没有源码定义的模块（黑盒 / 外部 IP）→ 中文提示 + 退回例化点
+  const blackbox = await ev(`(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    window.__wpsim.setSourceFiles([
+      { name: 'top.sv', content: 'module top;\\n  wire a;\\n  ext_ip u_bb (.a(a));\\nendmodule\\n' }
+    ]);
+    await sleep(500);
+    const inst = document.querySelector('#rtl-tree .rtl-inst');
+    if (!inst) return JSON.stringify({ err: 'no-inst' });
+    inst.click();
+    await sleep(250);
+    return JSON.stringify({ status: (document.getElementById('sim-status').textContent || '') });
+  })()`);
+  const E3 = JSON.parse(blackbox || '{}');
+  check('E3: 黑盒例化 → 提示未找到模块源码定义并退回例化点',
+    /未找到模块 ext_ip 的源码定义/.test(E3.status || ''), blackbox);
+
+  // E4: 实例行右键 → 跳到「例化点行」（次入口语义，Alt+左键等价）
+  const siteJump = await ev(`(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    window.__wpsim.setSourceFiles([
+      { name: 'top.sv', content: 'module top;\\n  wire clk;\\n  sub u_sub (.clk(clk));\\nendmodule\\n' },
+      { name: 'sub.v', content: 'module sub (input clk);\\nendmodule\\n' }
+    ]);
+    await sleep(500);
+    const inst = document.querySelector('#rtl-tree .rtl-inst');
+    if (!inst) return JSON.stringify({ err: 'no-inst' });
+    inst.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    await sleep(250);
+    return JSON.stringify({
+      status: (document.getElementById('sim-status').textContent || ''),
+      active: window.__wpsim.active
+    });
+  })()`);
+  const E4 = JSON.parse(siteJump || '{}');
+  check('E4: 实例行右键 → 跳到例化点（次入口，仍停在例化文件 top.sv）',
+    /已定位到 sub 的例化点/.test(E4.status || '') && E4.active === 0, siteJump);
+
+  // E5: 源码集合随工程 JSON 往返 —— 存档含 sourceFiles/activeSourceIndex；载入时被整体替换
+  const archiveRoundTrip = await ev(`(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const parsed = JSON.parse(window.buildDocumentJson(window.document_wave));
+    const out = {
+      savedHas: Array.isArray(parsed.sourceFiles),
+      savedCount: Array.isArray(parsed.sourceFiles) ? parsed.sourceFiles.length : -1,
+      savedActive: parsed.activeSourceIndex,
+      savedFirstHasText: !!(parsed.sourceFiles && parsed.sourceFiles[0] && /module top/.test(parsed.sourceFiles[0].content || ''))
+    };
+    const minimal = JSON.stringify({
+      sampleCount: 4,
+      subStepCount: 0,
+      signals: [{ name: 'a', type: 'bit', values: [0, 1, 0, 1], labels: ['', '', '', ''] }],
+      sourceFiles: [
+        { name: 'loaded_a.sv', content: 'module loaded_a;\\nendmodule\\n' },
+        { name: 'loaded_b.v', content: 'module loaded_b;\\nendmodule\\n' }
+      ],
+      activeSourceIndex: 1
+    });
+    const ok = window.loadFromFileContent(window.document_wave, minimal);
+    await sleep(300);
+    const files = window.__wpsim.sourceFiles;
+    out.loadOk = ok;
+    out.loadedCount = files.length;
+    out.loadedNames = files.map((f) => f.name).join(',');
+    out.loadedActive = window.__wpsim.active;
+    return JSON.stringify(out);
+  })()`);
+  const E5 = JSON.parse(archiveRoundTrip || '{}');
+  check('E5a: 工程存档内含 sourceFiles 数组 + activeSourceIndex（内容取自当前编辑）',
+    E5.savedHas === true && E5.savedCount === 2 && E5.savedActive === 0 && E5.savedFirstHasText === true,
+    archiveRoundTrip);
+  check('E5b: 载入带 sourceFiles 的工程 → 源码集合被整体替换（含 activeSourceIndex）',
+    E5.loadOk === true && E5.loadedCount === 2 && E5.loadedNames === 'loaded_a.sv,loaded_b.v' && E5.loadedActive === 1,
+    archiveRoundTrip);
+
+  // E6: A3 磁盘导入入口按钮存在（真点会弹系统文件框，故只断言存在与可点）
+  const importBtn = await ev(`(() => {
+    const b = document.getElementById('sim-import');
+    return JSON.stringify({
+      exists: !!b,
+      label: b ? (b.textContent || '').trim() : '',
+      hasClick: b ? typeof b.click === 'function' : false
+    });
+  })()`);
+  const E6 = JSON.parse(importBtn || '{}');
+  check('E6: 侧栏存在「导入源码」磁盘入口按钮（A3）',
+    E6.exists === true && E6.label === '导入源码' && E6.hasClick === true, importBtn);
 }
 
 console.log('\n资源加载失败(404等)：' + netFails);

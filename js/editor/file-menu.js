@@ -85,6 +85,8 @@
       const ok = await window.wpConfirm('新建波形？所有未保存的修改将丢失。', '新建');
       if (!ok) return;
       resetDocumentInPlace();
+      // #86 A4：源码集合随工程走 —— 新建即复位源码标签页，避免残留上一个工程的源码。
+      try { window.__wpsim && window.__wpsim.resetSourceFiles(); } catch (e) { /* 仿真面板未就绪：非致命 */ }
       syncAfterDocChange();
     }
 

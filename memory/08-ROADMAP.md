@@ -18,6 +18,17 @@
 > + `/api/ping` 带 `PING_TAG` 身份标识 + `ivlRoot` 换版本首启崩溃修复 + 页面侧
 > `js/core/service-guard.js` 自动重连/重新拉起服务并自动重试仿真。**此子项不改变主线顺序，
 > #86 A1~A4 仍未开工**（详见 04 §4.11、07 D15、日志 2026-09-10）。
+> **第十四轮实施（2026-09-10，用户「继续回到原来的任务，按规划进行」）**：
+> ⑧ **#86 A1~A4 全部落地** —— ① 底层 `rtl-nav.js` 新增源码级实例扫描器 `scanInstances`
+> （字符流 + 平衡括号，覆盖「多实例同语句 / 参数化例化 / generate 内例化」）与模块定义索引
+> `collectModuleDefs` / `resolveModuleDef`（同名多处→同文件优先，大小写模糊标 `fuzzy`）；
+> ② 交互：RTL 树实例行**左键跳模块定义 / 右键（或 Alt+左键）跳例化点**，黑盒/外部 IP 给
+> 中文提示；③ 交互：侧栏新增「导入源码」按钮（`.v/.sv` 磁盘多选 → `state.files` → 自动
+> 解析刷新树）；④ **源码集合随 `.wp` 工程存档/恢复**（包裹核心 `buildDocumentJson` /
+> `loadFromFileContent`，旧工程向后兼容）—— A4 已由用户「按规划进行」拍板实施，不再是待定项。
+> 验证全绿（regression 68/68、e2e-rtl 23/23、e2e-ui 73/73、e2e-sim 0 失败、真 exe 冒烟），
+> exe 重建 `2026-09-10 20:36:16 327acf7`（详见 04 §4.12、06 P31、日志 2026-09-10 第十四轮）。
+> **主线下一项 = #76 B1**（模块体内符号索引 + VCD scope 映射）。
 
 ---
 
@@ -33,29 +44,52 @@
 
 | 期 | 内容 | 状态 | 关键点 |
 |---|---|---|---|
-| #86 | 实例 → 模块定义源码跳转 + 源码文件导入 + 例化解析增强 | 🟡 子项「服务在线性」✅ 2026-09-10 完成；**A1~A4 ⬜ 仍未开工（近期第一项）** | 底层：模块定义索引（全量 module 表 `file+moduleLine` 已就绪）需覆盖参数化例化 `#(.p(v))`、命名/位置端口例化、generate 内例化、多文件同名模块歧义；交互（仿 nTrace）：点实例跨文件跳定义行（保留“例化点”次入口），磁盘多选导入 `.sv/.v` 进 `state.files`（= Verdi filelist 语义的本地等价）。**2026-09-10 第十三轮先做了该需求下的独立子项「服务在线性根治」**（固定端口 17817 + 身份标识判活 + `ivlRoot` 首启崩溃修复 + 服务自愈，见 04 §4.11）；**A1~A4 一行未动，别误记为已完成** |
-| #76 | 代码点变量 → 加波形 + 树↔代码双向跳转 + 信号组入 `.wp` | ⬜ 近期第二项（#85 的 VCD 侧已完成） | 底层：**模块体内符号索引**（reg/wire/net/端口/实例名 → 行号 → 映射到 VCD scope 全路径）、多实例歧义候选数据（同名模块 N 次例化 → 让用户选 instance scope）；交互（仿 Verdi Get Signals/nWave）：**代码内点变量名加波形为唯一主路径**（B4，“中追”式 = #87①；第十二轮澄清 RTL 树不再点行加信号）、树↔代码双向跳转、信号组/观察行随 `.wp` 存档恢复 |
+| #86 | 实例 → 模块定义源码跳转 + 源码文件导入 + 例化解析增强 | ✅ **A1~A4 全部完成 2026-09-10（第十四轮）**；服务在线性子项 ✅ 同日第十三轮 | 底层：模块定义索引（全量 module 表 `file+moduleLine` 已就绪）**已补**「源码级实例扫描器 + 模块定义候选索引」，覆盖参数化例化 `#(.p(v))`、命名/位置端口例化、generate 内例化、多实例同语句、多文件同名模块歧义（同文件优先）；交互（仿 nTrace）：实例行**左键跨文件跳定义行，右键/Alt 跳“例化点”**，黑盒给中文提示，磁盘多选导入 `.sv/.v` 进 `state.files`（= Verdi filelist 语义的本地等价）；**源码集合随 `.wp` 存档恢复**（A4）。**2026-09-10 第十三轮另做了独立子项「服务在线性根治」**（固定端口 17817 + 身份标识判活 + `ivlRoot` 首启崩溃修复 + 服务自愈，见 04 §4.11）。实现细节见 04 §4.12、06 P31 |
+| #76 | 代码点变量 → 加波形 + 树↔代码双向跳转 + 信号组入 `.wp` | ⬜ **近期下一项（#86 已收官，第一顺位开工 B1）**（#85 的 VCD 侧已完成） | 底层：**模块体内符号索引**（reg/wire/net/端口/实例名 → 行号 → 映射到 VCD scope 全路径）、多实例歧义候选数据（同名模块 N 次例化 → 让用户选 instance scope）；交互（仿 Verdi Get Signals/nWave）：**代码内点变量名加波形为唯一主路径**（B4，“中追”式 = #87①；第十二轮澄清 RTL 树不再点行加信号）、树↔代码双向跳转、信号组/观察行随 `.wp` 存档恢复（`sourceFiles` 已由 A4 打通，B5 直接沿用同一存档桥） |
 | #87①/② | 源码选中变量 → 加波形（Ctrl+W）、模块全部接口一键入波形（Ctrl+4） | ⬜ 优先级提高 | 用户将 #87 整体优先级提高；① 即“代码内点变量名→加波形”（与 #76 目标合流，建议并入 #76 实现而非另起）；② 是模块/实例全部接口批量入波形（= “Ctrl+4”），建议紧跟 #76 收尾落地；③ 信号组管理与 #76 信号组入 `.wp` 合流；④ Active Annotation 随 #77 移远期 |
 
 ### 1.1 #86 拆解（近期第一项，建议小步 commit）
 
-- **A1 底层解析/索引增强**：`rtl-nav.js` 模块表补“模块定义候选”索引；例化行识别补
-  参数化例化 / 命名端口 / generate 内例化，保证“实例 → 定义”映射对更多写法成立。
-- **A2 交互：实例 → 定义跳转**：RTL 树实例节点单击 → 按 `moduleName` 查模块定义候选 →
-  同文件跳 `moduleLine` / 跨文件先切 tab 再跳；无定义（blackbox/外部模块）给中文提示；
-  「跳到例化点行」保留为次入口（如右键/辅助键），不破坏现有“树 → 代码”跳转。
-- **A3 交互：磁盘导入源码文件**：新增「导入源码文件…」，复用核心 `showOpenFilePicker`
-  （隐藏 `<input type=file>` 兜底），`accept=.sv,.v` 支持多选 → 文本进 `state.files`
-  （真实文件名、同名去重改名提示）→ 自动 `parseDesign` + 刷新 RTL 树。不做全盘扫盘。
-- **A4 可选（待用户拍板）**：源码文件集合随 `.wp` 工程存档/恢复——不做则每次打开工程需
-  重新导入源码，“打开 top 自动找例化模块源码”体验不完整。
+> **状态：✅ A1~A4 全部完成（2026-09-10 第十四轮，exe 重建 20:36:16）。**
+> 实现细节与验证表见 04 §4.12；踩坑记录见 06 P31。下面的条目保留为“当初的拆解口径”。
+
+- **A1 ✅ 底层解析/索引增强**：`rtl-nav.js` 新增 `scanInstances(text, from, to, lineOf)`
+  —— 字符流 + `matchParen` 平衡括号 + 多实例循环 + 必须 `;` 收尾，行号取自真实下标；
+  新增 `maskStrings(source)`（字符串内容换**等长**空格）；新增 `mergeInstances`
+  （扫描器优先、engine 兜底，兜底条目过两道闸：`isReservedName` 排除门原语 + 抹白文本里
+  必须真存在 `<实例名> (`）；新增 `collectModuleDefs` / `findModuleDefCandidates` /
+  `resolveModuleDef`。**核心动机：绕开 `sim/engine.js` 的 `matchSignalsToPorts` 最易碎区（C9），
+  另写一套只读扫描器。**
+- **A2 ✅ 交互：实例 → 定义跳转**：`rtl-panel.js makeJumpRow(...)` 增第 6 参 `secondaryJump`
+  —— 左键 = 跳 `module` 定义，**右键 `contextmenu` / Alt+左键 = 跳例化点**；实例行 payload
+  扩为 `{fileIndex,line,moduleName,instanceName,name,kind}`（`"instance"` 跳定义 /
+  `"instanceSite"` 跳例化点）；`ui-bridge.js gotoSource(fileIndex, line)` 跨文件先
+  `syncEditor()` → 切 `state.active` → `renderFileTabs()` → `jumpToEditorLine`；无定义给中文
+  提示「未找到模块 X 的源码定义（可能是黑盒或外部 IP），已定位到例化点第 N 行。」
+- **A3 ✅ 交互：磁盘导入源码文件**：`index.html` 侧栏 `.source-actions` 新增
+  `<button id="sim-import">导入源码</button>`；`ui-bridge.js` 新增 `SOURCE_FILE_ACCEPT` /
+  `readSourceFilesViaInput()` / `pickSourceFilesFromDisk()`（优先核心 `showOpenFilePicker`，
+  隐藏 `<input type=file>` 兜底）/ `uniqueSourceFileName()`（同名去重）/ `importSourceFiles()`
+  → 文本进 `state.files`（真实文件名）→ 自动解析 + 刷新 RTL 树。**不做全盘扫盘。**
+- **A4 ✅ 源码集合随 `.wp` 工程存档/恢复**（用户「按规划进行」= 拍板实施）：
+  `installProjectArchiveBridge()` 包裹核心 `window.buildDocumentJson` / `window.loadFromFileContent`
+  （失败 `console.warn` 静默降级）；`injectArchiveSourceFiles()` **文本拼接**在末尾 `}` 前注入
+  `sourceFiles`/`activeSourceIndex`（空文档 `{}` 不多逗号）；`flushEditorIntoSourceFiles()`
+  **故意不用 `syncEditor()`**（避免清掉 design/outputs/TB）；`applyArchivedSourceFiles()`
+  带 `sourceFiles` → 整体替换，旧工程 → 保持现状；`file-menu.js` `onNew()` 里
+  `resetSourceFiles()`。**桥必须在核心初始化前安装**（分享链接 `#d=` 载入发生在初始化期）。
 
 ### 1.2 #76 拆解（近期第二项，建议小步 commit；第十二轮口径：代码点变量 = 唯一加信号主路径）
 
+> **状态：⬜ 未开工；#86 已于第十四轮收官，本批为近期下一项（第一顺位 = B1）。**
+> 可直接复用 #86 A1 打好的解析底座：`rtl-nav.js` 的 `scanInstances` / `collectModuleDefs` /
+> `resolveModuleDef` / `maskStrings`（抹白字符串与注释，供符号扫描安全复用）；A4 的 `.wp`
+> 存档桥（`installProjectArchiveBridge` / `injectArchiveSourceFiles`）也是 B5 信号组存档的现成入口。
+
 - **B1 底层：模块体内符号索引 + scope 映射**：`parseVerilogDesign`/`rtl-nav` 只覆盖模块头
-  （端口/参数/实例）；要“点代码变量加波形”，需补模块体内声明索引（reg/wire/参数/端口/
-  实例名 → 行号），并把符号映射到 VCD 点分 scope（模块例化路径 + 信号名）。这是本批
-  “解析能力增强”的核心，也是“双向跳转/反向高亮”的底座。
+（端口/参数/实例）；要“点代码变量加波形”，需补模块体内声明索引（reg/wire/参数/端口/
+实例名 → 行号），并把符号映射到 VCD 点分 scope（模块例化路径 + 信号名）。这是本批
+“解析能力增强”的核心，也是“双向跳转/反向高亮”的底座。
 - **B2（撤销，第十二轮）**：原「RTL 树点行加波形」取消 —— 用户明确 RTL 树只做代码层级浏览，
   不显示接口/信号、不承担加信号交互。不再实施。**RTL 树瘦身（删端口/参数分组与端口计数）的
   首批实施已完成 2026-09-09**（rtl-panel.js UI 只删不增，数据层不变；e2e-rtl 16/16 +

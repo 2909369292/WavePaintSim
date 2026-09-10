@@ -1,6 +1,6 @@
 import { buildAutoTestbench, buildSimulationPayload, createPortStimulus, createSignalFromPort, diagnoseSimulation, parseVerilogDesign, vcdToProjectOutputs } from "./engine.js";
 import { formatVectorValue, normalizeVectorValue } from "./project-model.js";
-import { buildRtlNav } from "./rtl-nav.js";
+import { buildRtlNav, collectModuleDefs, resolveModuleDef } from "./rtl-nav.js";
 import { buildVcdHierarchy } from "./vcd-index.js";
 import { installCodeEditor, renderRtlTree, renderVcdTree } from "./rtl-panel.js";
 
@@ -408,6 +408,7 @@ function initRefs() {
   refs.status = el("sim-status");
   refs.recoverBtn = el("sim-recover"); // 服务彻底死亡时的手动自愈入口（index.html 默认隐藏）
   refs.addFile = el("sim-addfile");
+  refs.importFile = el("sim-import");
   refs.removeFile = el("sim-removefile");
   refs.parseBtn = el("sim-parse");
   refs.topRow = el("sim-top-row");
@@ -560,21 +561,51 @@ function refreshVcdTree() {
   renderVcdTree(refs.vcdTree, index, (path) => pickVcdSignalIntoWave(path));
 }
 
+// 切到目标文件并跳到目标行（跨文件先同步当前编辑内容，再切标签页）。
+function gotoSource(fileIndex, line) {
+  if (typeof fileIndex === "number" && fileIndex !== state.active && state.files[fileIndex]) {
+    syncEditor();
+    state.active = fileIndex;
+    renderFileTabs();
+  }
+  if (Number(line) > 0) jumpToEditorLine(Number(line));
+}
+
 // 重建 RTL 结构树（纯数据 buildRtlNav 从 state.files 现算，不依赖 state.design）。
-// 点击节点：若在其它文件先切换标签页，再跳到对应源码行。
+// 点击语义（#86 A2，仿 Verdi nTrace）：
+//   · 模块行  → 跳到该 module 的定义行；
+//   · 实例行  → 按 moduleName 查「模块定义候选」，同文件直跳 / 跨文件先切 tab 再跳；
+//              无定义（黑盒 / 外部 IP）→ 中文提示并退回例化点；
+//              同名多处定义 → 优先同文件，并在状态栏说明候选数；
+//   · 实例行右键 / Alt+左键 → 跳到**例化点行**（次入口，保留原有能力）。
 function refreshStructureTrees() {
   if (!refs.rtlTree && !refs.vcdTree) return;
   if (refs.rtlTree) {
     const nav = buildRtlNav(state.files);
+    const defs = collectModuleDefs(nav);
     renderRtlTree(refs.rtlTree, nav, (target) => {
       if (!target) return;
-      if (typeof target.fileIndex === "number" && target.fileIndex !== state.active) {
-        syncEditor();
-        state.active = target.fileIndex;
-        renderFileTabs();
+      if (target.kind === "instance") {
+        const moduleName = String(target.moduleName || "");
+        const { def, candidates, fuzzy } = resolveModuleDef(defs, moduleName, target.fileIndex);
+        if (!def) {
+          gotoSource(target.fileIndex, target.line);
+          setStatus(`未找到模块 ${moduleName} 的源码定义（可能是黑盒或外部 IP），已定位到例化点第 ${target.line} 行。`);
+          return;
+        }
+        gotoSource(def.fileIndex, def.line);
+        const where = `${def.file}:${def.line}`;
+        const extras = [];
+        if (fuzzy) extras.push(`注意：定义名大小写与 ${moduleName} 不完全一致`);
+        if (candidates.length > 1) extras.push(`同名模块共 ${candidates.length} 处定义，已跳到${def.fileIndex === target.fileIndex ? "同文件" : "第一处"}候选`);
+        setStatus(`已定位到 module ${def.name} 的定义（${where}）${extras.length ? "　" + extras.join("；") + "。" : "。"}`);
+        return;
       }
-      if (Number(target.line) > 0) jumpToEditorLine(target.line);
-      if (target.kind === "module" && target.name) {
+      // "instanceSite"（次入口）：实例化语句所在行
+      gotoSource(target.fileIndex, target.line);
+      if (target.kind === "instanceSite") {
+        setStatus(`已定位到 ${target.moduleName || ""} 的例化点（第 ${target.line} 行）。`);
+      } else if (target.kind === "module" && target.name) {
         setStatus(`已定位到 module ${target.name}（第 ${target.line} 行）。`);
       }
     });
@@ -1114,6 +1145,223 @@ function removeFile() {
   render();
 }
 
+// ---------------------------------------------------------------------------
+// #86 A3：从磁盘导入源码文件（= Verdi filelist 的本地等价；不做全盘扫盘）
+// ---------------------------------------------------------------------------
+// 读到的文本直接进 state.files（保留真实文件名），随后自动 parseDesign + 刷新 RTL 树。
+// 优先 File System Access API（可多选、可记住最近目录）；不可用时回退隐藏 <input type=file>。
+const SOURCE_FILE_ACCEPT = [".v", ".sv", ".vh", ".svh"];
+
+function readSourceFilesViaInput() {
+  return new Promise((resolve, reject) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = SOURCE_FILE_ACCEPT.join(",");
+    input.multiple = true;
+    input.style.display = "none";
+    document.body.appendChild(input);
+    const cleanup = () => { try { document.body.removeChild(input); } catch (error) { /* 已移除 */ } };
+    input.addEventListener("change", async () => {
+      const files = Array.from(input.files || []);
+      cleanup();
+      try {
+        resolve(await Promise.all(files.map(async (file) => ({ name: file.name, content: await file.text() }))));
+      } catch (error) {
+        reject(error);
+      }
+    });
+    // 注：用户取消选择时浏览器不派发 change（且可能派发 cancel，各家不一），
+    // 此时 Promise 保持挂起但不持有 DOM（input 仅在被取消后残留，由下次导入覆盖）——
+    // 不影响功能，也不阻塞后续导入。
+    input.click();
+  });
+}
+
+async function pickSourceFilesFromDisk() {
+  if (typeof window.showOpenFilePicker === "function") {
+    const handles = await window.showOpenFilePicker({
+      multiple: true,
+      types: [{ description: "Verilog / SystemVerilog 源码", accept: { "text/plain": SOURCE_FILE_ACCEPT } }]
+    });
+    return Promise.all((handles || []).map(async (handle) => {
+      const file = await handle.getFile();
+      return { name: file.name, content: await file.text() };
+    }));
+  }
+  return readSourceFilesViaInput();
+}
+
+// 同名去重：已存在同名文件时在扩展名前追加 `_2` / `_3`…（并回报给用户，不静默覆盖）。
+function uniqueSourceFileName(name) {
+  const base = String(name || "imported.sv").trim() || "imported.sv";
+  const dot = base.lastIndexOf(".");
+  const stem = dot > 0 ? base.slice(0, dot) : base;
+  const ext = dot > 0 ? base.slice(dot) : "";
+  let candidate = base;
+  let n = 2;
+  while (state.files.some((file) => file.name === candidate)) {
+    candidate = `${stem}_${n}${ext}`;
+    n += 1;
+  }
+  return candidate;
+}
+
+async function importSourceFiles() {
+  let picked = [];
+  try {
+    picked = await pickSourceFilesFromDisk();
+  } catch (error) {
+    if (error && error.name === "AbortError") { setStatus("已取消导入。"); return; }
+    setStatus(`导入源码失败：${(error && error.message) || error}`);
+    return;
+  }
+  const valid = (picked || []).filter((item) => item && String(item.name || "").trim());
+  if (!valid.length) return;
+  syncEditor();
+  const renamed = [];
+  const firstIndex = state.files.length;
+  for (const item of valid) {
+    const name = uniqueSourceFileName(item.name);
+    if (name !== item.name) renamed.push(`${item.name} → ${name}`);
+    state.files.push({ id: `file_${state.files.length}`, name, content: String(item.content || "") });
+  }
+  state.active = firstIndex;
+  renderFileTabs();
+  parseDesign();   // 自动解析 + 刷新 RTL 结构树（parseDesign 内部已 refreshStructureTrees）
+  const renameNote = renamed.length ? `　同名文件已重命名：${renamed.join("、")}。` : "";
+  setStatus(`已导入 ${valid.length} 个源码文件并自动解析。${renameNote}`);
+}
+
+// ---------------------------------------------------------------------------
+// #86 A4：源码文件集合随 .wp 工程存档 / 恢复
+// ---------------------------------------------------------------------------
+// 口径：**不改核心**（js/wavepaint.clean.js 是解混淆产物，改一行都要背上回归风险），
+// 改用「包裹核心两个顶层函数」给工程 JSON 追加 `sourceFiles` + `activeSourceIndex`：
+//   · `buildDocumentJson` —— 保存 / 分享链接共用；核心内部是 `buildDocumentJson(item)`
+//     动态查表（classic script 的顶层 function 声明即全局对象属性），所以包裹
+//     `window.buildDocumentJson` 对 `saveToFile` / `createShareLink` 一并生效；
+//   · `loadFromFileContent` —— 覆盖「打开 / 载入示例 / 分享链接(#d=)」全部载入路径。
+// 注入方式用**文本拼接**而不是二次 JSON.parse+stringify：波形文档可能很大，
+// 保存时不该把整份文档再解析一遍（JSON.stringify 才是耗时大头）。
+// 旧工程没有这两个字段 → 保持当前源码集合不动（向后兼容）。
+let archiveBridgeInstalled = false;
+
+function indentBlock(text, indent) {
+  const pad = " ".repeat(indent);
+  return String(text).split("\n").map((line) => pad + line).join("\n");
+}
+
+// 把 { sourceFiles, activeSourceIndex } 追加进核心产物 JSON 的末尾。
+// 核心产物形如 `{\n  "sampleCount": 30,\n  …\n}`（JSON.stringify(val, null, 2)），
+// 因此在最后一个 `}` 之前插入即可 —— 不解析、不重排，只做一次字符串拼接。
+function injectArchiveSourceFiles(json, files, activeIndex) {
+  const text = String(json || "");
+  const braceAt = text.lastIndexOf("}");
+  if (braceAt < 0) return text;
+  const head = text.slice(0, braceAt).replace(/[\s,]+$/, "");
+  const tail = text.slice(braceAt);
+  if (!/\{/.test(head)) return text;             // 不是对象字面量（异常输入）→ 原样返回
+  const block = [
+    `"sourceFiles": ${JSON.stringify(files, null, 2)}`,
+    `"activeSourceIndex": ${Math.max(0, Number(activeIndex) || 0)}`
+  ].join(",\n");
+  const comma = head.endsWith("{") ? "" : ",";   // 空文档 `{}` 不能多一个逗号
+  return `${head}${comma}\n${indentBlock(block, 2)}\n${tail}`;
+}
+
+// 把编辑器里「尚未回写」的当前文件内容同步进 state.files（只做这一件事：
+// 不能用 syncEditor()，它会顺带清空 design / outputs / TB，保存时不该有副作用）。
+function flushEditorIntoSourceFiles() {
+  const file = currentFile();
+  if (file && refs.sourceEditor) file.content = String(refs.sourceEditor.value || "");
+}
+
+function archiveSourceFiles() {
+  flushEditorIntoSourceFiles();
+  return state.files.map((file) => ({ name: String(file.name || ""), content: String(file.content || "") }));
+}
+
+function installProjectArchiveBridge() {
+  if (archiveBridgeInstalled) return true;
+  if (typeof window.buildDocumentJson !== "function" || typeof window.loadFromFileContent !== "function") {
+    // 核心未按预期暴露顶层函数（结构变了）→ 静默降级：工程仍可存取，只是不带源码集合。
+    console.warn("[WavePaint] 源码存档桥未安装：核心未暴露 buildDocumentJson / loadFromFileContent。");
+    return false;
+  }
+  const originalBuild = window.buildDocumentJson;
+  const originalLoad = window.loadFromFileContent;
+  window.buildDocumentJson = function (item) {
+    const json = originalBuild.apply(this, arguments);
+    try {
+      return injectArchiveSourceFiles(json, archiveSourceFiles(), state.active);
+    } catch (error) {
+      console.warn("[WavePaint] 注入源码集合失败（工程本身仍正常保存）：", error);
+      return json;
+    }
+  };
+  window.loadFromFileContent = function (item, text) {
+    const ok = originalLoad.apply(this, arguments);
+    if (ok) {
+      try {
+        applyArchivedSourceFiles(text);
+      } catch (error) {
+        console.warn("[WavePaint] 恢复源码集合失败（波形本身已载入）：", error);
+      }
+    }
+    return ok;
+  };
+  archiveBridgeInstalled = true;
+  return true;
+}
+
+// 工程里带 sourceFiles → 整体替换源码集合（并刷新标签页/RTL 树）；
+// 不带（旧工程）→ 保持现状，避免把用户正在编辑的源码清掉。
+function applyArchivedSourceFiles(text) {
+  let parsed;
+  try {
+    parsed = JSON.parse(String(text || ""));
+  } catch (error) {
+    return;   // 分享链接的压缩载荷等场景：解析不了就跳过（波形载入不受影响）
+  }
+  const raw = Array.isArray(parsed?.sourceFiles) ? parsed.sourceFiles : null;
+  if (!raw || !raw.length) return;
+  const files = raw
+    .filter((file) => file && typeof file.name === "string" && file.name.trim())
+    .map((file) => ({ name: String(file.name), content: String(file.content ?? "") }));
+  if (!files.length) return;
+  state.files = files;
+  state.active = Math.max(0, Math.min(files.length - 1, Number(parsed.activeSourceIndex) || 0));
+  if (!refs.sourceFiles) return;   // 面板尚未就绪（如启动即带 #d= 链接）：init() 会用新的 state.files 渲染
+  renderFileTabs();   // 必须先切编辑器文本，再 parseDesign（否则 syncEditor 会把旧文本回写进新文件）
+  parseDesign();      // 重新解析 + 刷新 RTL 结构树
+  setStatus(`已从工程恢复 ${files.length} 个源码文件并自动解析。`);
+}
+
+// 新建工程：源码集合一并复位为「一个空标签页」（与 C12 的「新建就地重置」口径一致）。
+function resetSourceFiles() {
+  state.files = [{ id: "file0", name: "design.sv", content: "" }];
+  state.active = 0;
+  state.design = null;
+  refs.sourceFiles && renderFileTabs();
+  refs.rtlTree && refreshStructureTrees();
+}
+
+// 整体替换源码集合（自动化/探针入口；也供将来「打开 filelist」复用）。
+function setSourceFiles(files) {
+  const list = (Array.isArray(files) ? files : [])
+    .filter((file) => file && typeof file.name === "string" && file.name.trim())
+    .map((file, index) => ({ id: `file_${index}`, name: String(file.name), content: String(file.content ?? "") }));
+  state.files = list.length ? list : [{ id: "file0", name: "design.sv", content: "" }];
+  state.active = 0;
+  state.design = null;
+  state.outputs = [];
+  state.lastTestbench = "";
+  updateTbViewer();
+  if (!refs.sourceFiles) return;
+  renderFileTabs();
+  parseDesign();
+}
+
 function bindEvents() {
   refs.toggleBtn?.addEventListener("click", () => {
     refs.panel.classList.remove("collapsed");
@@ -1131,6 +1379,7 @@ function bindEvents() {
     render();
   });
   refs.addFile?.addEventListener("click", addFile);
+  refs.importFile?.addEventListener("click", importSourceFiles);
   refs.removeFile?.addEventListener("click", removeFile);
   refs.parseBtn?.addEventListener("click", parseDesign);
   refs.topSelect?.addEventListener("change", () => {
@@ -1207,6 +1456,20 @@ function showAppVersion() {
     })
     .catch(() => { /* 无版本文件（如 dev-server）：留空 */ });
 }
+
+// #86 A4：存档桥必须尽早安装 —— 分享链接（#d=/#j=）的自动载入发生在核心初始化阶段，
+// 装晚了就会漏掉那一次「载入 → 恢复源码集合」。模块求值时机早于 DOMContentLoaded。
+installProjectArchiveBridge();
+
+// 调试 / 自动化测试入口（e2e 探针用；不参与产品逻辑，不写入全局状态）。
+window.__wpsim = {
+  get sourceFiles() { return state.files.map((file) => ({ name: file.name, content: file.content })); },
+  get active() { return state.active; },
+  get archiveInstalled() { return archiveBridgeInstalled; },
+  setSourceFiles,
+  resetSourceFiles,
+  importSourceFiles
+};
 
 if (document.readyState === "loading") {
   window.addEventListener("DOMContentLoaded", init, { once: true });
