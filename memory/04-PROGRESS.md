@@ -12,11 +12,12 @@
 | 当前版本 | `v0.4.0 build <自动时间> <git短哈希>` |
 | 代码状态 | 主线可用，`main` 分支 |
 | 构建产物 | `D:\Files\Code\波形\WavePaintClean.exe` |
+| 最近完成（第二十轮） | **侧栏 / 整体 UI 重构设计方案已交付（2026-09-10 第二十轮，见 §4.18 + `08-ROADMAP.md` §2.1~§2.9）** —— 只出方案、**未动任何受版本控制代码**（`index.html`/`css/`/`js/` 一行未改），因此**本轮不重建 exe**（C1 未触发，exe 仍是 `2026-09-10 22:49:32` 那版）。方案含：现状问题清单（P1 空间 / P2 数量 / P3 语义遗留 / P4 结构 / P5 CSS 双轨，全部实测）、仿 Verdi「三区 + 一条控制带」目标布局、面板与按钮归位表、六条主线衔接点、**契约面冻结清单**（24 个 id + class/dataset + VCD 行 `title` 全路径 + 状态类）、P0/P1/P2 分期计划、「UI 设计交给其它 AI」评估 + 现状交互清单。**状态 = 待用户 review（拍板后按 08 §2.6 P0 开工）** |
 | 最近完成需求 | **#87②：模块/实例全部接口一键入波形（2026-09-10 第十九轮落地，见 §4.17）** —— 代码区按 **`Ctrl+Alt+4`** 即可把光标所在**模块（或实例）的全部接口（端口）**一次加为观察行（唯一作用域直加；同名模块/实例多作用域 → **代码区旁轻量浮层**选作用域；重复触发幂等；无 VCD 数据 / 未 dump 给中文说明）。**刻意不用 `Ctrl+4`** —— Chromium/Edge 把 `Ctrl+数字` 当浏览器级「切换标签页」加速键，页面收不到 keydown（与 `Ctrl+W` 同源，见 06 P33/P36）。**「全部接口」= 模块端口（`kind === "port"`）**，体内 `wire/reg` 仍走 B4 单点加入。**未改 `js/wavepaint.clean.js` 与 `sim/engine.js` 一行**（C9 守住）。此前 **#76 已收口**：B5（第十八轮，§4.16）、B3（第十七轮）、B4（第十六轮）、B1（第十五轮）、**#86 A1~A4**（第十四轮）、**#86 服务在线性**（第十三轮）、**#85**（第十轮）、第十二轮 RTL 树瘦身、第六轮 5 项 + #93 收官 |
 | 最近完成文档 | **第十九轮记忆同步**（2026-09-10）：新增 §4.17（#87② 落地全记录）、06 P36（`Ctrl+4` 被浏览器吞 + **实例符号 `moduleName` 被索引覆盖** + 「只 splice 不清登记 → render 会复活行」的测试陷阱）、07 D19（`Ctrl+Alt+4` 选型 + 「全部接口 = 端口」口径 + 多候选复用代码区旁轻量浮层 `mode="scope"`）、03 表 F/H #87 状态（**①②③ 全部落地**）、08 文件头/§1/§1.2 + **新增 §1.3**（#87② ✅ + 主线下移）、本文件 §1 快照 / §2 时间线 / §4.4 / §6、09 全篇切第二十轮、当日日志「第十九轮」、`05-LOGS.md` 索引、`INDEX.md` 页脚。叠加生效的仍是**第十二轮澄清**：加信号主路径 = 代码内点/选中变量（“中追”式 = #87①/#76 B4，**已落地**）；RTL 结构树为纯代码层级浏览（文件→模块→实例），不显示接口信号、不承载加信号交互（原 #76 B2 撤销）。见 §4.10 / 03 表 F/H / 08 §1.2/§2 |
 | 最近一轮（第十九轮，2026-09-10） | **#87② 落地：模块/实例全部接口一键入波形（详见 §4.17）**。① `js/sim/rtl-panel.js`：`installCodeEditor` 增第 7 参 `onAddScope`；触发块重构为 `request(via, event, handler)`（handler 缺省回落 B4 单符号入口；**未接线的手势静默放过、不吞事件**）；keydown 捕获阶段识别 **`Ctrl/Cmd+Alt+4`**（`key==="4" || code==="Digit4" || code==="Numpad4"`）→ `preventDefault()+stopPropagation()` → `onAddScope`；`Ctrl+Alt+W`（B4）行为不变。② `js/sim/ui-bridge.js`：浮层泛化 `openPicker(title, items, anchor, mode)`（`items=[{label,title,onPick}]`、`box.dataset.pickerMode`）+ 薄封装 `showSymbolPicker`（mode `"symbol"`，**B4 选项文本仍是 VCD 全路径、探针口径不变**）/ `showScopePicker`（mode `"scope"`）；新增 `moduleScopes` / `modulePorts`（`kind==="port"` 按名去重）/ **`addVcdPathsToWave`**（**批量、只 render 一次**、末尾滚动定位、**不设状态栏**，返回 `{ready,added[],existed[],missing[]}`）/ `modulePortsStatus`（唯一汇总文案入口）/ `addModulePortsToWave` / `addModulePortsFromCode`；接线 `onAddScope`；三处提示追加 `Ctrl+Alt+4`；`__wpsim` 增探针（`addModulePortsFromCode`/`moduleScopesOf`/`modulePortsOf`/`addVcdPathsToWave`/`get pickerMode`）。③ `tools/e2e-rtl.mjs` +9 条 J 段（J0~J7）。**修掉一个真 bug**：分支①（光标在实例名上）若用 `findSymbols` 命中项的 `moduleName` 查作用域是**错的** —— 符号索引把实例符号的 `moduleName` 覆盖成**定义所在模块** → 改为按「**实例名后缀**」直接查 `index.instancePaths`。exe 已重建（22:49:32） |
 | 当前阻塞 | 无 |
-| 下一步主线 | **#87② 已完成（第十九轮）→ #76 + #87①②③ 全部收口**。**下一项 = 侧栏 / 整体 UI 重构设计方案**（08 §2）：侧栏现状已超规划（按钮 + 代码 + RTL 树 + VCD 树 + 仿真控制 + 状态区挤在一起），**先出一版「UI 重构设计方案」给用户 review，确认后再实施，不直接开工**；可评估「把 UI 设计交给其它 AI 出稿 + 人类 review」的可行性与输入素材要求。**#84 波形查看增强 / #77 Active Annotation 已推迟远期**（08 §3，除非用户再拍板）。RTL 树仍只做代码层级浏览；服务自愈（§4.11）是独立专项 |
+| 下一步主线 | **第二十轮：侧栏 / 整体 UI 重构设计方案已交付（§4.18 + 08 §2.1~§2.9），状态 = 待用户 review**。用户拍板后按 **08 §2.6 分期开工**：**P0** = 纯 CSS/布局（分区标题 + 卡片折叠 + 自适应高度 + `#sim-collapse` 死引用与 `#sim-addsignals` 文案清理，不动 id/class/DOM 层级，风险低）；**P1** = DOM 重排（VCD 树移入波形区 / TB 折叠 / 控制带收敛，保 id/class、只改父容器）；**P2** = 多面板拖拽 + 面板状态持久化（session 级）。**每期独立 commit + push `main`，且每期都要 C1 重建 exe + C8 核验 + 全量测试 + C17 记忆同步**。此前 **#87② 已完成（第十九轮）→ #76 + #87①②③ 全部收口**。**#84 波形查看增强 / #77 Active Annotation 仍为远期**（08 §3，除非用户再拍板）。RTL 树仍只做代码层级浏览；服务自愈（§4.11）是独立专项 | 
 | 测试基线 | regression **79/79**；e2e-rtl **61/61**（第十九轮新增 **J0~J7 共 9 条**）；e2e-ui 73/73；e2e-sim 0 失败；probe-param 全过；**2026-09-10 第十九轮实测复跑（全部实测）：regression 79/79、e2e-rtl 61/61、e2e-ui 73/73、e2e-sim 0 失败、probe-param 全过、真 exe 冒烟通过**（B4 起「仿真后不全量灌信号」的 e2e-sim 断言仍在守） |
 | UI 基线 | e2e-rtl **61/61**（含 #85 D1~D6 + 第十二轮 B3 RTL 树纯层级浏览 + 第十四轮 E1~E6 + 第十五轮 F1~F9 + 第十六轮 G1~G7 + 第十七轮 H1/H2/H3/H4/H4b/H5/H6 + 第十八轮 I1~I6 + **第十九轮 J0~J7：模块体一次加 4 端口 / 重复触发幂等 / 同名两例化弹 `mode="scope"` 选择器且点选后加对作用域 / 光标在实例名上唯一作用域直加（真 bug 修复点）/ `Ctrl+Alt+4` 与 `Ctrl+Alt+W` 同链路 / 只按 `Ctrl+4` 不触发 / 探针 `modulePortsOf`+`moduleScopesOf`+RTL 树仍无端口行 / `addVcdPathsToWave` 三桶分类**）；e2e-ui 73/73（真实 Edge）；probe-tutorial / probe-addbtn / probe-simfail 全过；真 exe 冒烟通过（端口 17817、core/wpf/doc/canvas/汉化全在、无异常）；第十三轮自愈专测 `verify-recovery2.mjs` 17/17 + 真实 Edge 协议探针 `probe-protocol.mjs` |
 | 交付提醒 | 重启应用、从唯一路径启动、面板版本号自查（应显示 `v0.4.0 build 2026-09-10 22:49:32 a201338`；⚠ `a201338` = **构建时 HEAD**（第十八轮 B5 的 commit），承载第十九轮 #87② 代码的 commit 是它的**下一个** —— **别误判 exe 落后**，口径见 05/09 第十六轮补记）；本次 exe 内置第十九轮 **#87②（模块/实例全部接口一键入波形 `Ctrl+Alt+4`）**、第十八轮 #76 B5、第十七轮 #76 B3、第十六轮 #76 B4（+ 不再仿真后全量灌信号）、第十五轮 #76 B1、第十四轮 #86 A1~A4、第十三轮服务自愈（固定端口 17817 + `WPServiceGuard` + `#sim-recover` 按钮）、第十二轮 RTL 树瘦身、#85 与第六轮收官 clean.js。**首次**自愈时浏览器会弹一次「是否允许打开 wavepaint:」，勾选「始终允许」后无感（浏览器安全策略，无法绕过） |
@@ -52,6 +53,7 @@
 | 2026-09-10 | 第十七轮：#76 B3 落地（代码 ↔ 树双向跳转 = 代码光标 → RTL/VCD 树反向高亮，仿 nTrace「光标即高亮」） | `rtl-panel.js` 新增导出纯函数 `rowMatchScore`/`pickRtlRowIndex`/`datasetToRtlRow`（**目标带 kind 时同类是硬条件 + 必须位置证据**，同分取先出现者，无命中 -1）与 `clearRtlHighlight`/`clearVcdHighlight`/`highlightRtlRow`/`highlightVcdSignal`（清旧 → 加 `.rtl-active`/`.vcd-active` → **展开祖先 `<details>`** → `scrollIntoView`）；`installCodeEditor` 增第 6 参 `onCursorMove`（`selectionchange`(ownerDocument) + 宿主 `mouseup`/`keyup`，位置签名去重、仅焦点在内时发、`setText()` 重建后强制补发；**未改 CM bundle，免跑 esbuild**）；RTL 树行补 `data-rtl-*`、VCD 信号行补 `data-vcd-path`。`ui-bridge.js` 新增 `syncActiveFromCode`（`moduleAtLine` 模块行 / 实例名 → 实例行 / `resolveSymbolVcdPaths` **唯一才亮** VCD、歧义不猜、无目标清空）+ `scheduleActiveSync`（180ms 防抖）+ `applyActiveHighlight`/`clearActiveHighlight`（**树重建后重放**），`gotoSource()` 末尾闭环、`refreshStructureTrees()` 末尾重放。`index.html` 只加两条高亮 CSS（无新面板）。首跑 e2e-rtl H4 失败 → 判定**断言才是错的 spec**（模块 scope 高亮是刻意设计），改断言 + 新增 H4b。regression **79/79**、e2e-rtl **46/46**（H1/H2/H3/H4/H4b/H5/H6）、e2e-ui 73/73、e2e-sim 0 失败、probe-param 全过、真 exe 冒烟通过；exe 重建（22:06:08） |
 | 2026-09-10 | 第十八轮：**#76 B5 落地**（画布观察行随 `.wp` 工程存档与恢复） | 先做范围勘察（读核心 `js/wavepaint.clean.js`，**一行未改**）：① **信号组无需另存** —— `buildDocumentJson`（L1449~1451）逐字段存 `groupName`/`groupColor`/`groupPath`、`loadFromFileContent`（L1642~1644）逐字段还原，`GroupManager`（L1163~1404）纯函数派生无独立状态 → 天然闭环；② **观察行必须桥兜底** —— 核心把它当普通信号写进 `signals`，载入后丢 `__simInjected`/`__simWatchPath`/`width`/`msb`/`lsb`（脏激励 + 名字列丢 `[3:0]`）。`ui-bridge.js`：`injectArchiveSourceFiles` → **`injectArchiveFields(json, fields)`** 泛化；新增 `archiveSimWatches`（只存 `{path,name,width,reference}`）/ `applyArchivedExtras`（**先清 `vcd`/`outputs`/`simWatches`** 再恢复，坏载荷静默跳过）/ `applySourceFilesFromArchive` / `applySimWatchesFromArchive` / `adoptArchivedWatchRows`（「行名 == 观察路径」认领 + 补回位宽字段，幂等）；`syncSimRows` 增「无 VCD 时回退工程带回来的行」；`resetSourceFiles` 扩为「新工程全复位」；`__wpsim` 增 `designSignalNames` 探针。`tools/e2e-rtl.mjs` 新增 I1~I6（7 条落点 6 条断言，真实 Edge + 真实 VCD）。**首跑即 52/52 全 PASS**。regression 79/79、e2e-rtl **52/52**、e2e-ui 73/73、e2e-sim 0 失败、probe-param 全过、真 exe 冒烟通过；exe 重建（22:23:52、21,969,408 B、`v0.4.0 build 2026-09-10 22:23:51 5ec07e7`）。踩坑记入 06 P35、决策 07 D18；下一项 = **#87②**（模块全接口 Ctrl+4） |
 | 2026-09-10 | 第十九轮：**#87② 落地**（模块/实例全部接口一键入波形，仿 nWave `Ctrl+4`；实际触发键 `Ctrl+Alt+4`） | 两条硬口径：① **触发键 = `Ctrl+Alt+4`**（**不用 `Ctrl+4`** —— Chromium/Edge 把 `Ctrl+数字` 当浏览器级「切换标签页」加速键，页面收不到 keydown，与 `Ctrl+W` 同源，见 06 P36）；② **「全部接口」= 模块端口**（`kind === "port"`，`modulePorts` 按名去重），体内 `wire/reg` 仍走 B4 单点加入、不批量灌；目标作用域 = **例化路径**（顶层模块 → `tb.dut`）。`rtl-panel.js`：`installCodeEditor` 第 7 参 `onAddScope`，触发块统一 `request(via,event,handler)`（未接线手势静默放过、不吞事件），捕获阶段识别 `key==="4"||code==="Digit4"||code==="Numpad4"`；`ui-bridge.js`：浮层泛化 `openPicker(title,items,anchor,mode)` + `showScopePicker`（`mode="scope"`）+ `moduleScopes`/`modulePorts`/**`addVcdPathsToWave`**（批量、只 render 一次、三桶返回、不设状态栏）/`modulePortsStatus`/`addModulePortsToWave`/`addModulePortsFromCode`；三处提示追加 `Ctrl+Alt+4`；`__wpsim` 增探针。**修掉一个真 bug**：光标在实例名上不能用 `findSymbols` 命中项的 `moduleName` 查作用域（`buildSymbolIndex` 把它覆盖成「定义所在模块」）→ 按实例名后缀查 `instancePaths`。`tools/e2e-rtl.mjs` +J0~J7（9 条）→ **61/61**（首跑 58/61：2 条测试自身设计错误 + 1 条真 bug）。regression 79/79、e2e-ui 73/73、e2e-sim 0 失败、probe-param 全过、真 exe 冒烟通过；exe 重建（22:49:32）。**未改 `wavepaint.clean.js` 与 `sim/engine.js` 一行**（C9） |
+| 2026-09-10 | 第二十轮：**侧栏 / 整体 UI 重构设计方案交付（纯规划文档，本轮唯一交付物）** | 用户指令「按照规划继续」（承接第十九轮，其下一项 = 侧栏 / 整体 UI 重构设计方案）。**只出方案、未动任何受版本控制代码** → 不触发 C1、**本轮不重建 exe**。先做只读调研并建临时审计脚本 `.e2e-tmp/ui-audit.mjs`（`.gitignore` 覆盖，不入库），实测：`index.html` 904 行 / 静态 id 82 个 /「js 引用但 DOM 无 id」31 个 / 内联 `<style>` L26~L471 / 侧栏 DOM L733~L803 / 仿真栏 24 个 id 全部由 `ui-bridge.js` `el(...)` 抓取；顺带**纠正上一轮两处口径**（e2e-rtl 实为 28 处 CSS 选择器依赖；侧栏已无「收起」按钮，`el("sim-collapse")` 是死引用）。方案落盘 `08-ROADMAP.md` §2.1~§2.9：现状问题清单（P1 空间 / P2 数量 / P3 语义遗留 / P4 结构 / P5 CSS 双轨）+ 仿 Verdi「三区 + 一条控制带」目标布局 + 面板归位表 + 三条取舍选项 + 六条主线衔接点 + **契约面冻结清单**（24 id / class-dataset / `title` 全路径 / 状态类）+ P0/P1/P2 分期 +「UI 设计交给其它 AI」评估 + 交互清单。**状态 = 待用户 review**；用户拍板后按 08 §2.6 P0 开工（P0 起才动代码，届时须 C1 重建 exe + C8 核验 + 全量测试 + C17 记忆同步 + C2/C3 commit/push）。详见 04 §4.18、08 §2、07 D20、日志 2026-09-10 第二十轮 |
 
 ---
 
@@ -988,6 +990,55 @@ RTL 树口径未变（仍纯层级浏览，见 §4.10）。下一步 = **#87②�
 下一项 = **侧栏 / 整体 UI 重构设计方案**（08 §2，**先出方案给用户 review，不直接开工**）；
 #84/#77 已推迟远期（08 §3）。RTL 树口径未变（仍纯层级浏览，见 §4.10）。详见 07 D19 / 06 P36 /
 08 §1.3 / 日志 2026-09-10 第十九轮。
+
+### 4.18 🧭 已交付（方案，未实施）：侧栏 / 整体 UI 重构设计方案（第二十轮 2026-09-10）
+
+> 用户指令：「按照规划继续」（承接第十九轮，其下一项 = 侧栏 / 整体 UI 重构设计方案）。
+> **本轮只出方案，未动任何受版本控制代码** → **不触发 C1，本轮不重建 exe**（仅记忆同步）。
+> 方案正文 = **`08-ROADMAP.md` §2.1~§2.9**（本节是摘要与入口，细节以 08 为准）。
+
+**本轮做了什么（只读调研 + 写方案）**
+- 建 `.e2e-tmp/ui-audit.mjs`（临时审计脚本，`.gitignore` 覆盖，**不入库**）：扫 `index.html` 全部
+  静态 `id=`、扫 `js/**/*.js` 的 `getElementById`/`querySelector(All)`/`el("…")`，输出
+  「js 引用但 DOM 无此 id」清单 + 仿真栏 24 个 id 的 `(el)` 归属，作为**契约面证据源**。
+- 实测数据（**全部实算，非估算**）：`index.html` **904 行**、静态 id **82** 个、
+  「js 引用但 DOM 无 id」**31** 个（多为动态创建，真遗留见 08 §2.1 P3 表）；
+  内联 `<style>` 在 **L26~L471**（`</style>` L471，`</head>` L489）；侧栏 DOM 在 **L733~L803**；
+  仿真栏 24 个静态 id **全部**由 `ui-bridge.js` `el(...)`/`getElementById` 抓取。
+- 纠正上一轮两处口径：① 「e2e 不依赖 CSS 选择器」**不成立** —— `tools/e2e-rtl.mjs` 有 **28 处
+  CSS 选择器依赖**（`#vcd-tree .vcd-signal-row`、`#rtl-tree .rtl-inst`、`#rtl-tree .rtl-active`、
+  `#vcd-tree .vcd-active`、`#rtl-tree [data-rtl-kind]` 等），`e2e-ui.mjs` 依赖
+  `.tool-btn[data-tool="…"]`；② 侧栏 DOM 里**已无「收起」按钮**（收起只靠点表头），
+  `ui-bridge.js` 的 `el("sim-collapse")` 抓到 `null`（代码容错）→ 登记为**死引用**。
+
+**方案要点（四段）**
+1. **现状问题清单（08 §2.1，五类）**：P1 空间（328px 单栏 + 180/240/240/160px 固定高 + 7 按钮
+   两列网格，固定需求 ≈900px+ 而可用高度 ≈900px，四条独立滚动条）；P2 数量（4 张卡片 = 四种
+   工作模式被压成同质竖排）；P3 语义遗留（`#sim-addsignals` 文案与「代码内点变量 = 主路径」
+   易混、`#sim-collapse` 死引用、菜单 `toggle-vcd-panel` 指向已被 `display:none!important`
+   永久压制的 legacy 面板、legacy VCD 整族 10 个 id + 赞助面板死引用）；P4 结构（RTL 树与 VCD 树
+   同层并列、职责未分级）；P5 实现（CSS 双轨：侧栏样式全在 `index.html` 内联，`css/*.css` 仅 8 行）。
+2. **目标布局草案（08 §2.2~§2.3，仿 Verdi 三区 + 一条控制带）**：① 层级树区 = RTL 结构树纯层级
+   浏览；② 代码区 = CM6 + 加信号主路径（B4/B4②）+ Active Annotation 预留位；③ 波形区 = 画布 +
+   **VCD 树移入**；④ 仿真控制带 = 文件/按钮/顶层选择/状态/TB（折叠）收敛为一条。附「面板/按钮
+   归位表」（08 §2.3）与**三条取舍选项**（面板形态 / 位置 / 迁移方式，**待用户拍板**）。
+3. **衔接点与契约面（08 §2.4~§2.5）**：B4/B4②/B3/B5/#85/服务自愈六条衔接点写明「不得改动之处」；
+   **冻结清单** = 24 个 id + `.rtl-inst`/`.rtl-active`/`.vcd-signal-row`/`.vcd-active`/
+   `[data-rtl-kind]`/`[data-vcd-path]`/`.tool-btn[data-tool]`/`.sim-symbol-picker-item` +
+   VCD 行 `title` 全路径 + `body.sim-open`/`#sim-panel.collapsed`/`wavedrom-debug-open`
+   等状态类。**遗留待确认项**：`data-action="theme"` 的实际落点本轮未追到（登记为方案待办）。
+4. **分期计划（08 §2.6，P0/P1/P2）** + **「UI 设计交给其它 AI」评估（08 §2.7）** + **交互清单
+   （08 §2.8）**。P0 = 纯 CSS/布局（风险低，只做折叠/自适应/分区标题 + 死引用与文案清理）；
+   P1 = DOM 重排（保 id/class，改父容器）；P2 = 多面板拖拽 + session 级面板状态。**每期独立
+   commit + push，且每期完成都要 C1 重建 exe + C8 核验 + 全量测试 + C17 记忆同步**。
+
+**评估结论（08 §2.7，建议不替用户拍板）**：把 UI 设计交给其它 AI **可行但只限「出稿」**
+（布局对比图/视觉规范/交互流程稿，不进代码）；**契约面判定、e2e 影响面、与 B3/B4/B5 触发链的
+耦合必须由本仓自有记忆与测试基线把关**；落地路径 = AI 出稿 → 人类 review → 本 AI 受约束落地。
+
+**范围与后续**：方案状态 = **待用户 review**。**未动任何受版本控制代码**（无 exe 重建，
+C1 未触发）；`wavepaint.clean.js`、`sim/engine.js`、`index.html`、`css/` 本轮**一行未改**。
+用户拍板后按 08 §2.6 **P0 开工**。详见 08 §2、07 D20、日志 2026-09-10 第二十轮。
 
 ---
 ## 5. 已知未排期方向

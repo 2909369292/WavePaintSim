@@ -283,16 +283,200 @@
 > 交互、双向跳转）落地后侧栏还会继续变——**UI 重构应与功能主线并行推进设计**，不宜拖到
 > 最后。
 
-- **目标布局草案（仿 Verdi nTrace/nWave 三区语义；第十二轮口径修正）**：
-  ① 层级树区（**RTL 树只做代码层级浏览**：文件 → 模块 → 实例，点击跳源码，无端口/参数/
-     加信号能力；信号浏览与“加入波形”统一走 VCD 树 + 代码区点选）；
-  ② 代码区（CM6 + 行内交互：**点/选中变量加波形** = 加信号主路径、Active Annotation 位）；
-  ③ 波形画布区 + 仿真控制/工具条整理收敛。
-- **节奏建议**：先出一版「UI 重构设计方案」（含现状问题清单、布局草案、与主线的衔接点）
-  给用户 review；方案确认后再实施。侧栏现有“功能已超越原规划”的按钮/面板归类与隐藏策略
-  一并设计。
-- **工作方式**：可评估“把 UI 设计交给其它 AI / 设计模型出稿、人类 review”的可行性与
-  输入素材要求（需先把交互清单/现状 DOM 结构写清楚）——作为本规划线的一个选项，等用户拍板。
+> **2026-09-10 第二十轮：本节已扩写为完整《侧栏 / 整体 UI 重构设计方案》（§2.1~§2.9）。
+> 本轮只出方案、未动任何受版本控制代码**（仅记忆同步，因此本轮不重建 exe —— C1 未触发）。
+> **方案状态 = 待用户 review；用户拍板后再按 §2.6 分期实施。**
+
+### 2.1 现状问题清单（2026-09-10 第二十轮实测，证据可复算）
+
+> 复算入口：`.e2e-tmp/ui-audit.mjs`（临时审计脚本，已被 `.gitignore` 覆盖；跑法
+> `node .e2e-tmp/ui-audit.mjs .`）—— 扫 `index.html` 全部静态 `id=`，扫 `js/**/*.js` 的
+> `getElementById(...)`/`querySelector(All)`/`el("…")`，输出「js 引用但 DOM 无此 id」清单 +
+> 仿真栏 24 个 id 的 `(el)` 归属，作为**契约面证据源**。以下数字均为实测，不是估算。
+
+**P1 · 空间：328px 单栏里塞 4 张卡片 + 状态区，纵向被四方争抢**
+
+| 竞争者 | 现状尺寸（样式多在 `index.html` 内联 `<style>`） | 行号 |
+|---|---|---|
+| 侧栏总宽 | `#sim-panel{width:328px; top:92px}`；`body.sim-open #main-area{padding-right:328px}` | L131~144 / L129~131 |
+| Verilog 源码区 | `#verilog-source{height:180px}`（CM6 挂载后同高） | L198 / L185 |
+| RTL 结构树 | `.rtl-tree, .vcd-tree{max-height:240px; overflow:auto}` | L368 |
+| VCD 信号层次 | 与 RTL 树**共用同一条 CSS 规则**（同 240px） | L368 |
+| Testbench | `#tb-source{height:160px}`（`resize:vertical`，可被用户拖大） | L213 |
+| 按钮区 | `.source-actions{grid-template-columns:repeat(2,minmax(0,1fr))}`，共 **7 个按钮**，`#sim-run` 占整行 | L171 / L174 |
+
+→ 固定需求合计 ≈ 180 + 240 + 240 + 160 + 按钮/预览区 ≈ **900px+**；1080p 屏侧栏可用高度约 900px
+（顶栏 92px 起算）。**任何一项展开都在挤压其它项**，且四块各自 `overflow:auto` —— 用户要在
+**四条独立滚动条**之间来回找内容，没有任何一屏能看到全局。
+
+**P2 · 数量：侧栏「功能已超越原规划」**
+
+- 侧栏 DOM = `index.html` **L733~L803**，骨架固定：
+  `#main-area`(L733) → `#wave-view`/`#wave-canvas` → `#sim-toggle-btn`(L740) → `#sim-panel`(L741)
+  → `.sim-panel-header`(L742，内含 `#app-version`) + `.sim-panel-body`(L747)。
+- `.sim-panel-body` 内 4 张卡片（统一卡片样式规则 `.sim-panel-body > div:not(.sim-status):not(.sim-btns)`，L159）：
+  ① Verilog/SV 源码 ② RTL 结构树 ③ VCD 信号层次 ④ Testbench；卡片外还有 `#sim-status`、`#sim-recover`。
+- 这 4 块其实对应 **四种不同「工作模式」**（写代码 / 看代码层级 / 看波形数据 / 看 TB 文本），
+  却被压成一条**同质竖排流**，没有任何主次或分区。
+
+**P3 · 语义：按钮与口径的遗留**
+
+| 项 | 实测事实 | 处置建议（方案，本轮不实施） |
+|---|---|---|
+| `#sim-addsignals`「自动加信号」 | `index.html:757` → `ui-bridge.js:430`(refs) + `:1929`(click → `addPortSignalsToCanvas`，定义 `:1459`)。**只往画布灌激励端口**（跳过 `direction==="output"`，时钟/复位经 `createPortStimulus` 预填），**不碰 VCD/观察行**，与 #76 B4「仿真后不全量灌信号」口径**不冲突**；但 `title` 文案「自动识别 RTL 端口信号并添加到绘图区」是历史遗留，与「代码内点变量 = 加信号主路径」**极易混淆** | 降级/改名（如「按端口建激励」）或收进溢出菜单；**不被任何 e2e 依赖**（`tools/e2e-sim.mjs:81/90` 只是**注释**提到 `addPortSignalsToCanvas` 口径，实际测试自调 `bridge.toNativeSignal`）→ 改动风险低 |
+| `#sim-collapse` | `ui-bridge.js` 用 `el("sim-collapse")` 抓，但 **DOM 里已无此元素**（`refs.collapseBtn = null`，代码容错；收起只靠点表头）→ **纯死引用** | 删除该 ref 与相关 null 分支 |
+| 菜单项 `data-action="toggle-vcd-panel"` | `index.html:548`，指向 legacy `.vcd-hierarchy-panel` —— 该面板已被 `index.html` L313~314 的 `#main-area.with-vcd-panel{…!important}` + `.vcd-hierarchy-panel{display:none!important}` **永久压制** | 菜单项移除，或改指向现役 `#vcd-tree`（**需用户拍板**） |
+| legacy VCD 面板整族 **10 个 id** | `#vcd-hierarchy-panel`/`#vcd-hierarchy-tree`/`#vcd-signal-list`/`#vcd-signal-count`/`#vcd-status`/`#vcd-search-input`/`#vcd-close-btn`/`#vcd-transfer-btn`/`#vcd-transfer-all-btn`/`#vcd-splitter-handle` —— 全部属「js 引用但 DOM 无此 id」（引用方在 `wavepaint.clean.js`） | 只登记；**删核心死代码不在本规划线范围**（属 #93 类工作，需单独拍板） |
+| `#sponsors-panel`/`#sponsors-panel-toggle`、`#wavedrom-preview-refresh` | 同类死引用；`.sponsors-panel{display:none!important}`（L322）压制 | 同上，只登记 |
+
+> 实测总量：`index.html` 静态 id 共 **82** 个；「js 引用但 DOM 无 id」共 **31** 个 —— 其中绝大多数
+> 是**动态创建**（`#properties-panel` 系、`#wp-toast`/`#wp-beta-overlay`/`#wpf-select-overlay` 等），
+> 属正常；上表列出的是**真正的遗留 / 死引用**。
+
+**P4 · 结构：两棵树平级、职责未分级**
+
+- RTL 树 `#rtl-tree`（`.rtl-tree`）与 VCD 树 `#vcd-tree`（`.vcd-tree`）**在同一竖排层级并列**，
+  且共用同一组 CSS（`.rtl-tree summary, .vcd-tree summary` L376/L398 等）—— 说明二者被当成
+  **同质组件**。但职责完全不同：
+  - RTL 树 = **代码层级**（文件 → 模块 → 实例；第十二轮已瘦身为纯导航，无端口/参数/加信号）；
+  - VCD 树 = **数据层级**（仿真后 `$scope` 全路径；点击 = 加入波形，即 #85）。
+- 仿 Verdi 语义，二者应分属 **nTrace（层级树区）** 与 **nWave（波形区）**，而不是并列在同一条流里。
+
+**P5 · 实现：CSS 双轨（技术债）**
+
+- `css/wavepaint.e7b903ef.css` 仅 **8 行**（压缩成 1 行超长文本），只含 `#menu-bar`/`.tool-btn`/
+  `.sponsors-panel`/`.vcd-hierarchy-panel` 等少量规则；
+- **仿真栏全部样式在 `index.html` 内联 `<style>` 里**（L26~L471，`</style>` 在 L471，`</head>` L489）。
+- → 改侧栏样式必须动 `index.html`（904 行大文件），且两轨之间的优先级/覆盖关系未文档化。
+
+### 2.2 目标布局草案（仿 Verdi nTrace / 编辑器 / nWave 三区 + 一条控制带）
+
+> 四条**不可违反**的红线：**不新增「信号层次选择框」**（用户明确否决）、
+> **不给 RTL 树加端口/信号行**、**不恢复「仿真后全量灌信号」**、
+> **加信号主路径 = 代码区内点/选中变量（B4）**。
+
+**目标分区（三区 + 一条仿真控制带）**
+
+1. **层级树区（仿 nTrace）**：只放 **RTL 结构树**（文件 → 模块 → 实例）。点实例行 = 跳源码
+   （现 #86 A2 行为）；**不显示接口信号、不承载加信号交互**。
+2. **代码区（编辑器本体 + 行内交互）**：CM6 + **加信号主路径**（B4 双击/右键/`Ctrl+Alt+W`；
+   B4② `Ctrl+Alt+4` 加整模块端口）；预留 **Active Annotation 位**（#87④ / #77 **远期**，仅预留不改）；
+   作用域/符号选择浮层（`.sim-symbol-picker`、`mode="symbol"`/`"scope"`）仍**挂在代码区旁**。
+3. **波形区（仿 nWave）**：`#wave-view`/`#wave-canvas` 画布 + **VCD 信号层次树**
+   —— 把 VCD 树从「侧栏第 3 张卡片」**移入波形区**（它服务的是波形数据，不是代码）。
+4. **仿真控制带**：`#source-files` + 7 按钮 + `#sim-top-row` + `#sim-status` + `#sim-recover` +
+   TB（折叠收纳）整理成**一条控制带**，代替现在的竖排 4 卡片。
+
+**关键取舍（需用户拍板）**
+
+| 取舍 | 选项 A（保守） | 选项 B（激进） |
+|---|---|---|
+| 面板形态 | 保持 `#sim-panel` 单栏，只做**内容归位 + 分区标题 + 折叠** | 改成**可拖拽多面板**（左右分栏 + 上下分割，引入 splitter） |
+| 位置 | 侧栏保持右侧（现状） | 层级树左置、代码/波形右置（更贴 Verdi，但要改 `#main-area` 骨架） |
+| 迁移方式 | **P0 只做 CSS/折叠 → P1 再动 DOM 结构**（推荐，见 §2.6） | 一次性重排 |
+
+### 2.3 面板 / 按钮归位表（现状 → 目标）
+
+| 现状元素 | 目标归属 | 动作 |
+|---|---|---|
+| `#source-files` + 7 按钮（`#sim-addfile`/`#sim-import`/`#sim-removefile`/`#sim-parse`/`#sim-addsignals`/`#sim-tb`/`#sim-run`） | 仿真控制带 | 分主次：`#sim-run` 主按钮；其余进「文件/解析」分组；`#sim-addsignals` 降级或改名 |
+| `#verilog-source` / `#verilog-cm-host` | 代码区 | **保 id**；高度由固定 180px 改为区域内自适应 |
+| `#port-preview` / `#module-preview` | 代码区底部 helper | 折叠收纳（解析后看，非持续所需） |
+| `#sim-top-row` / `#sim-top-select` | 仿真控制带 | 保持「默认 `display:none`、解析后出现」的现有逻辑 |
+| `#rtl-tree` | **层级树区** | 独立分区；保留 `.rtl-inst`/`.rtl-active`/`[data-rtl-kind]` |
+| `#vcd-tree` | **波形区** | 移入波形区；保留 `.vcd-signal-row`/`.vcd-active`/`[data-vcd-path]` 与行 `title` 全路径 |
+| `#tb-source` + `#sim-tb-copy` | TB 折叠区 | 默认折叠，生成后自动展开 |
+| `#sim-status` / `#sim-recover` | 控制带末端状态位 | 保持（`#sim-recover` 仍默认 `display:none`；**服务自愈逻辑不改**） |
+| `#sim-toggle-btn` / `body.sim-open` / `#sim-panel.collapsed` | 开关骨架 | **保持类名与语义**（契约面，见 §2.5） |
+
+### 2.4 与主线（已落地功能）的衔接点
+
+1. **B4 加信号主路径**（第十六轮）：代码区双击/右键/`Ctrl+Alt+W` → `addSymbolFromCode` → 唯一候选直加 /
+   多候选弹 `.sim-symbol-picker`。UI 重构**只能改代码区的容器与尺寸，不能改触发链**。
+2. **B4② 整模块端口**（第十九轮）：`Ctrl+Alt+4` → `addModulePortsFromCode` → `mode="scope"` 浮层；
+   锚点仍须在**代码区旁**。
+3. **B3 双向高亮**（第十七轮）：`.rtl-active`/`.vcd-active` 靠 `applyActiveHighlight` 在**树重建后重放**；
+   重构若改变树的重建时机，**必须保证重放**（否则高亮丢失）。
+4. **B5 存档**（第十八轮）：观察行/源码集合随 `.wp` 恢复，与布局无关；**若要把每面板折叠态/宽度
+   也持久化，建议只做 session 级，不改 `.wp` 格式**（避免动存档契约）。
+5. **#85 VCD 点信号入波形**：VCD 树移动位置后，点击行为与 `title` 全路径展示保持不变。
+6. **服务在线性（第十三轮）**：`#sim-recover` 的三段自愈与 `WPServiceGuard` **不属于 UI 重构范围**，
+   重构不得改动其判定/文案链路（C19）。
+
+### 2.5 交付边界 / 契约面（**冻结清单：重构中不得改名、不得移除**）
+
+> 实测来源：`tools/e2e-rtl.mjs`（**28 处 CSS 选择器依赖**）、`tools/e2e-ui.mjs`
+> （`.tool-btn[data-tool="…"]` 4 处）、`tools/regression.mjs`、`tools/e2e-sim.mjs`。
+
+**id（24 个，仿真栏）**：`sim-toggle-btn`、`sim-panel`、`sim-panel-header`、`source-files`、
+`sim-addfile`、`sim-import`、`sim-removefile`、`sim-parse`、`sim-addsignals`、`sim-tb`、`sim-run`、
+`verilog-source`、`verilog-cm-host`、`port-preview`、`module-preview`、`sim-top-row`、`sim-top-select`、
+`rtl-tree`、`vcd-tree`、`sim-tb-copy`、`tb-source`、`sim-status`、`sim-recover`、`app-version`
+（**全部**由 `ui-bridge.js` 以 `el(...)`（L405 定义 / L409 `initRefs()`）或 `getElementById` 抓取）。
+
+**class / dataset**：`.rtl-inst`、`.rtl-active`、`.vcd-signal-row`、`.vcd-active`、`[data-rtl-kind]`、
+`[data-vcd-path]`、`.tool-btn` 与 `.tool-btn[data-tool="…"]`、`.sim-symbol-picker-item`。
+
+**属性**：VCD 信号行的 `title` 仍是 `tb.dut.q` 这类**全路径**（e2e 按 `title` 找行）。
+
+**状态类**：`body.sim-open`（展开态，`#main-area` padding 随之变）、`#sim-panel.collapsed`、
+`wavedrom-debug-open`（`index.html:812` + clean.js 分发）、`sponsors-ready`/`sponsors-collapsed`
+（已压制，**勿复用这两个名字承载新语义**）。
+
+> ⚠ **待确认项**：主题（`data-action="theme"`，`index.html:538`）的实际落点本轮未追到具体
+> class/属性名 —— 动主题相关样式前必须先定位（登记为方案待办，不是遗漏）。
+
+**P0 之内允许改的**：`index.html` 内联 `<style>` 的**新规则追加**、现有规则中**不影响上述选择器
+语义的**尺寸/间距/布局属性、新增包裹容器（但**不改被包裹元素的 id**）。
+
+### 2.6 分期计划（P0 → P1 → P2）
+
+| 期 | 内容 | 风险 | 验收 |
+|---|---|---|---|
+| **P0** | 纯 CSS/布局：侧栏分区标题 + 各卡片可折叠 + 自适应高度（去固定 180/240/160px）+ 卡片视觉统一；`#sim-collapse` 死引用清理（`ui-bridge.js` 侧）；`#sim-addsignals` 文案降级 | 低（不动 id/class/DOM 层级） | regression 79/79 + e2e-rtl 61/61 + e2e-ui 73/73 + e2e-sim 0 失败 + probe-param 全过 + 真 exe 冒烟 + **C8 特征串核验** + **exe 重建** |
+| **P1** | DOM 结构重排：VCD 树移入波形区、TB 折叠、控制带收敛；可选左侧层级树区 | 中（保 id/class，改父容器） | 同 P0；额外重点复核 **B3 高亮重放**与 **B4 浮层锚点** |
+| **P2** | 多面板拖拽 / 位置自由 / 面板状态持久化（**session 级**） | 高 | 同 P0 + 交互手测清单 |
+
+**每期独立 commit + push `main`**；P0 完成前不启动 P1；任何一期完成后按 **C1 重建 exe + C8 核验**。
+
+### 2.7 工作方式评估：「把 UI 设计交给其它 AI」可行吗？
+
+- **结论（建议，不替用户拍板）**：**可行，但只能做「出稿」环节，不能替代 review 与落地。**
+  - ✅ 适合交给 AI/设计模型的：**布局方案对比图、视觉规范（间距/字号/分组）、交互流程稿**
+    —— 产出物是「图 + 文字规格」，**不进代码**。
+  - ⚠ 不适合完全交给 AI 的：**契约面判定**（哪些 id/class 不能动）、**e2e 影响面**、
+    **与 B3/B4/B5 触发链的耦合** —— 这些必须由本仓自有记忆与测试基线把关（外部 AI 无此上下文，
+    极易破坏）。
+  - 建议落地路径：**AI 出稿 → 人类 review → 本 AI 按 §2.5 边界 + §2.6 分期实施**（本 AI 只做
+    「受约束的落地」）。
+- **交付素材清单（交给外部 AI 前必须先准备好，可直接取自本文件）**：
+  1. **现状 DOM 结构**：`index.html` L733~L803 的侧栏树形结构 + 元素 id 清单（§2.5）。
+  2. **交互清单**：见 §2.8。
+  3. **现状尺寸表**：§2.1 的 P1 表 + `#sim-panel{width:328px; top:92px}`。
+  4. **术语表**：RTL 结构树（代码层级：文件→模块→实例）、VCD 信号层次（数据层级：`$scope` 全路径）、
+     观察行（画布上的 `__simInjected` 信号行）、例化路径（`tb.dut`）、
+     作用域选择浮层（`mode="scope"`）、加信号主路径（代码区点/选中变量）。
+  5. **视觉基调**：浅色主题 + CSS 变量体系（`--toolbar-bg`/`--border-color`/`--section-bg`/
+     `--radius-md` 等，定义在 `index.html` 内联 `:root`），需与主界面保持一致。
+
+### 2.8 交互清单（现状，供设计稿对齐；实测自 `js/editor/shortcuts.js` 与仿真侧栏接线）
+
+- **核心 / 编辑器**：`Ctrl+Z`/`Ctrl+Y`/`Ctrl+Shift+Z`、`Ctrl+C`/`Ctrl+V`、`Delete`/`Backspace`、
+  `Escape`、方向键（移动 + 写值）、`1/0/x/z/u/d` 切位状态
+  （`js/editor/shortcuts.js`，**捕获阶段** `document.addEventListener('keydown', onKeyDown, true)`；
+  `isEditableTarget` 对 input/textarea/contentEditable 直接放过）。
+- **画布**：`Ctrl+滚轮` 缩放（`js/wavepaint.clean.js`）。
+- **仿真侧栏（B4 / B4②）**：`Ctrl+Alt+W` 加光标所在符号；`Ctrl+Alt+4` 加模块/实例全部端口；
+  双击变量；右键菜单（`js/sim/rtl-panel.js` 捕获 keydown，条件 `(ctrlKey||metaKey) && altKey`）。
+- **⛔ 禁用键**：**不要用 `Ctrl+数字`、`Ctrl+W`** —— Chromium/Edge 浏览器级加速键会吞掉，页面收不到
+  keydown（见 06 P33/P36）。
+
+### 2.9 方案状态
+
+- **2026-09-10 第二十轮：方案已成文（本节）。状态 = 待用户 review。**
+- **未动任何受版本控制代码**（仅记忆同步）；因此**本轮不重建 exe**（C1 未触发）。
+- 用户拍板后：按 §2.6 **P0 开工** → 落地 → **C1 重建 exe + C8 核验** → 全量测试 → **C17 记忆同步**
+  → **C2/C3 独立 commit + push `main`**。
 
 ---
 
