@@ -1,6 +1,6 @@
 import { buildAutoTestbench, buildSimulationPayload, createPortStimulus, createSignalFromPort, diagnoseSimulation, parseVerilogDesign, vcdToProjectOutputs } from "./engine.js";
 import { formatVectorValue, normalizeVectorValue } from "./project-model.js";
-import { buildRtlNav, buildSymbolIndex, collectModuleDefs, resolveModuleDef, resolveSymbolVcdPaths } from "./rtl-nav.js";
+import { buildRtlNav, buildSymbolIndex, collectModuleDefs, moduleAtLine, resolveModuleDef, resolveSymbolVcdPaths } from "./rtl-nav.js";
 import { buildVcdHierarchy, findVcdPathsByName } from "./vcd-index.js";
 import { installCodeEditor, renderRtlTree, renderVcdTree } from "./rtl-panel.js";
 
@@ -365,25 +365,28 @@ function scrollWaveToWatchPath(path) {
   if (index >= 0) view.scrollTop = Math.max(0, index * 40);
 }
 
-function replaceInjectedOutputs(outputs) {
+// #76 B4：仿真结果的「画布口径」——只重建**用户主动加入的观察行**（state.simWatches），
+// 不再把 VCD 里的输出/内部信号整批灌进画布（用户明确要求：仿真后不要"把所有可看的变量
+// 全都添加上去"；加信号统一走「代码里点/选中变量」，见 addSymbolFromCode）。
+// state.outputs 仍保留（状态栏统计 / 诊断 / 观察行取数），只是不再落到画布上。
+function syncSimRows() {
   const dw = window.document_wave;
   if (!dw || !Array.isArray(dw.m_signals)) return;
   const currentRows = dw.m_signals;
   // #85：观察行只保留当前画布仍存在的行（用户删行后不复活；想再要可重新点 VCD 行）。
-  // 注意要在 strip 之前看原数组 —— 观察行/输出行都是 __simInjected，重建后才判断
+  // 注意要在 strip 之前看原数组 —— 观察行都是 __simInjected，重建后才判断
   // 会把自己误判成“已删除”。
   state.simWatches = (Array.isArray(state.simWatches) ? state.simWatches : []).filter((watch) =>
     !!watch?.path && currentRows.some((signal) => !!signal && signal.__simWatchPath === watch.path)
   );
   const baseSignals = stripInjectedSignals(currentRows);
-  // 输出信号 values 长度对齐数据模型：主步数 × (子步+1)
+  // 观察行 values 长度对齐数据模型：主步数 × (子步+1)
   const effectiveCount = Math.max(4, canvasEffectiveCount());
   const template = baseSignals[0] || null;
   const watchRows = state.simWatches
     .map((watch, index) => buildWatchSignal(watch, index, template, effectiveCount))
     .filter((row) => !!row);
-  const injected = (Array.isArray(outputs) ? outputs : []).map((output, index) => toNativeSignal(output, index, template, effectiveCount));
-  dw.m_signals = [...baseSignals, ...watchRows, ...injected];
+  dw.m_signals = [...baseSignals, ...watchRows];
   // m_sampleCount 语义是主步数，不能被有效长度污染
   dw.m_sampleCount = Math.max(dw.m_sampleCount || 0, canvasTimeSteps());
 }
@@ -470,7 +473,10 @@ function initSourceCodeView() {
       syncEditor();
       render();
       scheduleRtlTreeRefresh();
-    }
+    },
+    // #76 B4：代码区取词触发（双击变量名 / 右键菜单 / Ctrl+Alt+W）→ 加波形。
+    // rtl-panel 只负责取词与触发，映射与画布落点在这里（见 addSymbolFromCode）。
+    onAddSymbol: (context) => addSymbolFromCode(context)
   });
   const usingCm = !!sourceCodeView.active;
   refs.cmHost.style.display = usingCm ? "block" : "none";
@@ -567,6 +573,116 @@ function refreshVcdTree() {
 function currentSymbolIndex() {
   const topName = state.selectedTop || state.design?.topModule?.name || "";
   return buildSymbolIndex(buildRtlNav(state.files), { topName });
+}
+
+// ---------------------------------------------------------------------------
+// #76 B4：代码内「点/选中变量 → 加波形」（Verdi「中追」式，唯一加信号主路径）
+// ---------------------------------------------------------------------------
+// 分工：rtl-panel 负责**取词与触发**（双击 / 右键 / Ctrl+Alt+W → symbolNameAt）；
+// 这里负责**符号 → VCD 全路径 → 画布观察行**：
+//   1) B1 符号索引 + 例化路径给出候选（resolveSymbolVcdPaths，按模块/文件/行收窄）；
+//   2) **仅在 1) 为空时**才用名称兜底 findVcdPathsByName（隐式 net / TB 本地信号 /
+//      未在 RTL 声明的名字）。⚠ 不能无条件并入：那样点 q 会同时列出 DUT 内部
+//      tb.dut.q 与 TB 侧连接线 tb.q，把「唯一候选直接加入」降级成每次都要点选。
+//   3) 唯一候选 → 直接 pickVcdSignalIntoWave；多候选 → 代码区旁的**轻量选择器**
+//      （不是侧栏面板、不显示 RTL 层级树 —— 用户明确要求）；无候选 → 中文提示。
+// 观察行走 state.simWatches（#85 链路）：不进 readWaveDocument、不生成激励。
+
+// 轻量候选选择器（单例）。挂在 document.body 上绝对定位，点击项 = 加入波形，
+// 点击别处 / Esc = 关闭。
+let symbolPicker = null;
+
+function closeSymbolPicker() {
+  if (!symbolPicker) return;
+  if (symbolPicker.teardown) symbolPicker.teardown();
+  if (symbolPicker.node?.parentNode) symbolPicker.node.parentNode.removeChild(symbolPicker.node);
+  symbolPicker = null;
+}
+
+function showSymbolPicker(name, paths, anchor) {
+  closeSymbolPicker();
+  const box = document.createElement("div");
+  box.className = "sim-symbol-picker";
+  box.setAttribute("role", "listbox");
+  const title = document.createElement("div");
+  title.className = "sim-symbol-picker-title";
+  title.textContent = `${name} 匹配到 ${paths.length} 个信号，点一个加入波形：`;
+  box.appendChild(title);
+  for (const path of paths) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "sim-symbol-picker-item";
+    item.textContent = path;
+    item.title = `加入波形：${path}`;
+    item.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      closeSymbolPicker();
+      pickVcdSignalIntoWave(path);
+    });
+    box.appendChild(item);
+  }
+  document.body.appendChild(box);
+  // 定位：优先贴触发点（鼠标位置），否则贴代码区；再夹进视口内。
+  const rect = box.getBoundingClientRect();
+  const hostRect = refs.cmHost?.getBoundingClientRect?.();
+  const baseX = Number(anchor?.x) > 0 ? Number(anchor.x) : (hostRect ? hostRect.left + 16 : 40);
+  const baseY = Number(anchor?.y) > 0 ? Number(anchor.y) : (hostRect ? hostRect.top + 24 : 80);
+  const maxX = Math.max(8, (window.innerWidth || 800) - rect.width - 8);
+  const maxY = Math.max(8, (window.innerHeight || 600) - rect.height - 8);
+  box.style.left = `${Math.round(Math.min(Math.max(8, baseX), maxX))}px`;
+  box.style.top = `${Math.round(Math.min(Math.max(8, baseY), maxY))}px`;
+  const onDocDown = (event) => { if (!box.contains(event.target)) closeSymbolPicker(); };
+  const onKeyDown = (event) => { if (String(event.key) === "Escape") closeSymbolPicker(); };
+  document.addEventListener("mousedown", onDocDown, true);
+  window.addEventListener("keydown", onKeyDown, true);
+  symbolPicker = {
+    node: box,
+    teardown() {
+      document.removeEventListener("mousedown", onDocDown, true);
+      window.removeEventListener("keydown", onKeyDown, true);
+    }
+  };
+  box.querySelector(".sim-symbol-picker-item")?.focus?.();
+}
+
+// context：{ name, line, fileIndex?, selection?, exact?, via?, anchor? }
+// rtl-panel 传的是 {name, line, selection, exact, source, via, anchor}（无 fileIndex
+// —— 代码区当前必然显示 state.active 那个文件）；自动化入口可显式传 fileIndex。
+function addSymbolFromCode(context) {
+  onWavepaintReady();
+  const info = context || {};
+  const name = String(info.name || "").trim();
+  if (!name) {
+    setStatus("未选中变量名：把光标放到信号名上（或选中它）再按 Ctrl+Alt+W。");
+    return;
+  }
+  const fileIndex = Number.isFinite(Number(info.fileIndex)) ? Number(info.fileIndex) : state.active;
+  const line = Number(info.line) > 0 ? Number(info.line) : 0;
+  const index = currentSymbolIndex();
+  // 用「光标所在行 → 所属模块」收窄，比直接用行号更稳（光标行通常不是声明行）：
+  // 命中多个模块同名信号时优先当前模块；收窄后为空则 resolveSymbolVcdPaths 自动忽略条件。
+  const moduleName = String(moduleAtLine(index, fileIndex, line)?.name || "");
+  const resolved = resolveSymbolVcdPaths(index, name, { moduleName, fileIndex, line });
+  const paths = resolved.paths.slice();
+  if (!paths.length) {
+    for (const path of findVcdPathsByName(state.vcd, name)) {
+      if (!paths.includes(path)) paths.push(path);
+    }
+  }
+  if (!paths.length) {
+    setStatus(state.vcd
+      ? `未在 VCD 中找到信号 ${name}（可能未被 dump，或该名字不是信号）。`
+      : "暂无 VCD 数据，请先点「运行仿真」再添加信号。");
+    return;
+  }
+  if (paths.length === 1) {
+    pickVcdSignalIntoWave(paths[0]);
+    if (resolved.fuzzy) setStatus(`已将 ${paths[0]} 加入波形（注意：大小写与 RTL 声明不完全一致）。`);
+    return;
+  }
+  showSymbolPicker(name, paths, info.anchor);
+  setStatus(`${name} 有 ${paths.length} 个候选信号，请在代码区旁的选择器里点选。`);
 }
 
 // 切到目标文件并跳到目标行（跨文件先同步当前编辑内容，再切标签页）。
@@ -925,7 +1041,8 @@ async function runSimulation() {
     const { parsed, outputs } = vcdToProjectOutputs(text, project);
     state.outputs = outputs;
     state.vcd = parsed;
-    replaceInjectedOutputs(outputs);
+    // #76 B4：输出不再整批灌进画布；只按 VCD 路径重建用户已加入的观察行。
+    syncSimRows();
     state.lastTestbench = tbResult.source;
     state.lastBindings = tbResult.bindings;
     updateTbViewer();
@@ -934,6 +1051,7 @@ async function runSimulation() {
     const notes = diagnoseSimulation(outputs, tbResult.bindings);
     refs.modulePreview.textContent = [
       `仿真完成：${outputs.length} 个输出信号，时长 tmax ${parsed.tmax}`,
+      "加信号：在左侧代码里双击变量名（或选中后按 Ctrl+Alt+W / 右键）即可加入波形。",
       `末值：${summarizeOutputs(outputs)}`,
       ...(notes.length ? ["", ...notes] : [])
     ].join("\n");
@@ -941,8 +1059,8 @@ async function runSimulation() {
     refreshStructureTrees();
     if (refs.recoverBtn) refs.recoverBtn.style.display = "none"; // 仿真成功 → 收起自愈入口
     setStatus(notes.length
-      ? `仿真完成：${outputs.length} 个输出信号，但有 ${notes.length} 条提醒，请查看详情。`
-      : `仿真完成：${outputs.length} 个输出信号。`);
+      ? `仿真完成：${outputs.length} 个输出信号，但有 ${notes.length} 条提醒，请查看详情。在代码里双击变量名可加入波形。`
+      : `仿真完成：${outputs.length} 个输出信号。在代码里双击变量名（或 Ctrl+Alt+W）即可加入波形。`);
   } catch (error) {
     // Bug1（2026-09-09）：失败要区分「服务进程已死」与「服务瞬时重启/自愈中」。
     // 旧实现任何 fetch 失败都只提示“请重启应用” —— launcher 的 AcceptLoop 异常自愈
@@ -1025,7 +1143,7 @@ async function runSimulation() {
 
 // 自动识别 RTL top module 的端口信号并添加到绘图区，方便用户直接绘制激励波形。
 // - input / inout 端口 → 作为激励信号添加到画布（可绘制，kind 保留 clock/logic/vector）
-// - output 端口 → 跳过（仿真后由仿真结果自动回填，避免与回填信号重名冲突）
+// - output 端口 → 跳过（输出不是激励；仿真后在代码里点选同名信号加入波形即可，见 B4）
 // - 画布上已存在同名信号 → 跳过（保留用户已绘制的波形）
 function addPortSignalsToCanvas() {
   onWavepaintReady();
@@ -1052,7 +1170,7 @@ function addPortSignalsToCanvas() {
   const baseCount = existing.length;
   for (let index = 0; index < ports.length; index += 1) {
     const port = ports[index];
-    if (port.direction === "output") { skipped += 1; continue; } // 输出由仿真回填
+    if (port.direction === "output") { skipped += 1; continue; } // 输出不是激励（仿真后在代码里点选）
     const key = signalNameKey(port);
     if (!key || names.has(key)) { skipped += 1; continue; }
     // 时钟/复位这类通用信号由 createPortStimulus 预填典型波形，其余保持未定义(x)
@@ -1101,11 +1219,16 @@ function render() {
   const project = readWaveDocument();
   const design = state.design || parseVerilogDesign(sourceText());
   state.design = design;
-  replaceInjectedOutputs(state.outputs);
+  syncSimRows();
   window.drawWaveform?.();
   window.updateSidePanels?.();
   const outputCount = state.outputs && state.outputs.length ? state.outputs.length : 0;
-  setStatus(outputCount ? `${outputCount} 个输出信号已就绪。` : "暂无输出信号，点「运行仿真」后回填。");
+  const watchCount = Array.isArray(state.simWatches) ? state.simWatches.length : 0;
+  setStatus(outputCount
+    ? (watchCount
+      ? `波形中已有 ${watchCount} 个仿真信号（本次仿真共 ${outputCount} 个输出）。在代码里双击变量名可继续添加。`
+      : `仿真已就绪（${outputCount} 个输出信号）。在代码里双击变量名（或 Ctrl+Alt+W）即可加入波形。`)
+    : "暂无仿真结果，点「运行仿真」；加信号请在代码里双击变量名。");
   if (refs.toggleBtn) refs.toggleBtn.style.display = refs.panel?.classList.contains("collapsed") ? "block" : "none";
 }
 
@@ -1493,6 +1616,45 @@ window.__wpsim = {
   },
   vcdPathsByName(name) {
     return findVcdPathsByName(state.vcd, name);
+  },
+  // #76 B4：代码内点/选中变量 → 加波形（交互主路径）的自动化入口。
+  // 探针可直接造 {name, fileIndex, line}（等价于在代码里双击该变量名）。
+  addSymbolFromCode,
+  // 与代码区取词口径一致（光标/选区 → 符号名）；无 CM 时读 textarea。
+  get codeContext() {
+    return sourceCodeView?.getContext?.() || { name: "", line: 0, selection: "", exact: false, source: "none" };
+  },
+  // 当前候选选择器里的候选（未弹出时为 null）；探针用它核验"多候选 → 轻量选择器"。
+  get symbolPickerOptions() {
+    const node = symbolPicker?.node;
+    if (!node) return null;
+    return [...node.querySelectorAll(".sim-symbol-picker-item")].map((item) => item.textContent);
+  },
+  clickSymbolPickerOption(path) {
+    const node = symbolPicker?.node;
+    if (!node) return false;
+    const item = [...node.querySelectorAll(".sim-symbol-picker-item")].find((row) => row.textContent === path);
+    if (!item) return false;
+    item.click();
+    return true;
+  },
+  closeSymbolPicker,
+  // 仿真输出在当前画布口径下的展开值（长度 = 主步 × (子步+1)）；e2e 核验观察行同源用。
+  nativeValuesOfOutput(name) {
+    const outputs = Array.isArray(state.outputs) ? state.outputs : [];
+    const index = outputs.findIndex((output) => String(output?.name || "") === String(name));
+    if (index < 0) return null;
+    const row = toNativeSignal(outputs[index], index, null, Math.max(4, canvasEffectiveCount()));
+    return Array.isArray(row?.values) ? row.values : null;
+  },
+  get outputs() {
+    return (Array.isArray(state.outputs) ? state.outputs : []).map((output) => ({
+      name: output?.name || "",
+      width: Math.max(1, Number(output?.width) || 1)
+    }));
+  },
+  get simWatches() {
+    return (Array.isArray(state.simWatches) ? state.simWatches : []).map((watch) => ({ ...watch }));
   },
   setSourceFiles,
   resetSourceFiles,

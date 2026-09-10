@@ -9,6 +9,7 @@
 //   E. #86 A2/A3/A4：实例行 → 模块定义跳转（右键/Alt=例化点）、磁盘导入入口、
 //      源码集合随工程存档/恢复（.wp 往返）
 //   F. #76 B1：模块体内符号索引 → 真实 VCD 全路径映射（点代码变量 → 波形路径的底座）
+//   G. #76 B4：代码内点/选中变量 → 加波形（唯一加信号主路径；且仿真后不再全量灌信号）
 // 用法：node tools/e2e-rtl.mjs   （自带 dev-server；需本机 Edge；退出码非 0 表示有失败）
 // 与 e2e-ui.mjs 相同的防 C 盘爆盘策略：profile/TEMP 全部指到 D 盘 .e2e-tmp。
 // ============================================================================
@@ -59,6 +60,38 @@ const F_FILES = [
   ].join('\n') }
 ];
 const F_FILES_JSON = JSON.stringify(F_FILES);
+
+// G 段 fixture：counter 里把 sub **例化两次**（u_a / u_b）——
+// 这样 sub.v 里的 q 恰好映射出两条全路径（tb.dut.u_a.q / tb.dut.u_b.q），
+// 是「同名多次例化 → 多候选 → 轻量选择器」的真实场景（B4 唯一需要选择器的情况）。
+// 行号同样是断言的一部分：counter.sv L7 = 体内 reg q；sub.v L2 = 体内 reg q。
+const G_FILES = [
+  { name: 'counter.sv', content: [
+    'module counter (',
+    '  input clk,',
+    '  input rst_n,',
+    '  input en,',
+    '  output [3:0] q',
+    ');',
+    '  reg [3:0] q;',
+    '  always @(posedge clk or negedge rst_n) begin',
+    '    if (!rst_n) q <= 4\'d0;',
+    '    else if (en) q <= q + 4\'d1;',
+    '  end',
+    '  sub u_a (.clk(clk));',
+    '  sub u_b (.clk(clk));',
+    'endmodule',
+    ''
+  ].join('\n') },
+  { name: 'sub.v', content: [
+    'module sub (input clk);',
+    '  reg [3:0] q;',
+    '  always @(posedge clk) q <= q + 4\'d1;',
+    'endmodule',
+    ''
+  ].join('\n') }
+];
+const G_FILES_JSON = JSON.stringify(G_FILES);
 
 let results = [];
 function check(name, ok, detail) {
@@ -236,8 +269,9 @@ if (ready === 'ready') {
     };
     const status = () => document.getElementById('sim-status').textContent || '';
     const before = mlen();
-    const qRow = dw().m_signals.find((s) => s && s.name === 'q' && !s.__simWatchPath);
-    const qValues = qRow && Array.isArray(qRow.values) ? qRow.values : null;
+    // #76 B4 收敛：仿真后画布不再自动灌 VCD 输出行，同源比对改用桥的
+    // nativeValuesOfOutput('q')（state.outputs 经同一画布口径展开），不再依赖画布上的原生 q 行。
+    const qValues = (window.__wpsim && window.__wpsim.nativeValuesOfOutput('q')) || null;
     if (clickRow('tb.dut.q') !== 'clicked') return 'row-missing';
     await sleep(300);
     const added = findW('tb.dut.q');
@@ -281,7 +315,7 @@ if (ready === 'ready') {
     R1.countDelta === 1 && R1.name === 'tb.dut.q' && R1.watch === 'tb.dut.q', watchRow);
   check('D2: 观察行为注入行且位宽/类型与 VCD 一致（q[3:0] vector）',
     R1.injected === true && R1.width === 4 && R1.kind === 'vector' && R1.type === 1, watchRow);
-  check('D3: 观察行 values 长度=主步×(子步+1) 且与同源输出行 q 数据一致',
+  check('D3: 观察行 values 长度=主步×(子步+1) 且与同源 VCD 输出 q 数据一致',
     R1.vlen > 0 && R1.sameAsQ === true, watchRow);
   const R2 = D.res2 || {};
   check('D4: 重复点同一行不重复加入（提示已在画布并定位）',
@@ -295,8 +329,7 @@ if (ready === 'ready') {
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const dw = () => window.document_wave;
     const findW = (path) => dw().m_signals.filter((s) => s && s.__simWatchPath === path);
-    const qRow = dw().m_signals.find((s) => s && s.name === 'q' && !s.__simWatchPath);
-    const qValues = qRow && Array.isArray(qRow.values) ? qRow.values : null;
+    const nativeQ = (window.__wpsim && window.__wpsim.nativeValuesOfOutput('q')) || null;
     const before = findW('tb.dut.q').length;
     const b = document.getElementById('sim-run');
     if (b) b.click();
@@ -308,14 +341,13 @@ if (ready === 'ready') {
     }
     const afterRows = findW('tb.dut.q');
     const watch = afterRows[0] || null;
-    const qRow2 = dw().m_signals.find((s) => s && s.name === 'q' && !s.__simWatchPath);
     return JSON.stringify({
       done: /仿真完成/.test(statusText),
       before,
       after: afterRows.length,
       stillInjected: !!(watch && watch.__simInjected),
       stillWatch: !!(watch && watch.__simWatchPath === 'tb.dut.q'),
-      sameAsQ: !!(watch && qRow2 && JSON.stringify(watch.values) === JSON.stringify(qRow2.values)),
+      sameAsQ: !!(watch && nativeQ && JSON.stringify(watch.values) === JSON.stringify(nativeQ)),
       vlen: watch && Array.isArray(watch.values) ? watch.values.length : -1,
       status: statusText.slice(0, 80)
     });
@@ -547,6 +579,109 @@ if (ready === 'ready') {
   const F9 = JSON.parse(fWidth || '{}');
   check('F9: 符号声明位宽与 VCD 实际位宽一致（q：RTL 4 位 = VCD vector 4 位）',
     F9.symWidth === 4 && F9.vcdWidth === 4 && F9.kind === 'vector' && F9.vlen > 0, fWidth);
+
+  // ---- G. #76 B4：代码内「点/选中变量 → 加波形」（仿 Verdi Ctrl+W「中追」，唯一加信号主路径）----
+  // 用户口径：① 加信号只从代码操作；② 仿真后**不得**把所有可看变量全灌进画布；
+  //          ③ 候选 >1 只弹代码区旁的轻量选择器（严禁做成侧栏面板 / 信号层次框）。
+  const gState = await ev(`(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const dw = () => window.document_wave;
+    const wpsim = window.__wpsim;
+    const watchPaths = () => dw().m_signals.filter((s) => s && s.__simWatchPath).map((s) => s.__simWatchPath);
+    const status = () => String(document.getElementById('sim-status').textContent || '');
+    // 1) 造两文件工程（counter 里 sub 例化两次 u_a/u_b）跑一次真实仿真
+    wpsim.setSourceFiles(${G_FILES_JSON});
+    await sleep(500);
+    const runBtn = document.getElementById('sim-run');
+    if (runBtn) runBtn.click();
+    let runStatus = '';
+    for (let i = 0; i < 80; i++) {
+      await sleep(400);
+      runStatus = status();
+      if (/仿真完成/.test(runStatus) || /ERROR|失败/.test(runStatus)) break;
+    }
+    // 2) 收敛断言：仿真完成后画布不得自动出现任何注入行/观察行（旧行为 = 全量灌信号）
+    const autoInjected = dw().m_signals.filter((s) => s && s.__simInjected).length;
+    const autoWatch = watchPaths().length;
+    const waitHint = status();
+    // 3) 带 file/line 的点变量（= 在代码里双击该变量名）→ 唯一候选直接加入，不弹选择器
+    wpsim.addSymbolFromCode({ name: 'q', fileIndex: 0, line: 7, selection: 'q', exact: true, via: 'probe' });
+    await sleep(250);
+    const afterUnique = watchPaths();
+    const added = dw().m_signals.find((s) => s && s.__simWatchPath === 'tb.dut.q') || null;
+    const uniqueStatus = status();
+    const uniquePicker = wpsim.symbolPickerOptions;
+    // 4) 点 sub.v 里的 q（同一模块被例化两次）→ 弹轻量选择器，且不得先斩后奏地加入
+    wpsim.addSymbolFromCode({ name: 'q', fileIndex: 1, line: 2, selection: 'q', exact: true, via: 'probe' });
+    await sleep(250);
+    const options = wpsim.symbolPickerOptions;
+    const afterMulti = watchPaths();
+    const multiStatus = status();
+    // 5) 点候选 → 加入波形并收起选择器
+    const clicked = wpsim.clickSymbolPickerOption('tb.dut.u_b.q');
+    await sleep(300);
+    const afterPick = watchPaths();
+    const pickerClosed = wpsim.symbolPickerOptions === null;
+    // 6) 未知符号 → 只给中文提示，绝不误加
+    const beforeUnknown = watchPaths().length;
+    wpsim.addSymbolFromCode({ name: 'no_such_signal_xyz', selection: 'no_such_signal_xyz', exact: true, via: 'probe' });
+    await sleep(200);
+    const unknownDelta = watchPaths().length - beforeUnknown;
+    const unknownStatus = status();
+    // 7) UI 触发面接线：右键菜单 / Ctrl+Alt+W（挂在代码区宿主上的监听）→ 必须走同一条 addSymbolFromCode
+    const host = document.getElementById('verilog-cm-host');
+    const ctx = wpsim.codeContext || {};
+    host.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 120, clientY: 200 }));
+    await sleep(250);
+    const afterMenu = status();
+    wpsim.closeSymbolPicker();
+    host.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', ctrlKey: true, altKey: true, bubbles: true, cancelable: true }));
+    await sleep(250);
+    const afterHotkey = status();
+    wpsim.closeSymbolPicker();
+    // 收尾：清空观察行，避免影响后续（本文件末尾无其它断言，但保持幂等）
+    for (const s of dw().m_signals.filter((x) => x && x.__simWatchPath)) {
+      const i = dw().m_signals.indexOf(s);
+      if (i >= 0) dw().removeSignal(i);
+    }
+    window.drawWaveform && window.drawWaveform();
+    window.updateSidePanels && window.updateSidePanels();
+    return JSON.stringify({
+      runDone: /仿真完成/.test(runStatus), runStatus: runStatus.slice(0, 90),
+      autoInjected, autoWatch, waitHint: waitHint.slice(0, 70),
+      afterUnique, addedName: added && added.name, addedWidth: added && added.width,
+      addedInjected: !!(added && added.__simInjected), uniqueStatus: uniqueStatus.slice(0, 60),
+      uniquePicker,
+      options, afterMulti, multiStatus: multiStatus.slice(0, 60),
+      clicked, afterPick, pickerClosed,
+      unknownDelta, unknownStatus: unknownStatus.slice(0, 60),
+      ctxSource: ctx.source, ctxKeys: Object.keys(ctx).sort().join(','),
+      afterMenu: afterMenu.slice(0, 60), afterHotkey: afterHotkey.slice(0, 60)
+    });
+  })()`);
+  const G = JSON.parse(gState || '{}');
+  check('G1: 仿真完成后画布不自动灌信号（无注入行/观察行，只提示「在代码里双击变量名」）',
+    G.runDone === true && G.autoInjected === 0 && G.autoWatch === 0
+    && /双击变量名/.test(G.waitHint || ''), gState);
+  check('G2: 代码内点变量（带文件/行 → 唯一候选）→ 直接加入观察行 tb.dut.q，不弹选择器',
+    JSON.stringify(G.afterUnique) === JSON.stringify(['tb.dut.q'])
+    && G.addedName === 'tb.dut.q' && G.addedWidth === 4 && G.addedInjected === true
+    && G.uniquePicker === null, gState);
+  check('G3: 同一模块例化两次（sub.v 的 q → u_a/u_b）→ 弹轻量选择器且未先斩后奏地加入',
+    Array.isArray(G.options) && JSON.stringify(G.options.slice().sort())
+    === JSON.stringify(['tb.dut.u_a.q', 'tb.dut.u_b.q'])
+    && JSON.stringify(G.afterMulti) === JSON.stringify(['tb.dut.q']), gState);
+  check('G4: 点选择器候选 → 加入对应全路径观察行并收起选择器',
+    G.clicked === true && G.pickerClosed === true
+    && G.afterPick.indexOf('tb.dut.u_b.q') >= 0 && G.afterPick.length === 2, gState);
+  check('G5: 未知符号 → 不加入任何行且给出中文提示',
+    G.unknownDelta === 0 && /未在 VCD 中找到|暂无 VCD 数据/.test(G.unknownStatus || ''), gState);
+  check('G6: 代码区触发面接线（右键 / Ctrl+Alt+W）→ 走同一条加信号链路（状态栏出现 B4 口径文案）',
+    G.ctxKeys === 'exact,line,name,selection,source'
+    && /未选中变量名|已将|未在 VCD 中找到|暂无 VCD 数据/.test(G.afterMenu || '')
+    && /未选中变量名|已将|未在 VCD 中找到|暂无 VCD 数据/.test(G.afterHotkey || ''), gState);
+  check('G7: 代码区取词上下文来自真实编辑器（codeContext.source=cm）',
+    G.ctxSource === 'cm', gState);
 }
 
 console.log('\n资源加载失败(404等)：' + netFails);

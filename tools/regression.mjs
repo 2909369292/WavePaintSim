@@ -148,6 +148,7 @@ group("sim.js");
 const sim = await import(new URL("../js/sim/engine.js", import.meta.url).href);
 const rtlNav = await import(new URL("../js/sim/rtl-nav.js", import.meta.url).href);
 const vcdIndex = await import(new URL("../js/sim/vcd-index.js", import.meta.url).href);
+const rtlPanel = await import(new URL("../js/sim/rtl-panel.js", import.meta.url).href);
 
 const COUNTER_SRC = `module counter(
   input clk,
@@ -805,6 +806,34 @@ test("rtl-nav #76 B1：moduleAtLine 按行号定位所属模块（取最外层�
   assert.equal(rtlNav.moduleAtLine(index, 0, 99), null, "越界行不属于任何模块");
   assert.equal(rtlNav.moduleAtLine(index, 1, 3).name, "sub");
   assert.equal(rtlNav.moduleAtLine(index, 1, 3).fileIndex, 1);
+});
+
+// ---------------------------------------------------------------------------
+group("rtl-panel.js（#76 B4 代码取词纯函数）");
+
+test("rtl-panel #76 B4：光标取词（块内标识符 / 关键字 / 纯数字 / 位选下标回退）", () => {
+  const src = "module counter (\n  wire [7:0] data;\n  logic [3:0] q;\n  assign q = data[0] + 4'd1;\nendmodule\n";
+  const at = (text, pos) => rtlPanel.symbolNameAt(text, pos, pos);
+  assert.equal(at(src, 8), "counter", "光标在 module 后的标识符");
+  assert.equal(at(src, 3), "", "光标落在关键字 module 内不取词");
+  assert.equal(at(src, src.indexOf("wire") + 2), "", "光标在裸关键字 wire 内不取词");
+  assert.equal(at(src, src.indexOf("data;") + 1), "data", "光标在 data 中间取完整标识符");
+  // "assign q = data[0] + 4'd1;"：光标落在位选下标 0 上 → 向前找回基名 data
+  assert.equal(at(src, src.indexOf("data[0]") + 5), "data", "光标在位选下标上回退到基名 data");
+  assert.equal(at("  q[2] <= 3;", 4), "q", "光标在位选下标 2 上回退到基名 q");
+  assert.equal(at("  q[2] <= 3;", 10), "", "光标在纯数字 3 上返回空（不误加信号）");
+  assert.equal(at("", 0), "", "空文本安全返回空串");
+});
+
+test("rtl-panel #76 B4：选区取词（首个非关键字标识符 / 层次名取末段）", () => {
+  const line = "assign acc = q;";
+  assert.equal(rtlPanel.symbolNameAt(line, 0, line.length), "acc", "整行选中跳过关键字 assign 取 acc");
+  assert.equal(rtlPanel.symbolNameAt("q <= q + 1;", 0, 5), "q", "选区含运算符仍取 q");
+  const hier = "assign tb.dut.q = 1'b1;";
+  assert.equal(rtlPanel.symbolNameAt(hier, hier.indexOf("tb"), hier.indexOf("q =") + 1), "q", "层次名只取末段基名");
+  // ⚠ 关键字只作用于首段：裸 wire 要挡掉，层次名末段叫 wire 必须保留
+  assert.equal(rtlPanel.symbolNameAt("wire x;", 0, 4), "", "裸关键字整段选中返回空");
+  assert.equal(rtlPanel.symbolNameAt("assign tb.wire = 1'b0;", 7, 14), "wire", "层次名 tb.wire 保留末段");
 });
 
 // ---------------------------------------------------------------------------

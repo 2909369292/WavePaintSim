@@ -21,9 +21,93 @@ function elFromDoc(doc, tag, className, text) {
 }
 
 // ---------------------------------------------------------------------------
+// 1a. #76 B4：从「选区 / 光标」取符号名（“中追”式「点代码变量 → 加波形」的取词口径）
+// ---------------------------------------------------------------------------
+// 纯函数（不碰 DOM），regression.mjs 直接单测。规则：
+//   1) 有选区   → 取选区里的第一个「非关键字」标识符（"assign acc = q;" 选中整行 → acc）；
+//   2) 无选区   → 以光标为界向左右扩到标识符边界（"q <= q + 1;" 点在 q 内 → q）；
+//   3) 层次名   → 只取末段基名（"tb.dut.q" / "u_sub.q" → q，交给 B1 按行/文件消歧）；
+//   4) 位选下标 → 光标落在 "q[3:0]" 的 3 上 → 向前找回基名 q；纯数字/越界 → 空串；
+//   5) Verilog 关键字（module / wire / always ...）→ 空串（不触发加信号）。
+const VERILOG_IDENT = "[A-Za-z_$][A-Za-z0-9_$]*";
+// 选区取词允许带层次点号（一次把 "tb.dut.q" 整段吃掉，再取末段基名）。
+const IDENT_SCAN = new RegExp(`${VERILOG_IDENT}(?:\\.${VERILOG_IDENT})*`, "g");
+const IDENT_CHAR = /[A-Za-z0-9_$]/;
+const BITSEL_LOOKBACK = /([A-Za-z_$][A-Za-z0-9_$]*)\s*\[[^\[\]]*$/;
+const VERILOG_KEYWORDS = new Set([
+  "module", "endmodule", "input", "output", "inout", "wire", "reg", "logic", "bit", "byte",
+  "integer", "real", "realtime", "time", "parameter", "localparam", "defparam", "genvar",
+  "assign", "initial", "always", "always_comb", "always_ff", "always_latch", "begin", "end",
+  "if", "else", "case", "casex", "casez", "endcase", "default", "for", "while", "repeat",
+  "forever", "function", "endfunction", "task", "endtask", "generate", "endgenerate",
+  "posedge", "negedge", "signed", "unsigned", "packed", "struct", "enum", "typedef", "union",
+  "import", "export", "package", "endpackage", "interface", "endinterface", "modport",
+  "virtual", "class", "endclass", "new", "return", "break", "continue", "do", "fork", "join",
+  "join_any", "join_none", "wait", "disable", "force", "release", "deassign", "specify",
+  "endspecify", "primitive", "endprimitive", "table", "endtable", "string", "int", "longint",
+  "shortint", "void", "automatic", "static", "const", "ref", "this", "super", "extends",
+  "implements", "extern", "pure", "unique", "unique0", "priority", "assert", "assume",
+  "cover", "property", "endproperty", "sequence", "endsequence", "covergroup", "endgroup",
+  "rand", "randc", "supply0", "supply1", "tri", "tri0", "tri1", "wand", "wor", "and", "or",
+  "nand", "nor", "xor", "xnor", "not", "buf", "bufif0", "bufif1", "notif0", "notif1", "pulldown",
+  "pullup", "tran", "tranif0", "tranif1", "cmos", "nmos", "pmos", "rcmos", "rtran", "rtranif0",
+  "rtranif1", "scalared", "vectored", "highz0", "highz1", "strong0", "strong1", "weak0", "weak1"
+]);
+
+function baseSymbolName(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return "";
+  const segments = text.split(".");
+  // ⚠ 关键字只看首段：裸 "wire" 要挡掉，但 "tb.wire" / "u.wire" 是层次名，必须保留。
+  if (!segments[0] || VERILOG_KEYWORDS.has(segments[0].toLowerCase())) return "";
+  const name = segments[segments.length - 1] || "";
+  if (!name) return "";
+  return name;
+}
+
+// 选区里可能出现关键字前缀（"assign acc = q;"）：逐个扫，取第一个能成符号的标识符。
+function firstSymbolIn(segment) {
+  IDENT_SCAN.lastIndex = 0;
+  let hit;
+  while ((hit = IDENT_SCAN.exec(segment))) {
+    const name = baseSymbolName(hit[0]);
+    if (name) return name;
+  }
+  return "";
+}
+
+function isIdentAdjacent(text, pos) {
+  const src = String(text ?? "");
+  return (pos > 0 && IDENT_CHAR.test(src[pos - 1])) || (pos < src.length && IDENT_CHAR.test(src[pos]));
+}
+
+export function symbolNameAt(text, from, to) {
+  const src = String(text ?? "");
+  const len = src.length;
+  const clampIndex = (value) => Math.min(Math.max(0, Number(value) || 0), len);
+  let start = clampIndex(from);
+  let end = clampIndex(to);
+  if (end < start) { const swap = start; start = end; end = swap; }
+  if (end > start) {
+    return firstSymbolIn(src.slice(start, end));
+  }
+  let wordStart = start;
+  let wordEnd = start;
+  while (wordStart > 0 && IDENT_CHAR.test(src[wordStart - 1])) wordStart -= 1;
+  while (wordEnd < len && IDENT_CHAR.test(src[wordEnd])) wordEnd += 1;
+  const word = src.slice(wordStart, wordEnd);
+  if (word && !/^[0-9]+$/.test(word)) return baseSymbolName(word);
+  // 光标落在位选下标（"q[3:0]" 的 3、"q[1]" 的 1）→ 向前找回基名
+  const back = src.slice(0, start).match(BITSEL_LOOKBACK);
+  return back ? baseSymbolName(back[1]) : "";
+}
+
+// ---------------------------------------------------------------------------
 // 1. CodeMirror 6 代码视图
 // ---------------------------------------------------------------------------
-export function installCodeEditor({ host, textarea, doc = "", onChange }) {
+// onAddSymbol({name,line,selection,exact,via,anchor})：#76 B4 的代码侧入口，
+// 由 ui-bridge 负责「符号 → VCD 路径 → 画布观察行」；rtl-panel 只负责取词与触发。
+export function installCodeEditor({ host, textarea, doc = "", onChange, onAddSymbol }) {
   const cm = globalThis.WPCm;
   const canUseCm = !!(host && textarea && cm && typeof cm.createVerilogEditor === "function");
   let view = null;
@@ -41,6 +125,61 @@ export function installCodeEditor({ host, textarea, doc = "", onChange }) {
       notifyUserChange(text);
     };
     view = cm.createVerilogEditor(host, { doc: lastText, onChange: userChanged });
+  }
+
+  // 当前光标/选区处的符号上下文（B4 加信号 + B3 反向定位都用它取词）。
+  function readContext() {
+    if (view) {
+      const text = view.state.doc.toString();
+      const sel = view.state.selection.main;
+      return {
+        name: symbolNameAt(text, sel.from, sel.to),
+        line: view.state.doc.lineAt(sel.from).number,
+        selection: text.slice(sel.from, sel.to),
+        exact: sel.to > sel.from || isIdentAdjacent(text, sel.from),
+        source: "cm"
+      };
+    }
+    if (textarea) {
+      const text = String(textarea.value || "");
+      const from = Number(textarea.selectionStart) || 0;
+      const to = Number(textarea.selectionEnd) || 0;
+      return {
+        name: symbolNameAt(text, from, to),
+        line: text.slice(0, from).split("\n").length,
+        selection: text.slice(from, to),
+        exact: to > from || isIdentAdjacent(text, from),
+        source: "textarea"
+      };
+    }
+    return { name: "", line: 0, selection: "", exact: false, source: "none" };
+  }
+
+  // #76 B4 触发面：双击变量名 / 右键菜单 / Ctrl+Alt+W（Verdi「中追」的等价手势）。
+  // ⚠ 不用 Ctrl+W：浏览器（Edge --app 窗口）把它保留为「关闭窗口」，页面无法拦截。
+  // ⚠ 监听挂在宿主上（捕获 keydown + 冒泡 dblclick/contextmenu）：CM6 自己会处理
+  //    双击选词，冒泡阶段读选区即可拿到完整词；不需要改 CM6 bundle（免重建 lib/）。
+  if (typeof onAddSymbol === "function" && host) {
+    const request = (via, event) => {
+      const ctx = readContext();
+      if (via === "dblclick" && !ctx.exact) return; // 双击空白/运算符不触发
+      const anchor = event
+        ? { x: Number(event.clientX) || 0, y: Number(event.clientY) || 0 }
+        : null;
+      onAddSymbol({ ...ctx, via, anchor });
+    };
+    host.addEventListener("dblclick", (event) => request("dblclick", event));
+    host.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      request("menu", event);
+    });
+    host.addEventListener("keydown", (event) => {
+      const key = String(event.key || "").toLowerCase();
+      if (!(event.ctrlKey || event.metaKey) || !event.altKey || key !== "w") return;
+      event.preventDefault();
+      event.stopPropagation();
+      request("hotkey", event);
+    }, true);
   }
 
   return {
@@ -89,6 +228,13 @@ export function installCodeEditor({ host, textarea, doc = "", onChange }) {
         return true;
       }
       return false;
+    },
+    // 取词口径见文件头 §1a；exact=true 表示「真的指着一个标识符」
+    // （有选区，或光标紧贴标识符字符）——双击触发表用它过滤误触。
+    getContext: readContext,
+    focus() {
+      if (view) view.focus();
+      else textarea?.focus();
     }
   };
 }

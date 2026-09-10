@@ -63,14 +63,16 @@
 - 禁止重做已完成的解混淆、重构、批次1~10。
 
 ---
-*最后更新：2026-09-10（第十五轮：**#76 B1 数据层落地** —— 模块体内符号索引 + 例化路径 +
-符号→VCD 全路径映射；`rtl-nav.js` 新增 `scanModuleSymbols`/`buildInstancePaths`/
-`buildSymbolIndex`/`findSymbols` 等，`vcd-index.js` 新增 `findVcdPathsByName`，`ui-bridge.js`
-只加探针（**界面无可见变化**）。验证 regression **75/75** + e2e-rtl **32/32**（F1~F9）+
-e2e-ui 73/73 + 真 exe 冒烟通过，exe 重建 `21:06:52`。新增 04 §4.13（§2 时间线补记第十四/十五轮）、
-`06-PITFALLS.md` P32（符号索引三坑：函数体误入表 / 收窄语义 / 测试 title 前缀）、03 表 H #76
-状态（B1 ✅）、08 §1/§1.2、09 §1/§3/§4/§6/§9、`memory/logs/2026-09-10.md`「第十五轮」、
-`05-LOGS.md` 索引。同日第十四轮完成 #86 A1~A4、第十三轮完成服务在线性根治。
-**主线下一项 = #76 B4**（代码内点/选中变量 → 加波形 = 唯一加信号主路径）；#87② 紧随其后；
-侧栏/整体 UI 重构为并行方案线（08 §2）。
+*最后更新：2026-09-10（第十六轮：**#76 B4 交互落地 —— 代码内点/选中变量 → 加波形**，
+= **唯一加信号主路径**，仿 Verdi nWave「中追」：代码里**双击变量 / 右键 / `Ctrl+Alt+W`** →
+`rtl-panel.symbolNameAt` 取词 → `ui-bridge.addSymbolFromCode`（`moduleAtLine` 收窄 →
+`resolveSymbolVcdPaths`，**仅当候选为空**才名称兜底）→ 唯一候选直加、多候选弹**代码区旁轻量
+选择器** `.sim-symbol-picker`；并**收敛「运行仿真后全量自动灌信号」**（`replaceInjectedOutputs`
+→ `syncSimRows`，不再灌 outputs）。验证 regression **77/77** + e2e-rtl **39/39**（G1~G7）+
+e2e-ui 73/73 + e2e-sim 0 失败 + 真 exe 冒烟通过，exe 重建 `21:33:05`。新增 04 §4.14（§2 时间线
+补记第十六轮）、`06-PITFALLS.md` P33（代码取词加信号四坑）、03 表 F/H #76 状态（B1 ✅ + B4 ✅）、
+08 文件头/§1/§1.2、09 §1/§3/§4/§5/§6/§7/§9、`memory/logs/2026-09-10.md`「第十六轮」、
+`05-LOGS.md` 索引。同日第十五轮完成 #76 B1、第十四轮 #86 A1~A4、第十三轮服务在线性根治。
+**主线下一项 = #76 B3**（代码 ↔ 树双向跳转）；其后 B5（信号组入 `.wp`）→ #87②（模块全接口
+Ctrl+4）；侧栏/整体 UI 重构为并行方案线（08 §2）。
 维护者：任何接手的 AI。*

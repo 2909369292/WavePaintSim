@@ -49,8 +49,8 @@ function prepareIvl() {
 // ---------------------------------------------------------------------------
 const bridgeSrc = readFileSync(join(root, "js", "sim", "ui-bridge.js"), "utf8")
   .replace(/^import\s+[\s\S]*?;\s*$/gm, "")
-  + "\nreturn { readWaveDocument, replaceInjectedOutputs, canvasSubSteps, canvasTimeSteps,"
-  + " canvasEffectiveCount, toNativeSignal };";
+  + "\nreturn { readWaveDocument, canvasSubSteps, canvasTimeSteps,"
+  + " canvasEffectiveCount, toNativeSignal, syncSimRows, buildWatchSignal, state };";
 
 class SignalStub {
   constructor(name, type, count) {
@@ -276,14 +276,39 @@ for (const testCase of cases) {
   const { outputs } = simNs.vcdToProjectOutputs(vcdText, project);
   console.log("  输出： " + outputs.map((o) => `${o.name}=${o.values.join(",")}`).join("  "));
 
-  // 回填画布：注入信号的长度/subSteps 必须与原生信号一致，否则画布渲染会错乱
-  bridge.replaceInjectedOutputs(outputs);
-  const injected = dw.m_signals.filter((s) => s.__simInjected);
+  // #76 B4：仿真后不再把 VCD 输出整批灌进画布（用户明确要求：加信号必须由用户主动操作）。
+  // 这里断言两件事：
+  //   1) state.simWatches 为空时，syncSimRows() 不得往画布加任何观察行（不自动灌信号）；
+  //   2) 用户主动加入的观察行，长度/subSteps 必须与原生信号一致 —— 这是旧「回填」断言
+  //      真正守护的不变量（长度口径不一致会让画布渲染与滚动错乱）。
+  bridge.state.vcd = simNs.parseVcd(vcdText);
   const nativeLen = dw.m_signals.filter((s) => !s.__simInjected).map((s) => s.values.length);
-  for (const s of injected) {
-    const ok = s.values.length === nativeLen[0];
-    console.log(`  回填 ${s.name}: len=${s.values.length} subSteps=${s.subSteps}`
-      + `（原生信号 len=${nativeLen.join("/")}）${ok ? "" : "  ⚠ 长度不一致"}`);
+  bridge.state.simWatches = [];
+  bridge.syncSimRows();
+  const autoRows = dw.m_signals.filter((s) => s.__simInjected);
+  if (autoRows.length) {
+    console.log(`  ✗ 仿真后自动灌入 ${autoRows.length} 行信号（B4：加信号必须由用户主动触发）`);
+    failures += 1;
+  } else {
+    console.log(`  ✓ 仿真后未自动灌信号（画布仍是用户画的 ${nativeLen.join("/")} 格）`);
+  }
+  const probed = (bridge.state.vcd?.signals || []).find((sig) => String(sig.scope || ""));
+  if (probed) {
+    const path = `${probed.scope}.${probed.name}`;
+    const watch = { path, name: probed.name, width: probed.width, reference: probed.reference || "" };
+    bridge.state.simWatches = [watch];
+    // 复刻 pickVcdSignalIntoWave：登记 + 立即挂行，随后 render() 走 syncSimRows 的「存活同步」
+    const row = bridge.buildWatchSignal(watch, 0, dw.m_signals[0], Math.max(4, bridge.canvasEffectiveCount()));
+    if (row) dw.m_signals.push(row);
+    bridge.syncSimRows();
+    const kept = dw.m_signals.filter((s) => s.__simWatchPath === path);
+    const ok = kept.length === 1
+      && kept[0].values.length === nativeLen[0]
+      && Number(kept[0].subSteps) === Number(dw.m_subStepCount);
+    console.log(`  观察行 ${path}: len=${kept[0] ? kept[0].values.length : "-"}`
+      + ` subSteps=${kept[0] ? kept[0].subSteps : "-"}（原生 len=${nativeLen.join("/")}）`
+      + (ok ? "" : "  ⚠ 长度/子步口径不一致"));
+    if (!ok) failures += 1;
   }
 
   const verdict = testCase.expect(outputs);
