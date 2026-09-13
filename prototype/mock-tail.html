@@ -1,0 +1,88 @@
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         原型外壳（mock-only）：真机 index.html 里**没有**下面这些元素
+         -----------------------------------------------------------------------
+         · 由 tools/gen-mock-page.mjs 在 </body> 之前整段追加到 prototype/ui-mockup.html；
+         · 真机骨架（菜单栏 / 工具带 / 波形区 / 仿真卡片）一律逐字照搬，绝不在这里重写；
+         · 原型独有的东西只有：工作区宿主（#workbench）+ 拖拽引擎 + 底部状态栏 +
+           帮助浮层 + 构建戳。样式在 prototype/ui-mockup.css，逻辑在 prototype/ui-mockup.js。
+    ════════════════════════════════════════════════════════════════════════ -->
+    <div id="workbench">
+        <div id="mk-drop"></div>
+        <div id="mk-caret"></div>
+        <div id="mk-floats"></div>
+        <!-- 停靠状态下的真机节点暂存区：#workbench 一次只装一棵停靠树，
+             面板被合并 / 浮出 / 隐藏时，其宿主节点先摘到这里挂着，
+             既不脱离文档（真机 getElementById 必须仍能命中），也不参与布局。 -->
+        <div id="mk-park" hidden></div>
+    </div>
+    <div id="status-bar">
+        <span class="mk-st-dot" title="原型：纯前端演示，未连接本地仿真服务"></span>
+        <span id="st-text">就绪（原型演示）</span>
+        <span class="mk-st-sep"></span>
+        <span id="st-ctx">纯前端原型 · 真机 UI 1:1 照搬</span>
+        <span class="mk-spacer"></span>
+        <span id="st-layout">布局：仿真预设</span>
+        <span class="mk-st-sep"></span>
+        <span id="st-panels">面板</span>
+        <span class="mk-st-sep"></span>
+        <div id="layout-menu" class="mk-menu mk-up">布局 ▾
+            <div class="mk-sub">
+                <div class="mk-mi" data-preset="sim"><span class="mk-tick">✔</span>仿真预设<span class="mk-key">Ctrl+Alt+1</span></div>
+                <div class="mk-mi" data-preset="edit"><span class="mk-tick"></span>编辑预设<span class="mk-key">Ctrl+Alt+2</span></div>
+                <div class="mk-mi" data-preset="review"><span class="mk-tick"></span>审阅预设<span class="mk-key">Ctrl+Alt+3</span></div>
+                <div class="mk-sep"></div>
+                <div class="mk-mi" data-act="reset"><span class="mk-tick"></span>恢复默认布局<span class="mk-key">Ctrl+Alt+0</span></div>
+                <div class="mk-mi" data-act="save"><span class="mk-tick"></span>保存当前布局</div>
+                <div class="mk-mi" data-act="clear"><span class="mk-tick"></span>清除已保存布局</div>
+            </div>
+        </div>
+        <div id="panels-menu" class="mk-menu mk-up">面板 ▾
+            <div class="mk-sub" id="panel-menu"></div>
+        </div>
+        <button id="mock-help-btn" type="button" title="原型操作说明">?</button>
+        <span id="mock-version" class="mk-version"></span>
+    </div>
+    <div id="help-overlay" class="hidden">
+        <div id="help-box">
+            <div id="help-head">
+                <b>WavePaint 原型（多面板 / 自由拖拽）— 操作说明</b>
+                <button id="help-close" type="button" title="关闭">✕</button>
+            </div>
+            <div id="help-body">
+                <h4>这一版在验证什么</h4>
+                <ul>
+                    <li>菜单栏 / 工具带 / 波形区 / 代码区 <b>逐字照搬真机 index.html</b>（同一份 DOM + 同一份 CSS + 同一份 JS），
+                        所以看到的就是真机效果，只是从「全屏」变成了「面板」。</li>
+                    <li>面板之间的<b>停靠布局</b>（Verdi 式多窗格）与<b>自由拖拽</b>（Word 式自由排布）是本原型新增的能力。</li>
+                </ul>
+                <h4>拖拽面板</h4>
+                <ul>
+                    <li>按住面板页签拖动：拖到<b>另一面板的页签条</b> = 合并成一个 Tab 组；</li>
+                    <li>拖到某面板的<b>内部边缘</b> = 在该侧切出新窗格（蓝框预览 = 松手后的真实位置）；</li>
+                    <li>拖到<b>工作区最外缘</b>（约 20px 环带）= 新建一整行 / 一整列；</li>
+                    <li>中键点击页签 / 双击页签 = 浮出为自由窗口；浮窗标题栏拖动可跨面板停靠。</li>
+                </ul>
+                <h4>分隔条与缩放</h4>
+                <ul>
+                    <li>拖动面板之间的<b>分隔条</b>调整比例；拖动浮窗右下角调整浮窗大小。</li>
+                    <li>窗口尺寸变化时画布自动重绘（画布等价于真机画布）。</li>
+                </ul>
+                <h4>底部状态栏（原型独有）</h4>
+                <ul>
+                    <li><code>布局 ▾</code> 切换三套预设（仿真 / 编辑 / 审阅）或保存 / 清除布局；</li>
+                    <li><code>面板 ▾</code> 逐面板显示 / 隐藏 / 浮出 / 收回；</li>
+                    <li><code>Ctrl+Alt+1/2/3</code> 切预设，<code>Ctrl+Alt+0</code> 恢复默认，<code>Esc</code> 取消拖动 / 关闭菜单。</li>
+                </ul>
+                <h4>与真机的差别（有意为之）</h4>
+                <ul>
+                    <li>没有本地仿真服务：点「运行仿真」不会真的跑 iverilog，也不会拉起真机 exe（原型已禁用协议唤醒）。</li>
+                    <li>「控制台 / 源文件 / 端口」三块面板真机没有，内容是原型假数据，用来演示更多窗格形态。</li>
+                </ul>
+                <div class="mk-note">布局改动会自动存进 <code>localStorage</code>（键名 <code>wavepaint.mock.layout.v1</code>），刷新后保留。
+                    想回到出厂状态：<code>布局 ▾ → 恢复默认布局</code>。</div>
+            </div>
+        </div>
+    </div>
+    <!-- 原型样式表不在这里引：由 tools/gen-mock-page.mjs 插到 <head> 真机内联
+         <style> 之后（保证层叠顺序压过真机样式，且不产生无样式闪烁）。 -->
+    <script src="ui-mockup.js"></script>

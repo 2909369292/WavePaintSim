@@ -6,7 +6,8 @@
 #
 # ⚠ 与 build.ps1 完全独立：
 #   · 不写 resources.txt、不动 version.txt、不碰 WavePaintClean.exe；
-#   · 内嵌范围仅 prototype/ + img/ + mockup-version.txt（img 是原型引用的 ../img/*）；
+#   · 内嵌范围 prototype/ + img/ + css/ + js/ + lib/ + mockup-version.txt（后三者是
+#     真机骨架 ../css ../js ../lib 的 ESM/样式依赖，原型页 1:1 复用；img 同理）；
 #   · 因此构建本 exe **不触发 C1**（C1 只管 js/ index.html css/ img/ lib/
 #     WavePaintLauncher.cs build.ps1 的改动 —— 本脚本只「读取」prototype/img）。
 #   · 改 prototype/ 后必须重跑本脚本，否则 exe 里还是旧快照。
@@ -28,7 +29,7 @@ $stampPath = Join-Path $PSScriptRoot "mockup-version.txt"
 # 2) 资源清单（内嵌资源的逻辑名 = 与 URL 路径一致，launcher 直接按路径取流）
 $resArgs = @("/resource:mockup-version.txt,mockup-version.txt")
 $pairs = @()
-foreach ($dir in @("prototype", "img")) {
+foreach ($dir in @("prototype", "img", "css", "js", "lib")) {
   $base = Join-Path $PSScriptRoot $dir
   if (-not (Test-Path -LiteralPath $base)) { continue }
   Get-ChildItem -LiteralPath $base -File -Recurse | ForEach-Object {

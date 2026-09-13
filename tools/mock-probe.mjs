@@ -55,7 +55,10 @@ ws.addEventListener('message', (ev) => {
   if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); }
   if (m.method === 'Runtime.exceptionThrown') errors.push((m.params.exceptionDetails.exception?.description || m.params.exceptionDetails.text || '').slice(0, 200));
   if (m.method === 'Runtime.consoleAPICalled' && m.params.type === 'error') errors.push('console.error: ' + JSON.stringify(m.params.args.map((a) => a.value || a.description)).slice(0, 160));
-  if (m.method === 'Network.loadingFailed') netFail.push(m.params.errorText + ' ' + (m.params.requestId || ''));
+  // ERR_ABORTED = 请求被「主动取消」（导航/被替换），不是加载失败；只记真失败
+  if (m.method === 'Network.loadingFailed' && m.params.errorText !== 'net::ERR_ABORTED') {
+    netFail.push(m.params.errorText + ' ' + (m.params.requestId || ''));
+  }
 });
 const send = (method, params = {}) => new Promise((r) => { const i = ++id; pending.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
 const ev = async (expr) => {
@@ -93,13 +96,41 @@ const pageTests = `
   t('M0 探针存在 / 仿真预设挂载 6 个面板', () => !!M && M.visiblePanels().length === 6 && document.querySelectorAll('.mk-tab').length === 6);
   t('M1 仿真预设 = 4 组停靠区', () => document.querySelectorAll('.mk-group').length === 4 && !!gOf('wave') && !!gOf('rtl') && !!gOf('console') && !!gOf('source'));
   t('M2 波形与源码不同组（默认）', () => gOf('wave').dataset.tabsId !== gOf('source').dataset.tabsId);
-  t('M3 hitTest 工作区左外环 → edge/left', () => { const h = M.hitTest(wbR.left + 5, wbR.top + wbR.height / 2, 'wave'); return h && h.type === 'edge' && h.side === 'left'; });
-  t('M4 hitTest 波形组左侧带 → split/left', () => { const r = gOf('wave').getBoundingClientRect(); const h = M.hitTest(r.left + 40, r.top + r.height / 2, 'source'); return h && h.type === 'split' && h.side === 'left'; });
-  t('M5 hitTest 组中心 → 合并为 tab', () => { const r = gOf('wave').getBoundingClientRect(); const h = M.hitTest(r.left + r.width / 2, r.top + r.height / 2, 'source'); return h && h.type === 'tab' && h.tabsId === gOf('wave').dataset.tabsId; });
-  t('M6 hitTest 标签栏 → tab + 插入序', () => { const g = gOf('rtl'); const r = g.querySelector('.mk-tabbar').getBoundingClientRect(); const h = M.hitTest(r.left + 30, r.top + r.height / 2, 'source'); return h && h.type === 'tab' && h.tabsId === g.dataset.tabsId && typeof h.index === 'number'; });
+  // hitTest 现在返回 computeDrop 的完整结果 { op, tree, rect }（旧版直接返回 op 本身）
+  t('M3 hitTest 工作区左外环 → edge/left', () => { const h = M.hitTest(wbR.left + 5, wbR.top + wbR.height / 2, 'wave'); return !!h && h.op.type === 'edge' && h.op.side === 'left'; });
+  t('M4 hitTest 波形组左侧带 → split/left', () => { const r = gOf('wave').getBoundingClientRect(); const h = M.hitTest(r.left + 40, r.top + r.height / 2, 'source'); return !!h && h.op.type === 'split' && h.op.side === 'left'; });
+  t('M5 hitTest 组中心 → 合并为 tab', () => { const r = gOf('wave').getBoundingClientRect(); const h = M.hitTest(r.left + r.width / 2, r.top + r.height / 2, 'source'); return !!h && h.op.type === 'tab' && h.op.tabsId === gOf('wave').dataset.tabsId; });
+  t('M6 hitTest 标签栏 → tab + 插入序', () => { const g = gOf('rtl'); const r = g.querySelector('.mk-tabbar').getBoundingClientRect(); const h = M.hitTest(r.left + 30, r.top + r.height / 2, 'source'); return !!h && h.op.type === 'tab' && h.op.tabsId === g.dataset.tabsId && typeof h.op.index === 'number'; });
   t('M7 布局菜单含 3 个预设项', () => document.querySelectorAll('.mk-mi[data-preset]').length === 3);
-  t('M8 波形假数据 7 信号 + 位宽徽标（bit / [7:0]）', () => { const b = [...document.querySelectorAll('.mk-width-badge')].map((e) => e.textContent); return document.querySelectorAll('.mk-track-row[data-row]').length === 7 && b.length === 7 && b.includes('bit') && b.includes('[7:0]'); });
-  t('M9 源码面板含「双击变量名加波形」提示', () => { const a = q('.mk-anno'); return !!a && /中追/.test(a.textContent); });
+  // 波形不再是原型自绘的假 SVG 行，而是真机 js/wavepaint.clean.js 往 #wave-canvas 上真画
+  t('M8 波形 = 真机 #wave-canvas（有真实像素内容）', () => {
+    const c = document.getElementById('wave-canvas');
+    if (!c || !c.width || !c.height) return false;
+    const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    let nonWhite = 0, dark = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i] < 250 || d[i + 1] < 250 || d[i + 2] < 250) nonWhite++;
+      if (d[i] < 130 && d[i + 1] < 130 && d[i + 2] < 130) dark++;
+    }
+    return nonWhite > d.length / 4 * 0.005 && dark > 20;
+  });
+  t('M9 源码面板 = 真机 CodeMirror 宿主（非原型自绘文本）', () => {
+    const host = document.getElementById('verilog-cm-host');
+    const ta = document.getElementById('verilog-source');
+    const cm = document.querySelector('.cm-editor');
+    if (cm) { const r = cm.getBoundingClientRect(); return r.width > 100 && r.height > 60 && document.querySelectorAll('.cm-line').length > 0; }
+    return !!host && !!ta && ta.value.length > 0;
+  });
+  t('M11 真机骨架几何 1:1（#menu-bar h=40@0 / #toolbar h=46@40）', () => {
+    const mb = q('#menu-bar').getBoundingClientRect(), tb = q('#toolbar').getBoundingClientRect();
+    return Math.round(mb.height) === 40 && Math.round(mb.top) === 0 && Math.round(tb.height) === 46 && Math.round(tb.top) === 40;
+  });
+  t('M12 波形面板宿主 = 真机 #main-area / #wave-view（非仿制）', () => {
+    const ma = document.getElementById('main-area'), wv = document.getElementById('wave-view');
+    if (!ma || !wv) return false;
+    const r = wv.getBoundingClientRect();
+    return ma.contains(wv) && ma.closest('.mk-panel') && r.width > 100 && r.height > 100;
+  });
   t('M10 状态栏显示面板统计（停靠/区/浮动/未显示）', () => /停靠/.test((q('#st-panels') || {}).textContent || '') && /未显示/.test(q('#st-panels').textContent));
   return JSON.stringify(out);
 })()`;
@@ -149,7 +180,7 @@ if (floatHdr) {
   await mouse('mousePressed', floatHdr.cx, floatHdr.cy);
   await mouse('mouseMoved', floatHdr.cx + 260, floatHdr.cy + 60);
   await sleep(120);
-  const dragState = await ev(`(() => { const f = document.querySelector('#mk-floats .mk-float[data-float="rtl"]'); const M = window.__mock; const r = f.getBoundingClientRect(); return JSON.stringify({ left: f.style.left, top: f.style.top, drop: document.getElementById('mk-drop').style.display, caret: document.getElementById('mk-caret').style.display, hit: (M.hitTest(r.left + 260, r.top + 13) || {}).type }); })()`);
+  const dragState = await ev(`(() => { const f = document.querySelector('#mk-floats .mk-float[data-float="rtl"]'); const M = window.__mock; const r = f.getBoundingClientRect(); const h = M.hitTest(r.left + 260, r.top + 13); return JSON.stringify({ left: f.style.left, top: f.style.top, drop: document.getElementById('mk-drop').style.display, caret: document.getElementById('mk-caret').style.display, hit: h && h.op ? h.op.type : null }); })()`);
   console.log('  拖动中（跟随指针 + 落点提示）:', dragState);
   check('C2a 拖动中浮动窗跟随指针并显示落点提示', /"left":"350px"/.test(dragState) && /"top":"120px"/.test(dragState) && (/"caret":"block"/.test(dragState) || /"drop":"block"/.test(dragState)), dragState);
   await shot('mock-4-floats');
@@ -189,32 +220,47 @@ const audit = JSON.parse(await ev(`(() => {
   const q = (s) => document.querySelector(s);
   const R = (s) => { const e = q(s); return e ? e.getBoundingClientRect() : null; };
   const de = document.documentElement;
-  const tb = R('#toolbar'), wb = R('#workbench'), sb = R('#status-bar'), ch = R('#chrome');
+  // 新壳没有原型自绘的 #chrome（菜单栏/工具条现在就是真机原生节点）
+  const mb = R('#menu-bar'), tb = R('#toolbar'), wb = R('#workbench'), sb = R('#status-bar');
   const groups = [...document.querySelectorAll('.mk-group')].map((g) => { const r = g.getBoundingClientRect(); return { p: [...g.querySelectorAll('.mk-tab')].map((t) => t.dataset.panel).join('+'), w: Math.round(r.width), h: Math.round(r.height) }; });
   const bodies = [...document.querySelectorAll('.mk-group .mk-panel')].map((p) => ({ id: p.parentElement.dataset.tabsId, w: Math.round(p.getBoundingClientRect().width), h: Math.round(p.getBoundingClientRect().height), sw: p.scrollWidth, cw: p.clientWidth, sh: p.scrollHeight, ch: p.clientHeight }));
-  const paths = [...document.querySelectorAll('.mk-track-row svg path')].map((p) => (p.getAttribute('d') || '').length);
-  const texts = [...document.querySelectorAll('.mk-track-row svg text')].map((t) => t.textContent);
-  const clipped = [...document.querySelectorAll('#chrome *, .mk-toolrow *, #status-bar *')]
+  const cv = document.getElementById('wave-canvas');
+  let cvStat = null;
+  if (cv && cv.width && cv.height) {
+    const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+    let nonWhite = 0, dark = 0, axis = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i] < 250 || d[i + 1] < 250 || d[i + 2] < 250) nonWhite++;
+      if (d[i] < 130 && d[i + 1] < 130 && d[i + 2] < 130) dark++;
+      if (d[i] >= 238 && d[i] <= 242 && d[i + 1] >= 238 && d[i + 1] <= 242) axis++;
+    }
+    cvStat = { w: cv.width, h: cv.height, nonWhite, dark, axis };
+  }
+  const clipped = [...document.querySelectorAll('#toolbar *, .mk-tabbar *, #status-bar *')]
     .filter((e) => e.clientWidth > 0 && e.scrollWidth > e.clientWidth + 2 && getComputedStyle(e).overflow === 'visible')
     .slice(0, 6).map((e) => e.className + ':' + e.scrollWidth + '>' + e.clientWidth);
   return JSON.stringify({
     overflowX: de.scrollWidth - de.clientWidth, winW: innerWidth, winH: innerHeight,
-    chrome: { y: Math.round(ch.top), h: Math.round(ch.height) },
+    menu: { y: Math.round(mb.top), h: Math.round(mb.height) },
+    toolbarTop: Math.round(tb.top),
     toolbarBottom: Math.round(tb.bottom), wbTop: Math.round(wb.top), wbH: Math.round(wb.height), wbBottom: Math.round(wb.bottom),
     statusTop: Math.round(sb.top), statusBottom: Math.round(sb.bottom),
-    groups, bodies: bodies.slice(0, 4), paths: paths.length, minPath: Math.min(...paths),
-    busLabels: texts.slice(0, 6), chips: document.querySelectorAll('.mk-chip').length,
+    groups, bodies: bodies.slice(0, 4), cvStat,
     brokenImgs: [...document.images].filter((i) => !i.complete || i.naturalWidth === 0).map((i) => i.getAttribute('src')),
     clipped, bodyBg: getComputedStyle(document.body).backgroundColor, font: getComputedStyle(document.body).fontFamily.slice(0, 40)
   });
 })()`));
 console.log('  ' + JSON.stringify(audit, null, 1).replace(/\n/g, '\n  '));
 check('F1 无横向溢出（1680 宽下不出现滚动条）', audit.overflowX <= 0, 'overflowX=' + audit.overflowX);
+check('F11 真机骨架几何（菜单栏 40@0 / 工具条 @40）', audit.menu.h === 40 && audit.menu.y === 0 && audit.toolbarTop === 40,
+  JSON.stringify({ menu: audit.menu, toolbarTop: audit.toolbarTop }));
 check('F2 工具栏 / 工作区 / 状态栏三段不重叠', audit.toolbarBottom <= audit.wbTop && audit.wbBottom <= audit.statusTop + 1,
   JSON.stringify({ tbBottom: audit.toolbarBottom, wbTop: audit.wbTop, wbBottom: audit.wbBottom, stTop: audit.statusTop }));
 check('F3 工作区占据主要高度（>70% 视口）', audit.wbH > audit.winH * 0.7, audit.wbH + ' / ' + audit.winH);
 check('F4 四个窗格尺寸合理（宽高 > 200）', audit.groups.length === 4 && audit.groups.every((g) => g.w > 200 && g.h > 200), JSON.stringify(audit.groups));
-check('F5 波形 7 行都有非空绘制路径 + 总线值标签', audit.paths >= 7 && audit.minPath > 20 && audit.busLabels.some((t) => /[0-9A-F]{2}/.test(t)), 'paths=' + audit.paths + ' labels=' + audit.busLabels.join(','));
+check('F5 波形为真机 canvas 真实绘制（非纯白 + 有深色网格/文字 + 有时间轴底纹）',
+  !!audit.cvStat && audit.cvStat.nonWhite > 0 && audit.cvStat.dark > 20 && audit.cvStat.axis > 0,
+  JSON.stringify(audit.cvStat));
 check('F6 无被裁切的文本元素', audit.clipped.length === 0, audit.clipped.join(' | '));
 check('F7 图标 / logo 图片全部加载成功', audit.brokenImgs.length === 0, audit.brokenImgs.join(' | '));
 check('F8 浅色主题生效（非白底 + 无衬线字体）', audit.bodyBg !== 'rgb(255, 255, 255)' && audit.bodyBg !== 'rgba(0, 0, 0, 0)', audit.bodyBg + ' / ' + audit.font);
@@ -228,6 +274,120 @@ await sleep(250); await shot('mock-9-help');
 const helpVisible = await ev(`(() => !document.getElementById('help-overlay').classList.contains('hidden'))()`);
 check('F10 交互说明浮层可打开', helpVisible === true, String(helpVisible));
 await ev(`document.getElementById('help-close').click()`);
+
+/* ── G. 回归：拖动预览 == 落位（旧 bug：预览矩形与实际落位对不上）──────── */
+console.log('--- G. 拖拽预览 / 落位一致性 ---');
+await ev(`window.__mock.reset()`);
+await sleep(300);
+const dropCases = [
+  ['波形组左侧带', '.mk-tab[data-panel="wave"]', 0.06, 0.60],
+  ['波形组右侧带', '.mk-tab[data-panel="wave"]', 0.94, 0.60],
+  ['波形组上侧带', '.mk-tab[data-panel="wave"]', 0.50, 0.06],
+  ['波形组下侧带', '.mk-tab[data-panel="wave"]', 0.50, 0.94],
+  ['波形组中心(合并 Tab)', '.mk-tab[data-panel="wave"]', 0.50, 0.50],
+  ['工作区左外环(整列)', '#workbench', 0.004, 0.50],
+  ['工作区底外环(整行)', '#workbench', 0.50, 0.996],
+];
+let gPass = 0;
+for (const [name, sel, fx, fy] of dropCases) {
+  await ev(`window.__mock.reset()`); await sleep(260);
+  const tab = await box('.mk-tab[data-panel="tb"]');
+  const tgt = await box(sel);
+  if (!tab || !tgt) { check('G ' + name, false, '定位失败'); continue; }
+  const px = tgt.l + tgt.w * fx, py = tgt.t + tgt.h * fy;
+  await mouse('mouseMoved', tab.cx, tab.cy, 'none', 0);
+  await mouse('mousePressed', tab.cx, tab.cy);
+  for (let i = 1; i <= 6; i++) { await mouse('mouseMoved', tab.cx + (px - tab.cx) * i / 6, tab.cy + (py - tab.cy) * i / 6); await sleep(45); }
+  await sleep(120);
+  const prev = await ev(`(() => { const d = document.getElementById('mk-drop'); if (!d || d.style.display === 'none') return null; const r = d.getBoundingClientRect(); return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) }; })()`);
+  await mouse('mouseReleased', px, py);
+  await sleep(420);
+  const act = await ev(`(() => { const t = document.querySelector('.mk-tab[data-panel="tb"]'); if (!t) return null; const r = t.closest('.mk-group').getBoundingClientRect(); return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) }; })()`);
+  const ok = !!prev && !!act && Math.abs(prev.x - act.x) <= 2 && Math.abs(prev.y - act.y) <= 2 && Math.abs(prev.w - act.w) <= 2 && Math.abs(prev.h - act.h) <= 2;
+  if (ok) gPass++;
+  check('G 预览==落位 ' + name, ok, '预览=' + JSON.stringify(prev) + ' 实际=' + JSON.stringify(act));
+}
+
+/* ── H. 回归：拖拽中 ⧉▣✕ / 页签✕ 不得闪（旧 bug） + 分隔条拖动不跳变 ─── */
+console.log('--- H. 拖拽期间按钮显隐 / 分隔条一致性 ---');
+await ev(`window.__mock.reset()`); await sleep(300);
+const beforeSlots = await ev(`JSON.stringify([...document.querySelectorAll('.mk-handle.v')[0].parentElement.children].filter((e) => e.classList.contains('mk-slot')).map((e) => Math.round(e.getBoundingClientRect().width)))`);
+const hd = await box('.mk-handle.v');
+await mouse('mouseMoved', hd.cx, hd.cy, 'none', 0);
+await mouse('mousePressed', hd.cx, hd.cy);
+for (let i = 1; i <= 6; i++) { await mouse('mouseMoved', hd.cx + 90 * i / 6, hd.cy); await sleep(45); }
+await sleep(120);
+const midSlots = await ev(`JSON.stringify([...document.querySelectorAll('.mk-handle.v')[0].parentElement.children].filter((e) => e.classList.contains('mk-slot')).map((e) => Math.round(e.getBoundingClientRect().width)))`);
+await mouse('mouseReleased', hd.cx + 90, hd.cy); await sleep(420);
+const endSlots = await ev(`JSON.stringify([...document.querySelectorAll('.mk-handle.v')[0].parentElement.children].filter((e) => e.classList.contains('mk-slot')).map((e) => Math.round(e.getBoundingClientRect().width)))`);
+const MS = JSON.parse(midSlots), ES = JSON.parse(endSlots), BS = JSON.parse(beforeSlots);
+check('H1 分隔条拖动中 == 松手后（逐像素）', MS.every((v, i) => Math.abs(v - ES[i]) <= 1), '拖动中=' + midSlots + ' 松手后=' + endSlots);
+check('H2 分隔条只改相邻两格（第三格不变）', BS.length === ES.length && BS[BS.length - 1] === ES[ES.length - 1], '前=' + beforeSlots + ' 后=' + endSlots);
+check('H3 分隔条分界线跟随指针（+90px）', Math.abs((ES[0] - BS[0]) - 90) <= 2, BS[0] + ' → ' + ES[0]);
+
+const tbTab2 = await box('.mk-tab[data-panel="tb"]');
+const rtlTab2 = await box('.mk-tab[data-panel="rtl"]');
+await mouse('mouseMoved', tbTab2.cx, tbTab2.cy, 'none', 0);
+await mouse('mousePressed', tbTab2.cx, tbTab2.cy);
+for (let i = 1; i <= 6; i++) { await mouse('mouseMoved', tbTab2.cx + (rtlTab2.cx - tbTab2.cx) * i / 6, tbTab2.cy + (rtlTab2.cy - tbTab2.cy) * i / 6); await sleep(45); }
+await sleep(180);
+const hState = await ev(`JSON.stringify({ dragging: document.body.classList.contains('mk-dragging'), btns: getComputedStyle(document.querySelector('.mk-grp-btns')).opacity, tabx: getComputedStyle(document.querySelector('.mk-tab-x')).opacity })`);
+const HJ = JSON.parse(hState);
+check('H4 拖拽中划过别组：⧉▣✕ 不点亮（opacity=0）', HJ.dragging === true && HJ.btns === '0', hState);
+check('H5 拖拽中页签 ✕ 不点亮（opacity=0）', HJ.tabx === '0', hState);
+await mouse('mouseReleased', rtlTab2.cx, rtlTab2.cy); await sleep(420);
+const hAfter = await ev(`JSON.stringify({ dragging: document.body.classList.contains('mk-dragging'), ghost: !!document.querySelector('.mk-drag-ghost') })`);
+check('H6 拖拽结束清理 mk-dragging / ghost', /"dragging":false/.test(hAfter) && /"ghost":false/.test(hAfter), hAfter);
+
+/* ── I. 回归：拖动「中途被 render 换掉 DOM」不得丢位置（旧 bug 的根因）─────
+   真机 afterLayout() 会在每次重排后 60ms 补派发一次 window resize，
+   而原型监听 resize → renderFloats()。若拖拽闭包缓存了 DOM 引用，重建后
+   样式写进游离节点 → 观感是「拖动预览」和「松手后落位」不一致。 */
+console.log('--- I. 拖动中途强制重排（render / renderFloats）---');
+await ev(`window.__mock.reset()`); await sleep(320);
+await ev(`window.__mock.floatPanel('rtl')`); await sleep(120);
+const fh2 = await box('#mk-floats .mk-float[data-float="rtl"] .mk-float-head');
+const wb2 = await box('#workbench');
+await mouse('mouseMoved', fh2.cx, fh2.cy, 'none', 0);
+await mouse('mousePressed', fh2.cx, fh2.cy);
+await mouse('mouseMoved', fh2.cx + 40, fh2.cy + 30);
+await sleep(60);
+// 拖动中强制重建浮窗层（模拟 afterLayout 的 resize 补发）
+await ev(`(() => { const f = document.querySelector('#mk-floats .mk-float[data-float="rtl"]'); window.__mkOldEl = f; window.__mock.render(); return 'ok'; })()`);
+const swapState = await ev(`(() => { const f = document.querySelector('#mk-floats .mk-float[data-float="rtl"]'); return JSON.stringify({ swapped: f !== window.__mkOldEl, oldConnected: window.__mkOldEl.isConnected, dragging: f.classList.contains('dragging'), bodyDrag: document.body.classList.contains('mk-dragging') }); })()`);
+const SJ = JSON.parse(swapState);
+check('I1 拖动中被 renderFloats 重建后，仍在拖动状态（body.mk-dragging + .mk-float.dragging）', SJ.swapped === true && SJ.dragging === true && SJ.bodyDrag === true, swapState);
+// 释放点必须在停靠区之外（状态栏一带），否则浮窗会被停靠、无从比较位置
+await mouse('mouseMoved', fh2.cx + 300, wb2.t + wb2.h + 16);
+await sleep(80);
+const midLive = await ev(`(() => { const f = document.querySelector('#mk-floats .mk-float[data-float="rtl"]'); const r = f.getBoundingClientRect(); return JSON.stringify({ x: Math.round(r.left), y: Math.round(r.top) }); })()`);
+await shot('mock-10-float-midrender');
+await mouse('mouseReleased', fh2.cx + 300, wb2.t + wb2.h + 16);
+await sleep(240);
+const endLive = await ev(`(() => { const f = document.querySelector('#mk-floats .mk-float[data-float="rtl"]'); if (!f) return 'GONE'; const r = f.getBoundingClientRect(); return JSON.stringify({ x: Math.round(r.left), y: Math.round(r.top), dragging: f.classList.contains('dragging'), bodyDrag: document.body.classList.contains('mk-dragging') }); })()`);
+const MJ2 = JSON.parse(endLive);
+check('I2 重建后松手：浮窗落在拖动中的最后位置（预览==落位）', MJ2.x === JSON.parse(midLive).x && MJ2.y === JSON.parse(midLive).y, '拖动中=' + midLive + ' 松手后=' + endLive);
+check('I3 松手清理拖动状态', MJ2.dragging === false && MJ2.bodyDrag === false, endLive);
+
+// 分隔条：拖动中途整树 render()，松手后宽度仍与拖动中一致
+await ev(`window.__mock.reset()`); await sleep(320);
+const bs2 = await ev(`JSON.stringify([...document.querySelectorAll('.mk-handle.v')[0].parentElement.children].filter((e) => e.classList.contains('mk-slot')).map((e) => Math.round(e.getBoundingClientRect().width)))`);
+const hd2 = await box('.mk-handle.v');
+await mouse('mouseMoved', hd2.cx, hd2.cy, 'none', 0);
+await mouse('mousePressed', hd2.cx, hd2.cy);
+for (let i = 1; i <= 4; i++) { await mouse('mouseMoved', hd2.cx + 90 * i / 4, hd2.cy); await sleep(40); }
+await ev(`window.__mock.render()`);
+await sleep(60);
+const mid2 = await ev(`JSON.stringify([...document.querySelectorAll('.mk-handle.v')[0].parentElement.children].filter((e) => e.classList.contains('mk-slot')).map((e) => Math.round(e.getBoundingClientRect().width)))`);
+for (let i = 5; i <= 8; i++) { await mouse('mouseMoved', hd2.cx + 90 * i / 4, hd2.cy); await sleep(40); }
+await sleep(80);
+const mid3 = await ev(`JSON.stringify([...document.querySelectorAll('.mk-handle.v')[0].parentElement.children].filter((e) => e.classList.contains('mk-slot')).map((e) => Math.round(e.getBoundingClientRect().width)))`);
+await mouse('mouseReleased', hd2.cx + 180, hd2.cy); await sleep(400);
+const end2 = await ev(`JSON.stringify([...document.querySelectorAll('.mk-handle.v')[0].parentElement.children].filter((e) => e.classList.contains('mk-slot')).map((e) => Math.round(e.getBoundingClientRect().width)))`);
+const M2 = JSON.parse(mid3), E2 = JSON.parse(end2), B2 = JSON.parse(bs2);
+check('I4 分隔条拖动中 render() 重建后仍跟随指针', Math.abs(M2[0] - B2[0] - 180) <= 2, B2[0] + ' → ' + M2[0] + '（期望 +180）');
+check('I5 分隔条重建后「拖动中 == 松手后」（逐像素）', M2.every((v, i) => Math.abs(v - E2[i]) <= 1), '拖动中=' + mid3 + ' 松手后=' + end2);
+await shot('mock-11-split-midrender');
 
 const fail = results.filter((r) => !r.ok);
 console.log('\n总计 ' + results.length + ' 项，失败 ' + fail.length + ' 项');

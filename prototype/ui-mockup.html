@@ -1,259 +1,1132 @@
 <!DOCTYPE html>
+<!-- ⚠ 本文件由 tools/gen-mock-page.mjs 从真机 index.html 自动生成（1:1 逐字照搬）。
+     请勿手改：改真机请改 index.html 后重跑 node tools/gen-mock-page.mjs；
+     改原型外壳（工作区/状态栏/帮助浮层/拖拽引擎）请改 prototype/mock-tail.html、
+     prototype/ui-mockup.css、prototype/ui-mockup.js。
+     生成后需重跑 .\build-prototype.ps1 才会进 WavePaintMockup.exe 的内嵌快照。 -->
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>WavePaint UI 原型（假界面 · 未连接后端）</title>
-<link rel="icon" type="image/svg+xml" href="../img/favicon.svg">
-<link rel="stylesheet" href="ui-mockup.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>WavePaint 波形编辑</title>
+    <!-- 应用图标：Edge 以 --app 模式运行时，任务栏图标取自页面 favicon。
+         缺失 favicon 正是「任务栏图标空白」的原因之一。 -->
+    <link rel="icon" type="image/svg+xml" href="../img/favicon.svg">
+    <link rel="alternate icon" type="image/x-icon" href="../img/app.ico">
+    <script>
+        /* 汉化版隐藏教程/引导弹窗（见下方样式）。
+           必须在核心 clean.js 解析前标记「教程已完成」：否则每次启动（exe 随机端口
+           意味着 localStorage 永不跨会话保留）隐形教程都会重跑 —— 它会在真实控件上
+           挂 .wp-tutorial-highlight（历史 bug：添加信号按钮偶发消失的根源之一），
+           并在 document 上拦截 Enter/Space/方向键（键盘失灵）。这里一次性跳过。 */
+        try { localStorage.setItem('wavepaint_tutorial_done', 'true'); } catch (e) { /* 隐私模式等：忽略 */ }
+    </script>
+    <link rel="stylesheet" href="../css/wavepaint.e7b903ef.css">
+    <!-- WaveDrom Library for live preview - must load early (localized for offline use) -->
+    <script src="../lib/wavedrom-skin.js"></script>
+    <script src="../lib/wavedrom.min.js"></script>
+    <style>
+        #app-loader {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #2b2b2b;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+        }
+        #app-loader img {
+            width: 400px;
+            height: auto;
+            margin-bottom: 30px;
+        }
+        #app-loader .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(76, 175, 80, 0.2);
+            border-top: 4px solid #4CAF50;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        body.loading #app-loader {
+            display: flex;
+        }
+        body:not(.loading) #app-loader {
+            display: none;
+        }
+        /* 汉化版：完全隐藏打开时的教程/引导弹窗。
+           注意：.wp-tutorial-highlight 是教程 JS 标记的「真实控件」（如 #add-signal-btn、
+           .tool-btn、.dropdown、菜单项等），绝不能与瞬态弹窗一起隐藏，否则该控件
+           会被永久 display:none（历史 bug：添加信号按钮偶发消失）。
+           这里只隐藏瞬态教程元素（遮罩/气泡/箭头/进度条），真实控件另见下方防御规则。 */
+        .wp-tutorial-overlay,
+        .wp-tutorial-tooltip,
+        .wp-tutorial-quickstart,
+        .wp-tutorial-arrow,
+        .tutorial-dot,
+        .tutorial-step-dots,
+        .tutorial-progress,
+        .tutorial-progress-bar {
+            display: none !important;
+            visibility: hidden !important;
+            pointer-events: none !important;
+        }
+        /* 防御：教程把高亮标记加到真实控件上时，控件本体保持可见可点；
+           光环/脉冲在弹窗已被隐藏的前提下没有意义，一并去掉。 */
+        .tool-btn.wp-tutorial-highlight,
+        .dropdown.wp-tutorial-highlight,
+        .menu-item.wp-tutorial-highlight,
+        .submenu li.wp-tutorial-highlight,
+        input.wp-tutorial-highlight {
+            visibility: visible !important;
+            pointer-events: auto !important;
+            animation: none !important;
+            box-shadow: none !important;
+        }
+        .tool-btn.wp-tutorial-highlight { display: flex !important; }
+        .dropdown.wp-tutorial-highlight { display: inline-block !important; }
+        /* 工具栏分段控件（编辑力度 / 总线进制 共用） */
+        .seg-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 2px;
+            padding: 2px;
+            margin: 0 2px;
+            background: var(--input-bg, #fff);
+            border: 1px solid var(--border-color, #d0dcd0);
+            border-radius: var(--radius-sm, 6px);
+            white-space: nowrap;
+        }
+        .seg-toggle .gran-btn {
+            padding: 4px 8px;
+            font-size: 12px;
+            line-height: 14px;
+            font-family: inherit;
+            color: var(--text-muted, #5a6a5a);
+            background: transparent;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background-color 120ms ease, color 120ms ease;
+        }
+        .seg-toggle .gran-btn:hover {
+            background: var(--hover-bg, #e8f0e8);
+            color: var(--text-color, #1a1f1a);
+        }
+        .seg-toggle .gran-btn.active {
+            background: var(--accent, #4CAF50);
+            color: #fff;
+        }
+        /* 仿真工具面板 */
+                /* 右侧仿真栏 */
+        #main-area { transition: padding-right 0.2s ease; }
+        body.sim-open #main-area { padding-right: var(--sim-panel-w, 328px); }
+        /* 第二十一轮：拖拽侧栏宽度时临时关掉过渡，否则画布跟随迟滞（拖完自动恢复） */
+        body.sim-resizing #main-area { transition: none; }
+        #sim-panel {
+            position: fixed;
+            right: 0;
+            top: 92px;
+            bottom: 0;
+            width: var(--sim-panel-w, 328px);
+            background: var(--toolbar-bg, #f8faf8);
+            border-left: 1px solid var(--border-color, #ccc);
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            box-shadow: -2px 0 8px rgba(0,0,0,0.15);
+        }
+        #sim-panel.collapsed { display: none; }
+        .sim-panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 12px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-color, #1a1f1a);
+            border-bottom: 1px solid var(--border-color, #d0dcd0);
+            cursor: pointer;
+            background: var(--header-bg, #f0f4f0);
+        }
+        /* ── 可拖拽多面板（第二十一轮，仿 Verdi 多窗格）────────────────────────
+           .sim-panel-body 由「单栏滚动」改为「纵向 flex 容器」：卡片之间用
+           .sim-split（splitter）分隔，各自 flex-grow 权重由 panel-layout.js 维护
+           （默认按像素比例分配，窗口缩放时按比例自适应）；每张卡片内部自己滚动，
+           不再出现「四条滚动条挤在一起、任何一屏都看不到全局」。
+           折叠 = 点卡片标题（.sim-card.collapsed 只留标题行）；
+           侧栏宽度 = 拖左缘 #sim-resize-x（写 CSS 变量 --sim-panel-w，不进工程存档）。 */
+        /* 窗口很矮时（各卡片 min-height 之和 > 可视高）面板区整体纵向滚动；
+           窗口够高时四卡按权重铺满、无滚动条。min-height 由 panel-layout.js 按内容实测写入。 */
+        .sim-panel-body { flex: 1 1 auto; min-height: 0; padding: 6px 10px 10px; display: flex; flex-direction: column; gap: 0; overflow-y: auto; overflow-x: hidden; }
+        .sim-card {
+            flex: 1 1 0; /* 兜底：JS 未接线时四张卡片均分高度 */
+            display: flex;
+            flex-direction: column;
+            min-height: 24px;
+            background: var(--section-bg, #f8faf8);
+            border: 1px solid var(--section-border, #e0e8e0);
+            border-radius: var(--radius-md, 10px);
+            overflow: hidden;
+        }
+        .sim-card.collapsed { flex-grow: 0; flex-basis: auto; }
+        .sim-card.collapsed > .sim-card-body { display: none; }
+        .sim-card-head {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            cursor: pointer;
+            user-select: none;
+            background: var(--header-bg, #f0f4f0);
+            border-bottom: 1px solid var(--section-border, #e0e8e0);
+        }
+        .sim-card.collapsed > .sim-card-head { border-bottom-color: transparent; }
+        .sim-card-head:hover { background: var(--hover-bg, #e8f0e8); }
+        .sim-card-head .sim-sec-title { flex: 1 1 auto; min-width: 0; }
+        .sim-card-head #sim-tb-copy { flex: 0 0 auto; padding: 2px 8px; font-size: 11px; }
+        .sim-card-chevron { flex: 0 0 auto; font-size: 10px; opacity: .6; transition: transform .15s ease; }
+        .sim-card.collapsed .sim-card-chevron { transform: rotate(-90deg); }
+        .sim-card-body {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow: auto;
+            padding: 8px 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            align-content: start;
+        }
+        /* 卡片内「不参与伸缩」的固定块 */
+        .sim-card-body > .source-toolbar,
+        .sim-card-body > .helper-box { flex: 0 0 auto; }
+        /* 卡片内「吃满剩余高度」的内容区（原先把 180 / 240 / 160px 写死，改为自适应） */
+        .sim-card-body > #verilog-cm-host,
+        .sim-card-body > #verilog-source { flex: 1 1 auto; min-height: 64px; height: auto; resize: none; }
+        .sim-card-body > #tb-source { flex: 1 1 auto; min-height: 56px; height: auto; resize: none; }
+        .sim-card-body > .rtl-tree,
+        .sim-card-body > .vcd-tree { flex: 1 1 auto; min-height: 40px; max-height: none; }
+        /* ── 卡片之间的 splitter（拖拽调高）── */
+        .sim-split {
+            flex: 0 0 auto;
+            height: 10px;
+            position: relative;
+            cursor: row-resize;
+            touch-action: none;
+        }
+        .sim-split::before {
+            content: "";
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: 42px;
+            height: 3px;
+            border-radius: 2px;
+            background: var(--border-color, #d0dcd0);
+            opacity: .55;
+            transition: opacity .15s ease, background .15s ease;
+        }
+        .sim-split:hover::before,
+        .sim-split:focus-visible::before,
+        .sim-split.dragging::before { opacity: 1; background: var(--accent, #4CAF50); }
+        .sim-split:focus-visible { outline: none; }
+        /* 相邻卡片被折叠时，这条 splitter 没有可分配的高度 → 禁用（否则一拖就把折叠态扯回来） */
+        .sim-split.disabled { cursor: default; pointer-events: none; }
+        .sim-split.disabled::before { opacity: .18; }
+        /* ── 侧栏宽度 splitter（拖左缘）── */
+        #sim-resize-x {
+            position: absolute;
+            left: -2px;
+            top: 0;
+            bottom: 0;
+            width: 7px;
+            cursor: col-resize;
+            z-index: 3;
+            touch-action: none;
+        }
+        #sim-resize-x::after {
+            content: "";
+            position: absolute;
+            left: 3px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: transparent;
+            transition: background .15s ease;
+        }
+        #sim-resize-x:hover::after,
+        #sim-resize-x:focus-visible::after,
+        #sim-resize-x.dragging::after { background: var(--accent, #4CAF50); }
+        #sim-resize-x:focus-visible { outline: none; }
+        .sim-panel-body > #sim-status, .sim-panel-body > #sim-recover { flex: 0 0 auto; }
+        /* 面板区整体滚动时状态条吸底：仿真进度 / 结果不会被其它卡片顶出视口 */
+        .sim-panel-body > #sim-status { position: sticky; bottom: 0; z-index: 2; background: var(--toolbar-bg, #f8faf8); }
+        .sim-sec-title { margin: 0; font-size: 12px; font-weight: 600; color: var(--text-muted, #5a6a5a); }
+        .source-toolbar { display: grid; gap: 8px; align-items: start; }
+        .source-files { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+        .source-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+        .source-actions button { width: 100%; }
+        /* 主操作「运行仿真」独占整行，视觉上与次级操作区分 */
+        .source-actions #sim-run { grid-column: 1 / -1; padding: 7px 10px; font-size: 13px; }
+        .source-chip {
+            border: 1px solid var(--border-color, #d0dcd0);
+            background: var(--input-bg, #fff);
+            color: var(--text-color, #1a1f1a);
+            border-radius: 999px;
+            padding: 4px 10px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .source-chip.active { border-color: var(--accent, #4CAF50); background: var(--accent-soft, rgba(76,175,80,0.15)); color: var(--signal-color, #2e7d32); }
+        #verilog-source {
+            width: 100%;
+            box-sizing: border-box;
+            font-family: Consolas, monospace;
+            font-size: 12px;
+            border: 1px solid var(--input-border, #c0d0c0);
+            border-radius: var(--radius-sm, 6px);
+            padding: 6px;
+            background: var(--input-bg, #fff);
+            color: var(--text-color, #1a1f1a);
+            resize: vertical;
+        }
+        #verilog-source:focus, #tb-source:focus { outline: none; border-color: var(--input-focus, #4CAF50); }
+        #verilog-source { height: 180px; }
+        .tb-title-row { display: flex; align-items: center; justify-content: space-between; margin: 0; }
+        .tb-title-row .sim-sec-title { margin: 0; }
+        #tb-source {
+            width: 100%;
+            box-sizing: border-box;
+            font-family: Consolas, monospace;
+            font-size: 12px;
+            border: 1px solid var(--input-border, #c0d0c0);
+            border-radius: var(--radius-sm, 6px);
+            padding: 6px;
+            background: var(--section-bg, #f8faf8);
+            color: var(--text-muted, #5a6a5a);
+            resize: vertical;
+        }
+        #tb-source { height: 160px; }
+        .helper-box { display: grid; gap: 6px; }
+        .helper {
+            min-height: 28px;
+            padding: 6px 8px;
+            border: 1px solid var(--section-border, #e0e8e0);
+            background: var(--input-bg, #fff);
+            color: var(--text-color, #1a1f1a);
+            border-radius: var(--radius-sm, 6px);
+            font-size: 12px;
+            font-family: Consolas, monospace;
+            line-height: 1.5;
+            word-break: break-all;
+            white-space: pre-wrap;
+        }
+        .signal-list { display: grid; gap: 6px; }
+        .signal-chip {
+            border: 1px solid var(--border-color, #d0dcd0);
+            background: var(--input-bg, #fff);
+            color: var(--text-color, #1a1f1a);
+            border-radius: var(--radius-sm, 6px);
+            padding: 6px 8px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .signal-chip.active { border-color: var(--accent, #4CAF50); background: var(--accent-soft, rgba(76,175,80,0.15)); color: var(--signal-color, #2e7d32); }
+        /* 面板内按钮统一圆角/hover/active（不改 DOM id） */
+        #sim-panel button {
+            font-family: inherit;
+            font-size: 12px;
+            line-height: 16px;
+            padding: 5px 10px;
+            color: var(--text-color, #1a1f1a);
+            background: var(--input-bg, #fff);
+            border: 1px solid var(--border-color, #d0dcd0);
+            border-radius: var(--radius-sm, 6px);
+            cursor: pointer;
+            transition: background-color 120ms ease, border-color 120ms ease;
+        }
+        #sim-panel button:hover { background: var(--hover-bg, #e8f0e8); border-color: var(--accent, #4CAF50); }
+        #sim-panel button:active { background: var(--active-bg, #d0e0d0); }
+        #sim-panel button.primary-btn, #sim-run {
+            background: var(--accent, #4CAF50);
+            border-color: var(--accent, #4CAF50);
+            color: #fff;
+            font-weight: 600;
+        }
+        #sim-panel button.primary-btn:hover, #sim-run:hover {
+            background: var(--accent-hover, #3d9141);
+            border-color: var(--accent-hover, #3d9141);
+        }
+        .sim-btns { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+        .sim-status { font-size: 12px; color: var(--text-muted, #5a6a5a); }
+        /* #76 B4：代码内点变量 → 多候选时的轻量选择器（挂在 body 上绝对定位，
+           不是侧栏面板、不显示 RTL 层级树）。 */
+        .sim-symbol-picker {
+            position: fixed;
+            z-index: 400;
+            min-width: 160px;
+            max-width: 360px;
+            max-height: 260px;
+            overflow: auto;
+            padding: 6px;
+            background: var(--toolbar-bg, #fff);
+            border: 1px solid var(--border-color, #ccc);
+            border-radius: var(--radius-sm, 6px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.22);
+            display: grid;
+            gap: 4px;
+        }
+        .sim-symbol-picker-title {
+            font-size: 11px;
+            color: var(--text-muted, #5a6a5a);
+            padding: 2px 4px;
+        }
+        .sim-symbol-picker-item {
+            font-family: Consolas, monospace;
+            font-size: 12px;
+            text-align: left;
+            padding: 5px 8px;
+            border: 1px solid var(--border-color, #d0dcd0);
+            background: var(--input-bg, #fff);
+            color: var(--text-color, #1a1f1a);
+            border-radius: var(--radius-sm, 6px);
+            cursor: pointer;
+        }
+        .sim-symbol-picker-item:hover,
+        .sim-symbol-picker-item:focus {
+            background: var(--hover-bg, #e8f0e8);
+            border-color: var(--accent, #4CAF50);
+            outline: none;
+        }
+
+        /* ── Bug C：清除遗留空白条 ───────────────────────────────────────
+           本项目不使用核心的 VCD 层级面板，但核心 CSS/JS 会为其留出占位：
+           1) #main-area.with-vcd-panel{margin-left:350px} / {margin-bottom:40vh}
+              （两者都会在主区旁空出一条）；
+           2) 核心会动态构建 .vcd-hierarchy-panel 元素，若未被 hidden 类收起
+              就是一个 350px 宽的空面板 → 正是「左侧空白条」。
+           这里把两条路都堵死：占位清零 + 面板整体不显示。 */
+        #main-area.with-vcd-panel { margin-left: 0 !important; margin-bottom: 0 !important; }
+        .vcd-hierarchy-panel { display: none !important; }
+
+        /* ── Bug C（真凶）：赞助栏残留占位 → 右侧白条 ───────────────────────
+           本项目没有赞助内容，但核心 CSS 在窗口 ≤1200px（非最大化）时会给
+           #main-area 留 180px 的 .sponsors-panel 占位：
+             @media (max-width:1200px){ .sponsors-panel{width:180px} #main-area{margin-right:180px} }
+           这正是截图中「仿真栏左侧那条白条」，且全屏（>1200px）时消失。
+           这里把赞助栏整个隐藏并清零占位。 */
+        .sponsors-panel { display: none !important; }
+        #main-area { margin-right: 0 !important; }
+
+        /* ── Bug B：无内容的 helper 框不再占位（此前是两个常驻空白框） ──────── */
+        .helper:empty, #port-preview:empty, #module-preview:empty { display: none; }
+
+        /* ── Bug A：侧边栏收起后必须有可点的「展开」入口 ─────────────────────
+           原 #sim-toggle-btn 定位 top:4px、z-index:110，正落在 #menu-bar
+           （高 ~40px、z-index:6000）下方被完全盖住，收起后点不到 → 无法再展开。
+           改为：面板展开时隐藏本按钮（避免与菜单栏重叠）；收起时（body 无 sim-open）
+           贴在右缘垂直中部、z-index 高于菜单栏，作为唯一展开入口。 */
+        #sim-toggle-btn {
+            position: fixed;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            z-index: 6500;
+            writing-mode: vertical-rl;
+            padding: 12px 5px;
+            letter-spacing: 2px;
+            cursor: pointer;
+            font-size: 12px;
+            color: #fff;
+            background: var(--accent, #4CAF50);
+            border: 1px solid var(--accent, #4CAF50);
+            border-radius: var(--radius-sm, 6px) 0 0 var(--radius-sm, 6px);
+            box-shadow: -2px 0 8px rgba(0,0,0,0.18);
+            display: none; /* 展开时隐藏 */
+        }
+        body:not(.sim-open) #sim-toggle-btn { display: block; }
+        #sim-toggle-btn:hover { background: var(--accent-hover, #3d9141); border-color: var(--accent-hover, #3d9141); }
+
+        /* ── v0.3.0 R8：值输入弹窗非法输入红框提示 ─────────────────────── */
+        #wp-modal-input.wp-modal-error { border-color: #e53935 !important; box-shadow: 0 0 0 2px rgba(229,57,53,.25) !important; }
+
+        /* ── #75 P0（Verdi 借鉴）：CodeMirror 6 代码视图 + RTL/VCD 结构树 ── */
+        #verilog-cm-host {
+            display: none; /* CodeMirror 可用时由 ui-bridge 打开 */
+            height: 200px;
+            border: 1px solid var(--input-border, #c0d0c0);
+            border-radius: var(--radius-sm, 6px);
+            overflow: hidden;
+            background: var(--input-bg, #fff);
+        }
+        #verilog-cm-host .cm-editor { height: 100%; }
+        #verilog-cm-host .cm-editor.cm-focused { outline: none; }
+        .rtl-tree, .vcd-tree {
+            max-height: 240px;
+            overflow: auto;
+            font-size: 12px;
+            line-height: 1.6;
+            color: var(--text-color, #1a1f1a);
+            padding: 2px 0;
+        }
+        .rtl-tree summary, .vcd-tree summary {
+            cursor: pointer;
+            list-style: none;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            flex-wrap: wrap;
+            padding: 1px 4px;
+            border-radius: 4px;
+            user-select: none;
+        }
+        .rtl-tree summary::-webkit-details-marker,
+        .vcd-tree summary::-webkit-details-marker { display: none; }
+        .rtl-tree summary::before, .vcd-tree summary::before {
+            content: "▸";
+            display: inline-block;
+            width: 10px;
+            color: var(--text-muted, #8a9a8a);
+            transition: transform 120ms ease;
+        }
+        .rtl-tree details[open] > summary::before,
+        .vcd-tree details[open] > summary::before { transform: rotate(90deg); }
+        .rtl-tree summary:hover, .vcd-tree summary:hover { background: var(--hover-bg, #e8f0e8); }
+        .rtl-jump-btn {
+            font-family: Consolas, monospace;
+            font-size: 12px;
+            line-height: 1.5;
+            text-align: left;
+            background: none;
+            border: 1px solid transparent;
+            border-radius: 4px;
+            padding: 0 4px;
+            margin: 0;
+            cursor: pointer;
+            color: var(--text-color, #1a1f1a);
+        }
+        .rtl-jump-btn:hover {
+            background: var(--hover-bg, #e8f0e8);
+            border-color: var(--accent, #4CAF50);
+            color: var(--signal-color, #2e7d32);
+        }
+        .rtl-module-go { font-weight: 600; }
+        .rtl-module-meta { color: var(--text-muted, #8a9a8a); font-size: 11px; }
+        .rtl-grp { margin: 1px 0 1px 8px; }
+        .rtl-grp-title { color: var(--text-muted, #8a9a8a); font-size: 11px; margin: 2px 0 1px; }
+        .rtl-grp-list {
+            display: grid;
+            gap: 1px;
+            margin-left: 12px;
+            border-left: 1px solid var(--section-border, #e0e8e0);
+            padding-left: 6px;
+        }
+        .rtl-file { margin-bottom: 4px; }
+        .rtl-module { margin-left: 10px; }
+        .rtl-empty, .vcd-empty {
+            color: var(--text-muted, #8a9a8a);
+            font-size: 11px;
+            font-style: italic;
+            padding: 4px;
+        }
+        .vcd-meta { color: var(--text-muted, #8a9a8a); font-size: 11px; margin: 0 0 2px 4px; }
+        .vcd-scope { margin: 1px 0; }
+        .vcd-scope-body { margin-left: 12px; border-left: 1px solid var(--section-border, #e0e8e0); padding-left: 6px; }
+        .vcd-signals { display: grid; gap: 1px; }
+        .vcd-signal-row {
+            font-family: Consolas, monospace;
+            font-size: 12px;
+            line-height: 1.5;
+            text-align: left;
+            background: none;
+            border: 1px solid transparent;
+            border-radius: 4px;
+            padding: 0 6px;
+            cursor: pointer;
+            color: var(--signal-color, #2e7d32);
+        }
+        .vcd-signal-row:hover {
+            background: var(--hover-bg, #e8f0e8);
+            border-color: var(--accent, #4CAF50);
+        }
+        /* ── #76 B3：代码 → 树 反向定位（Active Annotation 式高亮）───────────
+           光标停在源码符号上时，RTL 树的模块/实例行与 VCD 树的信号行同步点亮。
+           纯视觉标记（不改变任何点击语义、不新增交互），用描边 + 淡底 + 左侧色条，
+           不动布局尺寸，避免树重建时抖动。 */
+        .rtl-jump-btn.rtl-active {
+            background: var(--accent-soft, rgba(76, 175, 80, 0.18));
+            border-color: var(--accent, #4CAF50);
+            color: var(--signal-color, #2e7d32);
+            box-shadow: inset 2px 0 0 var(--accent, #4CAF50);
+        }
+        .vcd-signal-row.vcd-active {
+            background: var(--accent-soft, rgba(76, 175, 80, 0.18));
+            border-color: var(--accent, #4CAF50);
+            box-shadow: inset 2px 0 0 var(--accent, #4CAF50);
+        }
+</style>
+    <link rel="stylesheet" href="ui-mockup.css">
+    <script>
+        (function () {
+            function removeLoader() {
+                document.body.classList.remove('loading');
+                var loader = document.getElementById('app-loader');
+                if (loader && loader.parentElement) {
+                    loader.parentElement.removeChild(loader);
+                }
+            }
+
+            window.addEventListener('load', function () {
+                removeLoader();
+            }, { once: true });
+
+            setTimeout(removeLoader, 5000);
+        })();
+    </script>
 </head>
-<body class="mk">
-
-<!-- ══════════════════════════════════════════════════════════════════════
-     WavePaint 目标 UI 原型（mock）
-     · 目的：给用户 review「Verdi 式四区停靠 + Word 式自由拖拽」的形态。
-     · 本文件**没有任何后端/仿真/画布功能**，面板内容全部是演示假数据。
-     · 独立目录 prototype/，不在 exe 内嵌资源清单里（不触发 C1）。
-     ══════════════════════════════════════════════════════════════════ -->
-
-<div id="mock-banner">
-  <b>UI 原型</b>·假数据·未连接后端
-  <button id="mock-help-btn" type="button">交互说明</button>
-</div>
-
-<div id="chrome">
-  <div id="menu-bar">
-    <img id="logo" src="../img/logo.webp" alt="WavePaint">
-    <ul id="menus">
-      <li class="mk-menu" data-menu="file">文件
-        <div class="mk-sub">
-          <div class="mk-mi" data-noop="1">新建<span class="mk-key">Ctrl+N</span></div>
-          <div class="mk-mi" data-noop="1">打开…<span class="mk-key">Ctrl+O</span></div>
-          <div class="mk-mi" data-noop="1">载入示例</div>
-          <div class="mk-mi" data-noop="1">另存为…<span class="mk-key">Ctrl+S</span></div>
-          <div class="mk-sep"></div>
-          <div class="mk-mi" data-noop="1">导入为 · VCD…</div>
-          <div class="mk-mi" data-noop="1">导出为 · PNG / SVG / CSV…</div>
+<body class="loading">
+    <div id="app-loader">
+        <img src="../img/WavePaint_header.png" alt="WavePaint">
+        <div class="spinner"></div>
+    </div>
+    <div id="menu-bar">
+        <img id="logo" src="../img/logo.webp" alt="WavePaint">
+        <ul>
+            <li class="menu-item">文件
+                <ul class="submenu">
+                    <li>新建</li>
+                    <li>打开</li>
+                    <li>载入示例</li>
+                    <li>另存为</li>
+                    <li>复制分享链接</li>
+                    <li class="submenu-separator"></li>
+                    <li class="has-submenu">导入为
+                        <ul class="submenu submenu-right">
+                            <li data-action="import-wavedrom">WaveDrom JSON...</li>
+                            <li data-action="import-vcd">VCD（值变化转储）...</li>
+                        </ul>
+                    </li>
+                    <li class="has-submenu">导出为
+                        <ul class="submenu submenu-right">
+                            <li class="has-submenu">图片
+                                <ul class="submenu submenu-right">
+                                    <li data-action="export-png">PNG</li>
+                                    <li data-action="export-svg">SVG</li>
+                                    <li data-action="export-jpg">JPG</li>
+                                </ul>
+                            </li>
+                            <li class="submenu-separator"></li>
+                            <li data-action="export-wavedrom">WaveDrom JSON...</li>
+                            <li data-action="export-vcd">VCD（值变化转储）...</li>
+                            <li class="submenu-separator"></li>
+                            <li data-action="export-txt">TXT（制表符分隔）...</li>
+                            <li data-action="export-csv">CSV（电子表格）...</li>
+                        </ul>
+                    </li>
+                </ul>
+            </li>
+            <li class="menu-item">编辑
+                <ul class="submenu">
+                    <li data-action="clear-all-signals">清除所有信号</li>
+                </ul>
+            </li>
+            <li class="menu-item">视图
+                <ul class="submenu">
+                    <li data-action="theme">主题</li>
+                    <li data-action="time-axis">时间轴</li>
+                    <li data-action="toggle-axis-visibility">隐藏轴数字</li>
+                    <li class="submenu-separator"></li>
+                    <li class="has-submenu">WaveDrom
+                        <ul class="submenu submenu-right">
+                            <li data-action="show-wavedrom-code">显示代码</li>
+                            <li data-action="wavedrom-debug">调试面板</li>
+                        </ul>
+                    </li>
+                    <li data-action="toggle-vcd-panel">VCD 信号面板</li>
+                </ul>
+            </li>
+            <li class="menu-item">帮助
+                <ul class="submenu">
+                    <li data-action="tutorial">教程</li>
+                    <li data-action="contact">联系</li>
+                </ul>
+            </li>
+        </ul>
+    </div>
+    <div id="toolbar">
+        <button type="button" class="tool-btn" id="tool-open" title="打开"><img src="../img/folder.svg" alt="打开"></button>
+        <button type="button" class="tool-btn" id="tool-save" title="保存"><img src="../img/save.svg" alt="保存"></button>
+        <span class="separator">|</span>
+        <button type="button" class="tool-btn" id="tool-undo" title="撤销"><img src="../img/undo.svg" alt="撤销"></button>
+        <button type="button" class="tool-btn" id="tool-redo" title="重做"><img src="../img/redo.svg" alt="重做"></button>
+        <span class="separator">|</span>
+        <button type="button" class="tool-btn" id="tool-zoom-out" title="缩小"><img src="../img/zoom_out.svg" alt="缩小"></button>
+        <button type="button" class="tool-btn" id="tool-zoom-in" title="放大"><img src="../img/zoom_in.svg" alt="放大"></button>
+        <button type="button" class="tool-btn" id="tool-zoom-fit" title="适应窗口"><img src="../img/zoom_fit.svg" alt="适应窗口"></button>
+        <span class="separator">|</span>
+        <div class="dropdown">
+            <button type="button" class="tool-btn" id="add-signal-btn" title="添加信号"><img src="../img/add_signal.svg" alt="添加信号"></button>
+            <div class="dropdown-content">
+                <a href="#" data-action="bit-signal">位信号</a>
+                <a href="#" data-action="vector-signal">矢量信号</a>
+                <div class="separator"></div>
+                <div class="submenu">
+                    <a href="#">预定义信号 ▶</a>
+                    <div class="submenu-content">
+                        <a href="#" data-action="clock">时钟</a>
+                        <a href="#" data-action="counter">计数器</a>
+                        <a href="#" data-action="reset">复位</a>
+                        <a href="#" data-action="pulse">脉冲</a>
+                        <a href="#" data-action="strobe">选通/使能</a>
+                        <a href="#" data-action="pwm">PWM</a>
+                        <a href="#" data-action="ramp">斜坡</a>
+                        <a href="#" data-action="walking-one">走查1</a>
+                        <a href="#" data-action="walking-zero">走查0</a>
+                        <a href="#" data-action="bus-idle">总线空闲</a>
+                        <a href="#" data-action="alternating">交替</a>
+                        <a href="#" data-action="gray-code">格雷码计数器</a>
+                    </div>
+                </div>
+                <div class="submenu">
+                    <a href="#">波形生成器 ▶</a>
+                    <div class="submenu-content">
+                        <a href="#" data-wpf-action="gen-sine">正弦波</a>
+                        <a href="#" data-wpf-action="gen-triangle">三角波</a>
+                        <a href="#" data-wpf-action="gen-sawtooth">锯齿波</a>
+                        <a href="#" data-wpf-action="gen-random">随机波形</a>
+                        <a href="#" data-wpf-action="gen-glitch">带毛刺时钟</a>
+                    </div>
+                </div>
+                <div class="submenu">
+                    <a href="#">协议模板 ▶</a>
+                    <div class="submenu-content">
+                        <a href="#" data-wpf-action="tpl-spi-write">SPI 写入</a>
+                        <a href="#" data-wpf-action="tpl-spi-read">SPI 读取</a>
+                        <a href="#" data-wpf-action="tpl-i2c-write">I2C 写入</a>
+                        <a href="#" data-wpf-action="tpl-i2c-read">I2C 读取</a>
+                        <a href="#" data-wpf-action="tpl-uart-tx">UART 发送</a>
+                        <a href="#" data-wpf-action="tpl-uart-rx">UART 接收</a>
+                    </div>
+                </div>
+                <div class="separator"></div>
+                <a href="#" data-action="blank-row">空白行</a>
+            </div>
         </div>
-      </li>
-      <li class="mk-menu" data-menu="edit">编辑
-        <div class="mk-sub">
-          <div class="mk-mi" data-noop="1">撤销<span class="mk-key">Ctrl+Z</span></div>
-          <div class="mk-mi" data-noop="1">重做<span class="mk-key">Ctrl+Y</span></div>
-          <div class="mk-sep"></div>
-          <div class="mk-mi" data-noop="1">清除所有信号</div>
-          <div class="mk-mi" data-noop="1">编辑选中值<span class="mk-key">Enter</span></div>
+        <span class="separator">|</span>
+        <button type="button" class="tool-btn" id="tool-cut" title="剪切 (C)" data-tool="cut"><img src="../img/cut.svg" alt="剪切"></button>
+        <button type="button" class="tool-btn paint-color" id="tool-paint-color" title="画笔颜色"><div class="color-box"></div></button>
+        <!-- 位状态选择器 - Photoshop 风格画笔选择器 -->
+        <div class="dropdown bit-state-picker" id="bit-state-picker">
+            <button type="button" class="tool-btn bit-state-btn" id="tool-bit-state" title="位状态（点击切换）">
+                <div class="bit-state-preview" id="bit-state-preview">
+                    <svg width="16" height="16" viewBox="0 0 16 16" id="bit-state-icon">
+                        <line x1="2" y1="4" x2="14" y2="4" stroke="currentColor" stroke-width="2"/>
+                    </svg>
+                </div>
+                <span class="bit-state-arrow">▼</span>
+            </button>
+            <div class="dropdown-content bit-state-menu" id="bit-state-menu">
+                <a href="#" data-state="1" class="bit-state-option">
+                    <span class="bit-state-icon">
+                        <svg width="20" height="16" viewBox="0 0 20 16"><line x1="2" y1="4" x2="18" y2="4" stroke="#4CAF50" stroke-width="2.5"/></svg>
+                    </span>
+                    <span class="bit-state-label">高电平 (1)</span>
+                    <span class="bit-state-key">1</span>
+                </a>
+                <a href="#" data-state="0" class="bit-state-option">
+                    <span class="bit-state-icon">
+                        <svg width="20" height="16" viewBox="0 0 20 16"><line x1="2" y1="12" x2="18" y2="12" stroke="#4CAF50" stroke-width="2.5"/></svg>
+                    </span>
+                    <span class="bit-state-label">低电平 (0)</span>
+                    <span class="bit-state-key">0</span>
+                </a>
+                <div class="separator"></div>
+                <a href="#" data-state="z" class="bit-state-option">
+                    <span class="bit-state-icon">
+                        <svg width="20" height="16" viewBox="0 0 20 16"><line x1="2" y1="8" x2="18" y2="8" stroke="#2196F3" stroke-width="2" stroke-dasharray="3,2"/></svg>
+                    </span>
+                    <span class="bit-state-label">高阻 (z)</span>
+                    <span class="bit-state-key">Z</span>
+                </a>
+                <a href="#" data-state="x" class="bit-state-option">
+                    <span class="bit-state-icon">
+                        <svg width="20" height="16" viewBox="0 0 20 16">
+                            <rect x="2" y="3" width="16" height="10" fill="url(#crosshatch)" stroke="#F44336" stroke-width="1"/>
+                            <defs><pattern id="crosshatch" width="4" height="4" patternUnits="userSpaceOnUse"><path d="M0,0 l4,4 M4,0 l-4,4" stroke="#F44336" stroke-width="0.5"/></pattern></defs>
+                        </svg>
+                    </span>
+                    <span class="bit-state-label">未定义 (x)</span>
+                    <span class="bit-state-key">X</span>
+                </a>
+                <div class="separator"></div>
+                <a href="#" data-state="u" class="bit-state-option">
+                    <span class="bit-state-icon">
+                        <svg width="20" height="16" viewBox="0 0 20 16"><line x1="2" y1="4" x2="18" y2="4" stroke="#9C27B0" stroke-width="1.5" stroke-dasharray="1,1"/></svg>
+                    </span>
+                    <span class="bit-state-label">上拉 (u)</span>
+                    <span class="bit-state-key">U</span>
+                </a>
+                <a href="#" data-state="d" class="bit-state-option">
+                    <span class="bit-state-icon">
+                        <svg width="20" height="16" viewBox="0 0 20 16"><line x1="2" y1="12" x2="18" y2="12" stroke="#9C27B0" stroke-width="1.5" stroke-dasharray="1,1"/></svg>
+                    </span>
+                    <span class="bit-state-label">下拉 (d)</span>
+                    <span class="bit-state-key">D</span>
+                </a>
+            </div>
         </div>
-      </li>
-      <li class="mk-menu" data-menu="view">视图
-        <div class="mk-sub">
-          <div class="mk-mi" data-noop="1">主题</div>
-          <div class="mk-mi" data-noop="1">时间轴</div>
-          <div class="mk-mi" data-noop="1">VCD 信号面板</div>
+        <!-- 编辑力度（粒度）：整步 = 一次改整个主步；子步 = 一次只改一个子格 -->
+        <div class="seg-toggle" id="granularity-toggle" title="编辑力度：整步 = 一次改整个主步（默认，仿真采样正确）；子步 = 一次只改一个子格（用于画时钟沿）">
+            <button type="button" class="gran-btn active" data-gran="step">整步</button>
+            <button type="button" class="gran-btn" data-gran="substep">子步</button>
         </div>
-      </li>
-      <li class="mk-menu" data-menu="layout">布局
-        <div class="mk-sub">
-          <div class="mk-mi" data-preset="sim">仿真预设（默认）<span class="mk-key">Ctrl+Alt+1</span></div>
-          <div class="mk-mi" data-preset="edit">编辑预设<span class="mk-key">Ctrl+Alt+2</span></div>
-          <div class="mk-mi" data-preset="review">审阅预设<span class="mk-key">Ctrl+Alt+3</span></div>
-          <div class="mk-sep"></div>
-          <div class="mk-mi" data-act="reset">重置布局<span class="mk-key">Ctrl+Alt+0</span></div>
-          <div class="mk-mi" data-act="save">保存布局（localStorage）</div>
-          <div class="mk-mi" data-act="clear">清除已保存布局</div>
+        <!-- 总线进制（F9）：作用于所有矢量信号，切换即重算 labels 并记住选择 -->
+        <div class="seg-toggle" id="bus-radix-toggle" title="总线（矢量信号）显示进制：切换后立即重算标签并记住选择">
+            <button type="button" class="gran-btn active" data-radix="dec">Dec</button>
+            <button type="button" class="gran-btn" data-radix="hex">Hex</button>
+            <button type="button" class="gran-btn" data-radix="bin">Bin</button>
         </div>
-      </li>
-      <li class="mk-menu" data-menu="panels">面板
-        <div class="mk-sub" id="panel-menu"></div>
-      </li>
-      <li class="mk-menu" data-menu="window">窗口
-        <div class="mk-sub">
-          <div class="mk-mi" data-act="float-all">全部浮出</div>
-          <div class="mk-mi" data-act="dock-all">全部收回停靠</div>
-          <div class="mk-mi" data-act="cascade">浮动窗口层叠</div>
+        <button type="button" class="tool-btn" id="tool-paint" title="画笔 (P)" data-tool="paint"><img src="../img/paint.svg" alt="画笔"></button>
+        <button type="button" class="tool-btn" id="tool-erase" title="橡皮擦 (E)" data-tool="erase"><img src="../img/erase.svg" alt="橡皮擦"></button>
+        <button type="button" class="tool-btn" id="tool-select" title="选择 (S)" data-tool="select"><img src="../img/selection.svg" alt="选择"></button>
+        <span class="separator">|</span>
+        <button type="button" class="tool-btn" id="tool-arrow" title="箭头 (A)" data-tool="arrow"><img src="../img/arrow.svg" alt="箭头"></button>
+        <button type="button" class="tool-btn" id="tool-time-span" title="时间跨度 (R)" data-tool="time-span"><img src="../img/time_span.svg" alt="时间跨度"></button>
+        <span class="separator">|</span>
+        <button type="button" class="tool-btn" id="tool-marker" title="标记 (M)" data-tool="marker"><img src="../img/marker.svg" alt="标记"></button>
+        <button type="button" class="tool-btn" id="tool-time-jump" title="时间跳转 (J)" data-tool="time-jump"><img src="../img/time_jump.svg" alt="时间跳转"></button>
+        <span class="separator">|</span>
+        <button type="button" class="tool-btn" id="tool-text" title="文本标注 (T)" data-tool="text"><img src="../img/text_annotation.svg" alt="文本标注"></button>
+        <span class="separator">|</span>
+        <button type="button" class="tool-btn" id="tool-select-object" title="选择对象 (V)" data-tool="select-object"><img src="../img/cursor.svg" alt="选择对象"></button>
+        <button type="button" class="tool-btn disabled" id="tool-properties" title="属性（请先选择对象）" disabled><img src="../img/properties.svg" alt="属性"></button>
+        <span class="separator">|</span>
+        <div class="step-controls">
+            <div class="step-control-group">
+                <label for="sample-spin" class="step-label">步数:</label>
+                <div class="step-input-wrapper">
+                    <input type="number" id="sample-spin" min="4" max="1000000" value="30" class="step-input" title="时间步数">
+                    <span class="step-stepper">
+                        <button type="button" class="step-arrow" data-target="sample-spin" data-step="1" title="步数 +1" aria-label="步数加一">▲</button>
+                        <button type="button" class="step-arrow" data-target="sample-spin" data-step="-1" title="步数 -1" aria-label="步数减一">▼</button>
+                    </span>
+                </div>
+            </div>
+            <div class="step-control-group">
+                <label for="substep-spin" class="step-label">子步数:</label>
+                <div class="step-input-wrapper">
+                    <input type="number" id="substep-spin" min="0" max="16" value="1" class="step-input" title="每时间步的细分">
+                    <span class="step-stepper">
+                        <button type="button" class="step-arrow" data-target="substep-spin" data-step="1" title="子步数 +1" aria-label="子步数加一">▲</button>
+                        <button type="button" class="step-arrow" data-target="substep-spin" data-step="-1" title="子步数 -1" aria-label="子步数减一">▼</button>
+                    </span>
+                </div>
+            </div>
         </div>
-      </li>
-      <li class="mk-menu" data-menu="help">帮助
-        <div class="mk-sub">
-          <div class="mk-mi" data-act="help">交互说明…</div>
-          <div class="mk-mi" data-noop="1">关于（原型）</div>
-        </div>
-      </li>
-    </ul>
-    <span class="mk-spacer"></span>
-    <span class="mk-version">v0.4.0 · 原型 mock-3（顶栏统一 U0-R）</span>
-  </div>
+        <div class="spacer"></div>
+        <input type="color" id="signal-color" title="信号颜色" style="display: none;">
 
-  <!-- L1 统一工具带（U0-R）：全应用唯一一条功能栏，所有图标工具都在这里；
-       波形等面板内部不再有子工具带（用户第二十五轮拍板，回退第二十四轮 D-UI-A）；
-       组内 4px、组间 12px（R4/R5），放不下的整组按 data-ovp 收进 ⋯（R6） -->
-  <div id="toolbar">
-    <div class="mk-tbg">
-      <button type="button" class="mk-run" id="sim-run" title="运行仿真（全应用唯一主按钮 · Ctrl+Alt+R）">运行仿真</button>
     </div>
-    <div class="mk-tbg" data-ovp="5">
-      <button type="button" class="tool-btn" title="打开"><img src="../img/folder.svg" alt="打开"></button>
-      <button type="button" class="tool-btn" title="保存"><img src="../img/save.svg" alt="保存"></button>
-    </div>
-    <div class="mk-tbg" data-ovp="4">
-      <button type="button" class="tool-btn" title="撤销"><img src="../img/undo.svg" alt="撤销"></button>
-      <button type="button" class="tool-btn" title="重做"><img src="../img/redo.svg" alt="重做"></button>
-      <button type="button" class="tool-btn" title="剪切 (C)"><img src="../img/cut.svg" alt="剪切"></button>
-      <button type="button" class="tool-btn paint-color" title="画笔颜色"><span class="color-box"></span></button>
-    </div>
-    <div class="mk-tbg" data-ovp="1">
-      <button type="button" class="tool-btn" title="缩小"><img src="../img/zoom_out.svg" alt="缩小"></button>
-      <button type="button" class="tool-btn" title="放大"><img src="../img/zoom_in.svg" alt="放大"></button>
-      <button type="button" class="tool-btn" title="适应窗口"><img src="../img/zoom_fit.svg" alt="适应窗口"></button>
-      <button type="button" class="tool-btn" title="时间跳转 / 游标 (J)"><img src="../img/time_jump.svg" alt="时间跳转"></button>
-    </div>
-    <div class="mk-tbg" data-ovp="3">
-      <button type="button" class="tool-btn" title="画笔 (P)"><img src="../img/paint.svg" alt="画笔"></button>
-      <button type="button" class="tool-btn" title="橡皮擦 (E)"><img src="../img/erase.svg" alt="橡皮擦"></button>
-      <button type="button" class="tool-btn" title="选择 / 框选 (S)"><img src="../img/selection.svg" alt="选择"></button>
-    </div>
-    <div class="mk-tbg" data-ovp="2">
-      <div class="mk-dd">
-        <button type="button" class="tool-btn has-caret" title="位状态（点击切换 1 / 0 / z / x / u / d）">
-          <svg width="14" height="14" viewBox="0 0 16 16"><line x1="2" y1="4" x2="14" y2="4" stroke="currentColor" stroke-width="2"/></svg>
-          <span class="mk-caret">▼</span>
-        </button>
-        <div class="mk-dd-menu">
-          <div class="mk-dd-h">位状态（写 1 bit）</div>
-          <div class="mk-dd-i">高电平 (1)<span class="mk-key">1</span></div>
-          <div class="mk-dd-i">低电平 (0)<span class="mk-key">0</span></div>
-          <div class="mk-dd-i">高阻 (z)<span class="mk-key">Z</span></div>
-          <div class="mk-dd-i">未定义 (x)<span class="mk-key">X</span></div>
-          <div class="mk-dd-i">上拉 (u)<span class="mk-key">U</span></div>
-          <div class="mk-dd-i">下拉 (d)<span class="mk-key">D</span></div>
+    <div id="main-area">
+        <div id="wave-view">
+            <canvas id="wave-canvas" width="800" height="600"></canvas>
         </div>
-      </div>
-      <div class="mk-seg" title="编辑力度：整步 = 一次改整个主步（仿真采样正确）；子步 = 一次只改一个子格（画时钟沿用）">
-        <button type="button" class="on">整步</button><button type="button">子步</button>
-      </div>
-      <div class="mk-seg" title="总线（矢量信号）显示进制：切换即重算标签">
-        <button type="button" class="on">Dec</button><button type="button">Hex</button><button type="button">Bin</button>
-      </div>
     </div>
-    <div class="mk-tbg" data-ovp="2">
-      <button type="button" class="tool-btn" title="箭头 (A)"><img src="../img/arrow.svg" alt="箭头"></button>
-      <button type="button" class="tool-btn" title="时间跨度 (R)"><img src="../img/time_span.svg" alt="时间跨度"></button>
-      <button type="button" class="tool-btn" title="标记 (M)"><img src="../img/marker.svg" alt="标记"></button>
-      <button type="button" class="tool-btn" title="文本标注 (T)"><img src="../img/text_annotation.svg" alt="文本标注"></button>
-    </div>
-    <div class="mk-tbg" data-ovp="1">
-      <div class="mk-dd">
-        <button type="button" class="tool-btn has-caret" title="添加信号（位 / 矢量 / 预定义 / 波形生成器 / 协议模板）">
-          <img src="../img/add_signal.svg" alt="添加信号"><span class="mk-caret">▼</span>
-        </button>
-        <div class="mk-dd-menu">
-          <div class="mk-dd-i">位信号</div>
-          <div class="mk-dd-i">矢量信号</div>
-          <div class="mk-dd-h">预定义信号 ▸</div>
-          <div class="mk-dd-i">时钟 / 计数器 / 复位 / 脉冲</div>
-          <div class="mk-dd-h">波形生成器 ▸</div>
-          <div class="mk-dd-i">正弦 / 三角 / 锯齿 / 随机 / 带毛刺</div>
-          <div class="mk-dd-h">协议模板 ▸</div>
-          <div class="mk-dd-i">SPI / I2C / UART（读 · 写）</div>
-          <div class="mk-dd-i">空白行</div>
+    <!-- 仿真工具面板 -->
+    <!-- 右侧仿真栏 -->
+    <button id="sim-toggle-btn" title="仿真工具">仿真</button>
+    <div id="sim-panel" class="sim-panel">
+        <div class="sim-panel-header" id="sim-panel-header">
+            <span>Verilog 仿真工具</span>
+            <span id="app-version" style="margin-left:auto;font-size:10px;opacity:.55;font-weight:400;"></span>
+            <span>▾</span>
         </div>
-      </div>
-      <button type="button" class="tool-btn" title="选择对象 (V)"><img src="../img/cursor.svg" alt="选择对象"></button>
-      <button type="button" class="tool-btn disabled" title="属性（请先选择对象）" disabled><img src="../img/properties.svg" alt="属性"></button>
+        <!-- ── 可拖拽多面板（第二十一轮）────────────────────────────────────────
+             四张卡片（源码 / RTL 结构树 / VCD 信号层次 / TB）之间由 .sim-split 分隔：
+               · 点卡片标题 = 折叠 / 展开该卡片；
+               · 拖 .sim-split = 调整上下两张卡片的高度分配；
+               · 拖 #sim-resize-x（侧栏左缘）= 调整侧栏宽度（画布跟随）。
+             布局状态只写 sessionStorage（刷新保留、关标签页即弃），不写 .wp 工程存档。
+             ⚠ 卡片内所有元素 id 与 class 一律未动（契约面，见 memory/08 §2.5）。 -->
+        <div id="sim-resize-x" role="separator" aria-orientation="vertical" tabindex="0" title="拖拽调整侧栏宽度（左右方向键微调）"></div>
+        <div class="sim-panel-body" id="sim-panel-body">
+            <section class="sim-card" id="sim-card-source" data-sim-card="source">
+                <div class="sim-card-head" data-sim-card-toggle="source" role="button" tabindex="0" aria-expanded="true" title="点击折叠 / 展开">
+                    <span class="sim-sec-title">Verilog / SV 源码</span>
+                    <span class="sim-card-chevron" aria-hidden="true">▾</span>
+                </div>
+                <div class="sim-card-body">
+                    <div class="source-toolbar">
+                        <div id="source-files" class="source-files"></div>
+                        <div class="source-actions">
+                            <button id="sim-addfile" title="添加一个源文件标签页">添加文件</button>
+                            <button id="sim-import" title="从磁盘导入 .v/.sv 源码文件（可多选）">导入源码</button>
+                            <button id="sim-removefile" title="移除当前源文件">移除文件</button>
+                            <button id="sim-parse" title="解析 RTL，预览模块与端口">解析 RTL</button>
+                            <button id="sim-addsignals" title="按端口给画布建激励（不加入 VCD 观察行；加波形请在代码里双击变量）">自动加信号</button>
+                            <button id="sim-tb" title="根据当前波形生成 testbench">生成 TB</button>
+                            <button id="sim-run" class="primary-btn" title="生成 TB 并运行 iverilog 仿真">运行仿真</button>
+                        </div>
+                    </div>
+                    <textarea id="verilog-source" spellcheck="false"></textarea>
+                    <!-- #75 P0：CodeMirror 6 宿主。可用时 ui-bridge 隐藏 textarea 并在此挂编辑器；
+                         bundle 缺失（开发降级）时保持隐藏，textarea 照常工作。 -->
+                    <div id="verilog-cm-host"></div>
+                    <div class="helper-box">
+                        <div id="port-preview" class="helper"></div>
+                        <div id="module-preview" class="helper"></div>
+                    </div>
+                    <!-- 多文件/多模块设计：解析后自动填入全部 module，默认选「未被实例化」的顶层；
+                         手动切换后生成 TB / 运行仿真都按选中的模块作为 DUT。 -->
+                    <div id="sim-top-row" style="display:none;align-items:center;gap:8px;margin:2px 0;font-size:12px;">
+                        <label for="sim-top-select" style="flex:none;">顶层模块：</label>
+                        <select id="sim-top-select" style="flex:1;min-width:0;padding:3px 6px;border:1px solid #bbb;border-radius:6px;font-size:12px;"></select>
+                    </div>
+                </div>
+            </section>
+            <div class="sim-split" data-sim-split="source:rtl" role="separator" aria-orientation="horizontal" tabindex="0" title="拖拽调整「源码 / RTL 结构树」高度（上下方向键微调）"></div>
+            <!-- #75 P0 + 第十二轮：RTL 结构树 = 纯代码层级浏览（文件→模块→实例，点击跳源码行；
+                 不渲染端口/参数分组，不显示接口信号，不承载加信号交互） -->
+            <section class="sim-card" id="sim-card-rtl" data-sim-card="rtl">
+                <div class="sim-card-head" data-sim-card-toggle="rtl" role="button" tabindex="0" aria-expanded="true" title="点击折叠 / 展开">
+                    <span class="sim-sec-title">RTL 结构树</span>
+                    <span class="sim-card-chevron" aria-hidden="true">▾</span>
+                </div>
+                <div class="sim-card-body">
+                    <div id="rtl-tree" class="rtl-tree"></div>
+                </div>
+            </section>
+            <div class="sim-split" data-sim-split="rtl:vcd" role="separator" aria-orientation="horizontal" tabindex="0" title="拖拽调整「RTL 结构树 / VCD 信号层次」高度（上下方向键微调）"></div>
+            <!-- #75 P0：VCD 信号层次（仿真后按 $scope 全路径列出；点击信号可查看完整路径） -->
+            <section class="sim-card" id="sim-card-vcd" data-sim-card="vcd">
+                <div class="sim-card-head" data-sim-card-toggle="vcd" role="button" tabindex="0" aria-expanded="true" title="点击折叠 / 展开">
+                    <span class="sim-sec-title">VCD 信号层次</span>
+                    <span class="sim-card-chevron" aria-hidden="true">▾</span>
+                </div>
+                <div class="sim-card-body">
+                    <div id="vcd-tree" class="vcd-tree"></div>
+                </div>
+            </section>
+            <div class="sim-split" data-sim-split="vcd:tb" role="separator" aria-orientation="horizontal" tabindex="0" title="拖拽调整「VCD 信号层次 / Testbench」高度（上下方向键微调）"></div>
+            <section class="sim-card" id="sim-card-tb" data-sim-card="tb">
+                <div class="sim-card-head" data-sim-card-toggle="tb" role="button" tabindex="0" aria-expanded="true" title="点击折叠 / 展开">
+                    <span class="sim-sec-title">Testbench (TB)</span>
+                    <button id="sim-tb-copy" type="button" title="复制 testbench 到剪贴板">复制</button>
+                    <span class="sim-card-chevron" aria-hidden="true">▾</span>
+                </div>
+                <div class="sim-card-body">
+                    <textarea id="tb-source" spellcheck="false" readonly placeholder="点击「生成 TB」生成 testbench，或点「运行仿真」后自动生成。"></textarea>
+                </div>
+            </section>
+            <div id="sim-status" class="sim-status"></div>
+            <!-- 服务彻底死亡时的手动自愈入口（默认隐藏，ui-bridge 在自动恢复失败时显示）。
+                 点击后用 wavepaint: 协议拉起 exe；首次浏览器会弹一次「是否允许打开
+                 wavepaint:」确认框，勾选「始终允许」后以后无感。 -->
+            <button id="sim-recover" type="button"
+                    style="display:none;margin:6px 0 0;width:100%;">启动本地仿真服务</button>
+            <!-- 收起入口只保留「点击表头」这一个（原底部「收起」按钮冗余，已删）；
+                 展开入口 = 收起后贴在右缘的竖排「仿真」标签。 -->
+        </div>
+    </div>    <div id="wavedrom-debug-panel" class="wavedrom-debug-panel hidden">
+        <div class="wavedrom-debug-header">
+            <span class="wavedrom-debug-title">WaveDrom 代码（实时编辑）</span>
+            <div class="wavedrom-debug-status">
+                <span id="wavedrom-debug-status" class="status-ok">✓ 有效</span>
+            </div>
+            <div class="wavedrom-debug-actions">
+                <button id="wavedrom-debug-copy" class="wavedrom-debug-btn" title="复制到剪贴板">📋 复制</button>
+                <button id="wavedrom-debug-open" class="wavedrom-debug-btn" title="在 WaveDrom 编辑器中打开">🔗 在编辑器中打开</button>
+                <button id="wavedrom-debug-close" class="wavedrom-debug-btn" title="关闭面板">✕</button>
+            </div>
+        </div>
+        <div class="wavedrom-debug-content">
+            <div class="wavedrom-code-editor">
+                <div class="code-editor-lines" id="wavedrom-line-numbers"></div>
+                <div class="code-editor-wrapper">
+                    <pre class="code-editor-highlight" id="wavedrom-highlight" aria-hidden="true"><code></code></pre>
+                    <textarea id="wavedrom-debug-code" class="code-editor-textarea" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off">{ signal: [] }</textarea>
+                </div>
+            </div>
+            <div class="wavedrom-splitter" id="wavedrom-splitter"></div>
+            <div class="wavedrom-preview-container">
+                <div class="wavedrom-preview-header">
+                    <span class="wavedrom-preview-title">实时预览</span>
+                </div>
+                <div id="wavedrom-preview-content" class="wavedrom-preview-content">
+                    <div id="wavedrom-render-target"></div>
+                </div>
+            </div>
+        </div>
     </div>
-    <div class="mk-tbg mk-ovf" id="tool-overflow">
-      <button type="button" class="tool-btn mk-ovf-btn" title="更多（本带放不下的整组控件收在这里）">⋯</button>
-      <div class="mk-ovf-menu"></div>
+    <div id="wp-modal-overlay" class="wp-modal-overlay hidden">
+        <div id="wp-modal" class="wp-modal" role="dialog" aria-modal="true" aria-labelledby="wp-modal-title">
+            <div id="wp-modal-header" class="wp-modal-header">
+                <span id="wp-modal-title" class="wp-modal-title">对话框</span>
+                <button id="wp-modal-close" class="wp-modal-close" aria-label="关闭">✕</button>
+            </div>
+            <div class="wp-modal-body">
+                <div id="wp-modal-message" class="wp-modal-message"></div>
+                <input id="wp-modal-input" class="wp-modal-input" type="text" autocomplete="off" />
+            </div>
+            <div class="wp-modal-footer">
+                <button id="wp-modal-cancel" class="wp-modal-btn">取消</button>
+                <button id="wp-modal-ok" class="wp-modal-btn primary">确定</button>
+            </div>
+        </div>
     </div>
-    <span class="mk-spacer"></span>
-    <div class="mk-tbg mk-step-group" data-keep="1">
-      <label>步数:</label>
-      <span class="mk-step-input">
-        <input type="text" value="30" title="时间步数">
-        <span class="mk-stepper"><button type="button">▲</button><button type="button">▼</button></span>
-      </span>
+    <!-- WaveDrom I/O Modules (loaded in order) -->
+    <!-- MainWindow modular files (split from MainWindow.js) -->
+    <!-- WaveView modular files (split from WaveView.js) - ordered by dependencies -->
+    <!-- Level 0: No WaveView dependencies -->
+    <!-- Level 1: Depends on Constants only -->
+    <!-- Level 2: Depends on Constants + Theme -->
+    <!-- Level 3: Depends on Constants + State -->
+    <!-- Level 4: Depends on Utils (cubicPoint, etc.) -->
+    <!-- Level 5: Depends on Arrows + Utils -->
+    <!-- Level 6: Depends on State + Theme -->
+    <!-- Level 7: Depends on nearly everything -->
+    <!-- Level 8: Main orchestrator - must be last -->
+    <!-- Modular JS files (reorganized from main.js) -->
+    <!-- Context menu modular files (split from ContextMenus.js) -->
+    <!-- Export modular files (split from ExportFunctions.js) -->
+    <!-- AppInit modular files (split from AppInit.js) -->
+    <script src="../js/wavepaint.clean.js"></script>
+    <script src="../js/core/__core.js"></script>
+    <!-- 扩展模块：core 共享层 + editor 编辑域 -->
+    <script src="../js/core/wpf.js"></script>
+    <!-- launcher 存活心跳：每 2s 向 api/ping 报活，防「长时间纯编辑后被误判空闲退出 → 仿真服务不在线」 -->
+    <script src="../js/core/heartbeat.js"></script>
+    <!-- 本地仿真服务守卫（2026-09-10 根治「点运行仿真无响应」）：
+         ping 带身份标识判活（绝不错认占用同端口的第三方服务）→ 同源/固定首选端口
+         跨端口发现 → 服务真死时用 wavepaint: 协议重拉 exe。必须是普通 script
+         且早于 ui-bridge.js（ESM，defer 语义，晚于普通 script 执行）。 -->
+    <script src="../js/core/service-guard.js"></script>
+    <!-- v0.3.0：值输入编辑（Bit/Vector 弹窗 + 整步子步粒度 + Ctrl 框选）。
+         必须加载在 editor/draw.js 之前，其 document 捕获监听才能先于绘制模块判定接管。 -->
+    <script src="../js/editor/value-input.js"></script>
+    <script src="../js/editor/draw.js"></script>
+    <script src="../js/editor/resize.js"></script>
+    <script src="../js/editor/shortcuts.js"></script>
+    <script src="../js/editor/selection.js"></script>
+    <script src="../js/editor/measure.js"></script>
+    <script src="../js/editor/generator.js"></script>
+    <script src="../js/editor/templates.js"></script>
+    <!-- 文件菜单修复（2026-09-04）：核心 initMenuHandlers 按英文文本绑定
+         New/Open/Save As 等，汉化后五个文件菜单项全部失效（死菜单）；
+         本模块按中文文本重绑并复用核心 .wp 工程存取（openFile/saveToFile）。 -->
+    <script src="../js/editor/file-menu.js"></script>
+    <!-- #75 P0：CodeMirror 6 离线 bundle（IIFE，普通 script 先于 ESM 模块执行；
+         挂到 globalThis.WPCm，供 js/sim/rtl-panel.js 创建代码视图）。 -->
+    <script src="../lib/codemirror.bundle.js"></script>
+    <!-- model.js 是 ESM，普通 script 无法直接 import。
+         这里把矢量值处理函数挂到 window，供 editor/selection.js / core/wpf.js 使用
+         （module 为 defer 语义，晚于普通 script；使用方都在用户交互时才读取，故安全）。 -->
+    <script type="module">
+        import { normalizeVectorValue, formatVectorValue } from '../js/sim/project-model.js';
+        window.__wpfVec = { normalizeVectorValue, formatVectorValue };
+    </script>
+    <script type="module" src="../js/sim/ui-bridge.js"></script>
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         原型外壳（mock-only）：真机 index.html 里**没有**下面这些元素
+         -----------------------------------------------------------------------
+         · 由 tools/gen-mock-page.mjs 在 </body> 之前整段追加到 prototype/ui-mockup.html；
+         · 真机骨架（菜单栏 / 工具带 / 波形区 / 仿真卡片）一律逐字照搬，绝不在这里重写；
+         · 原型独有的东西只有：工作区宿主（#workbench）+ 拖拽引擎 + 底部状态栏 +
+           帮助浮层 + 构建戳。样式在 prototype/ui-mockup.css，逻辑在 prototype/ui-mockup.js。
+    ════════════════════════════════════════════════════════════════════════ -->
+    <div id="workbench">
+        <div id="mk-drop"></div>
+        <div id="mk-caret"></div>
+        <div id="mk-floats"></div>
+        <!-- 停靠状态下的真机节点暂存区：#workbench 一次只装一棵停靠树，
+             面板被合并 / 浮出 / 隐藏时，其宿主节点先摘到这里挂着，
+             既不脱离文档（真机 getElementById 必须仍能命中），也不参与布局。 -->
+        <div id="mk-park" hidden></div>
     </div>
-    <div class="mk-tbg mk-step-group" data-keep="1">
-      <label>子步数:</label>
-      <span class="mk-step-input">
-        <input type="text" value="1" title="每时间步的细分">
-        <span class="mk-stepper"><button type="button">▲</button><button type="button">▼</button></span>
-      </span>
+    <div id="status-bar">
+        <span class="mk-st-dot" title="原型：纯前端演示，未连接本地仿真服务"></span>
+        <span id="st-text">就绪（原型演示）</span>
+        <span class="mk-st-sep"></span>
+        <span id="st-ctx">纯前端原型 · 真机 UI 1:1 照搬</span>
+        <span class="mk-spacer"></span>
+        <span id="st-layout">布局：仿真预设</span>
+        <span class="mk-st-sep"></span>
+        <span id="st-panels">面板</span>
+        <span class="mk-st-sep"></span>
+        <div id="layout-menu" class="mk-menu mk-up">布局 ▾
+            <div class="mk-sub">
+                <div class="mk-mi" data-preset="sim"><span class="mk-tick">✔</span>仿真预设<span class="mk-key">Ctrl+Alt+1</span></div>
+                <div class="mk-mi" data-preset="edit"><span class="mk-tick"></span>编辑预设<span class="mk-key">Ctrl+Alt+2</span></div>
+                <div class="mk-mi" data-preset="review"><span class="mk-tick"></span>审阅预设<span class="mk-key">Ctrl+Alt+3</span></div>
+                <div class="mk-sep"></div>
+                <div class="mk-mi" data-act="reset"><span class="mk-tick"></span>恢复默认布局<span class="mk-key">Ctrl+Alt+0</span></div>
+                <div class="mk-mi" data-act="save"><span class="mk-tick"></span>保存当前布局</div>
+                <div class="mk-mi" data-act="clear"><span class="mk-tick"></span>清除已保存布局</div>
+            </div>
+        </div>
+        <div id="panels-menu" class="mk-menu mk-up">面板 ▾
+            <div class="mk-sub" id="panel-menu"></div>
+        </div>
+        <button id="mock-help-btn" type="button" title="原型操作说明">?</button>
+        <span id="mock-version" class="mk-version"></span>
     </div>
-  </div>
-</div>
-
-<!-- 工作区：布局树由 ui-mockup.js 渲染 -->
-<div id="workbench">
-  <div id="mk-drop"><div id="mk-caret"></div></div>
-  <div id="mk-floats"></div>
-</div>
-
-<!-- L4 状态栏：三段只读（左 服务与消息 / 中 当前上下文 / 右 布局与面板计数）；长提示一律收这里（R9） -->
-<div id="status-bar">
-  <span class="mk-st-dot"></span>
-  <span id="st-text">就绪（原型演示）</span>
-  <span class="mk-st-sep"></span>
-  <span id="st-ctx" title=""></span>
-  <span class="mk-spacer"></span>
-  <span id="st-layout"></span>
-  <span id="st-panels"></span>
-</div>
-
-<div id="help-overlay" class="hidden">
-  <div id="help-box">
-    <div id="help-head"><b>原型交互说明</b><button type="button" id="help-close">✕</button></div>
-    <div id="help-body">
-      <h4>1. 停靠（Dock）</h4>
-      <ul>
-        <li>按住<b>面板标题栏</b>拖动 → 出现蓝色落点框。</li>
-        <li>拖到某个面板的<b>上缘 / 下缘 / 左缘 / 右缘</b>（约 26% 带宽）→ 在那一侧<b>切分</b>出新窗格。</li>
-        <li>拖到某个面板的<b>标题栏/Tab 栏</b>或<b>正中间</b> → 与之<b>合并为 Tab 组</b>。</li>
-        <li>拖到整窗<b>最外缘</b>（22px 环带）→ 在工作区边缘<b>新建一个区</b>。</li>
-        <li>按 <b>Esc</b> 取消拖动。</li>
-      </ul>
-      <h4>2. 尺寸</h4>
-      <ul>
-        <li>拖两个窗格之间的<b>分隔条</b>调整比例（有最小尺寸保护）。</li>
-        <li>波形面板内：拖「信号名列 / 波形区」之间的竖分隔条，可调名列宽度。</li>
-      </ul>
-      <h4>3. Tab 与浮出</h4>
-      <ul>
-        <li>点 Tab 切换；Tab 上按<b>中键 / 双击</b>可浮出该面板。</li>
-        <li>标题栏右侧按钮：<b>⧉ 浮出</b> / <b>▣ 最大化</b> / <b>✕ 关闭</b>。</li>
-        <li>浮动窗可拖动、右下角可缩放、▣ 最大化到整个工作区、⤓ 收回停靠。</li>
-      </ul>
-      <h4>4. 布局预设与持久化</h4>
-      <ul>
-        <li>布局菜单：仿真 / 编辑 / 审阅 三套预设；<b>Ctrl+Alt+1/2/3</b> 快速切换，<b>Ctrl+Alt+0</b> 重置。</li>
-        <li>布局默认只写 session/localStorage，不写 <code>.wp</code> 工程存档（按用户裁决）。</li>
-      </ul>
-      <h4>5. 控件分层（第二十五轮 U0-R：顶栏统一）</h4>
-      <ul>
-        <li><b>L1 统一工具带</b>（顶部，全应用唯一一条功能栏）：运行仿真（唯一主按钮）｜打开 / 保存｜撤销 / 重做 / 剪切 / 画笔颜色｜视图（缩小 / 放大 / 适应窗口 / 时间跳转）｜绘制（画笔 / 橡皮擦 / 选择）｜编辑状态（位状态 / 整步·子步 / Dec·Hex·Bin）｜标注（箭头 / 时间跨度 / 标记 / 文本标注）｜对象（添加信号 / 选择对象 / 属性）｜步数 / 子步数。</li>
-        <li><b>波形面板内不再有子工具带</b>：波形区的功能栏一律回到 L1 顶栏（第二十五轮拍板，回退第二十四轮的「面板上下文带」方案）。</li>
-        <li><b>其余面板内的子栏</b>只保留「本面板专属」动作（源码窗的打开 / 保存 / 解析 RTL / 生成 TB，层次树的展开 / 折叠，文件列表的添加 / 移除 等），不与 L1 重复。</li>
-        <li><b>L4 状态栏</b>：左 服务与消息｜中 当前上下文（选中信号 / 当前文件 / 计数）｜右 布局与面板计数；长提示一律收在这里。</li>
-        <li>窄窗口时，整组控件按优先级收进工具带右侧的 <b>⋯</b>（不折行、不溢出）。</li>
-      </ul>
-      <p class="mk-note">本原型仅用于评审「形态」：所有面板内容是假数据，不连接仿真服务、不影响现有
-        <code>index.html</code> 与 <code>js/</code>。</p>
+    <div id="help-overlay" class="hidden">
+        <div id="help-box">
+            <div id="help-head">
+                <b>WavePaint 原型（多面板 / 自由拖拽）— 操作说明</b>
+                <button id="help-close" type="button" title="关闭">✕</button>
+            </div>
+            <div id="help-body">
+                <h4>这一版在验证什么</h4>
+                <ul>
+                    <li>菜单栏 / 工具带 / 波形区 / 代码区 <b>逐字照搬真机 index.html</b>（同一份 DOM + 同一份 CSS + 同一份 JS），
+                        所以看到的就是真机效果，只是从「全屏」变成了「面板」。</li>
+                    <li>面板之间的<b>停靠布局</b>（Verdi 式多窗格）与<b>自由拖拽</b>（Word 式自由排布）是本原型新增的能力。</li>
+                </ul>
+                <h4>拖拽面板</h4>
+                <ul>
+                    <li>按住面板页签拖动：拖到<b>另一面板的页签条</b> = 合并成一个 Tab 组；</li>
+                    <li>拖到某面板的<b>内部边缘</b> = 在该侧切出新窗格（蓝框预览 = 松手后的真实位置）；</li>
+                    <li>拖到<b>工作区最外缘</b>（约 20px 环带）= 新建一整行 / 一整列；</li>
+                    <li>中键点击页签 / 双击页签 = 浮出为自由窗口；浮窗标题栏拖动可跨面板停靠。</li>
+                </ul>
+                <h4>分隔条与缩放</h4>
+                <ul>
+                    <li>拖动面板之间的<b>分隔条</b>调整比例；拖动浮窗右下角调整浮窗大小。</li>
+                    <li>窗口尺寸变化时画布自动重绘（画布等价于真机画布）。</li>
+                </ul>
+                <h4>底部状态栏（原型独有）</h4>
+                <ul>
+                    <li><code>布局 ▾</code> 切换三套预设（仿真 / 编辑 / 审阅）或保存 / 清除布局；</li>
+                    <li><code>面板 ▾</code> 逐面板显示 / 隐藏 / 浮出 / 收回；</li>
+                    <li><code>Ctrl+Alt+1/2/3</code> 切预设，<code>Ctrl+Alt+0</code> 恢复默认，<code>Esc</code> 取消拖动 / 关闭菜单。</li>
+                </ul>
+                <h4>与真机的差别（有意为之）</h4>
+                <ul>
+                    <li>没有本地仿真服务：点「运行仿真」不会真的跑 iverilog，也不会拉起真机 exe（原型已禁用协议唤醒）。</li>
+                    <li>「控制台 / 源文件 / 端口」三块面板真机没有，内容是原型假数据，用来演示更多窗格形态。</li>
+                </ul>
+                <div class="mk-note">布局改动会自动存进 <code>localStorage</code>（键名 <code>wavepaint.mock.layout.v1</code>），刷新后保留。
+                    想回到出厂状态：<code>布局 ▾ → 恢复默认布局</code>。</div>
+            </div>
+        </div>
     </div>
-  </div>
-</div>
-
-<script src="ui-mockup.js"></script>
-<script>
-// 构建戳（仅打包版 WavePaintMockup.exe 提供 /mockup-version.txt）：把「这条横条是哪个
-// 构建」印在顶部，方便确认打开的是最新 exe。dev-server 下该请求 404 → 静默跳过，不影响原型。
-fetch('/mockup-version.txt').then(function (r) { return r.ok ? r.text() : ''; }).then(function (t) {
-  t = (t || '').trim(); if (!t) return;
-  var banner = document.getElementById('mock-banner'); if (!banner) return;
-  var span = document.createElement('span');
-  span.id = 'mock-version';
-  span.textContent = ' · ' + t;
-  banner.appendChild(span);
-}).catch(function () { /* dev-server 下静默 */ });
-</script>
+    <!-- 原型样式表不在这里引：由 tools/gen-mock-page.mjs 插到 <head> 真机内联
+         <style> 之后（保证层叠顺序压过真机样式，且不产生无样式闪烁）。 -->
+    <script src="ui-mockup.js"></script>
 </body>
 </html>

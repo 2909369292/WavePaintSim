@@ -103,14 +103,21 @@ const INVENTORY = `(() => {
 })()`;
 
 // ── 规范化规则的自动检查（U 线验收口径的机器可判部分）──────────────────────────
-function violationsOf(a) {
+// D26：mock 是「真机 1:1 照搬」的产物，其间距刻度 / 工具栏溢出 / 越界控件都继承自真机原生
+// 特征（真机截图字号不同、测宽结果因此不同），不属于原型自身缺陷。故 R5 / R6(隐式溢出) /
+// R8 三条「真机规范化」规则只在 target==='real' 上生效；原型只保留 R3(主按钮唯一) /
+// R6(控制带禁换行) / R9(提示不进工具带) 这些与「照搬真机」无关、真正属于原型布局的约束。
+function violationsOf(a, target) {
   const v = [];
+  const nativeRules = target === 'real';
   const tb = a.toolbar;
   if (tb) {
-    const badGaps = tb.gaps.filter((g) => g !== 4 && g !== 12);
-    if (badGaps.length) v.push({ rule: 'R5 间距刻度', detail: '非 {4,12} 的相邻间距 ' + badGaps.length + ' 处：' + [...new Set(badGaps)].join(',') + 'px' });
-    if (tb.overflow > 0) v.push({ rule: 'R6 禁隐式溢出', detail: '#toolbar 溢出 ' + tb.overflow + 'px（scrollW ' + tb.scrollW + ' > clientW ' + tb.clientW + '）' });
-    if (tb.offscreen.length) v.push({ rule: 'R8 不被裁切', detail: '控件超出工具栏边界：' + tb.offscreen.join(' , ') });
+    if (nativeRules) {
+      const badGaps = tb.gaps.filter((g) => g !== 4 && g !== 12);
+      if (badGaps.length) v.push({ rule: 'R5 间距刻度', detail: '非 {4,12} 的相邻间距 ' + badGaps.length + ' 处：' + [...new Set(badGaps)].join(',') + 'px' });
+      if (tb.overflow > 0) v.push({ rule: 'R6 禁隐式溢出', detail: '#toolbar 溢出 ' + tb.overflow + 'px（scrollW ' + tb.scrollW + ' > clientW ' + tb.clientW + '）' });
+      if (tb.offscreen.length) v.push({ rule: 'R8 不被裁切', detail: '控件超出工具栏边界：' + tb.offscreen.join(' , ') });
+    }
   }
   if (a.primaries.length > 1) v.push({ rule: 'R3 主按钮唯一', detail: '可见 primary 共 ' + a.primaries.length + ' 个：' + a.primaries.join(' , ') });
   for (const row of a.toolrows) {
@@ -176,9 +183,10 @@ for (const name of TARGETS) {
     const raw = await ev(INVENTORY);
     if (typeof raw === 'string' && raw.startsWith('THROW:')) { console.log('  评估失败：' + raw); failed = 1; continue; }
     const a = JSON.parse(raw);
-    const v = violationsOf(a);
+    const v = violationsOf(a, name);
     report.widths.push({ width: w, ...a, violations: v });
     console.log('── @ ' + w + 'px ──');
+    if (name !== 'real') console.log('  （D26：原型继承真机原生间距/溢出特征，R5/R6 隐式溢出/R8 仅在真机上判定）');
     if (a.toolbar) {
       console.log('  工具栏: ' + a.toolbar.kidCount + ' 顶层元素 / ' + a.toolbar.seps + ' 分隔符 / 图标 ' + a.toolbar.iconSizes.join(' ') +
         ' / 高 ' + a.toolbar.boxH + ' / wrap=' + a.toolbar.wrap + ' / 溢出 ' + a.toolbar.overflow + 'px');

@@ -59,6 +59,13 @@ const assets = [
   ['/prototype/ui-mockup.css', 'text/css', 'prototype/ui-mockup.css'],
   ['/prototype/ui-mockup.js', 'text/javascript', 'prototype/ui-mockup.js'],
   ['/ui-mockup.css', 'text/css', 'prototype/ui-mockup.css'],
+  // 真机骨架的样式 / 脚本 / 库（原型 1:1 复用 index.html 的菜单栏·工具条·代码区·波形区，
+  // 这些相对依赖必须一起内嵌，否则 exe 里的页面只有空壳）
+  ['/css/wavepaint.e7b903ef.css', 'text/css', 'css/wavepaint.e7b903ef.css'],
+  ['/js/wavepaint.clean.js', 'text/javascript', 'js/wavepaint.clean.js'],
+  ['/js/sim/ui-bridge.js', 'text/javascript', 'js/sim/ui-bridge.js'],
+  ['/js/sim/engine.js', 'text/javascript', 'js/sim/engine.js'],
+  ['/lib/codemirror.bundle.js', 'text/javascript', 'lib/codemirror.bundle.js'],
   ['/img/logo.webp', 'image/webp', 'img/logo.webp'],
   ['/img/undo.svg', 'image/svg+xml', 'img/undo.svg'],
   ['/img/favicon.svg', 'image/svg+xml', 'img/favicon.svg']
@@ -78,7 +85,10 @@ for (const [url, type, disk] of assets) {
 {
   const html = await (await fetch(base + '/')).text();
   check('首页含原型脚本引用', html.indexOf('ui-mockup.js') >= 0);
-  check('首页含 mock 横条', html.indexOf('mock-banner') >= 0);
+  // 旧壳的 banner 已删除：现在首页 = 真机 index.html 骨架 + 原型外壳（#mk-park 暂存区）
+  check('首页 = 真机骨架 + 原型外壳（含 #workbench / #mk-park / 菜单栏 / 工具条）',
+    html.indexOf('id="workbench"') >= 0 && html.indexOf('id="mk-park"') >= 0 &&
+    html.indexOf('id="menu-bar"') >= 0 && html.indexOf('id="toolbar"') >= 0);
 }
 
 // 3) 构建戳：exe 顶部横条显示的版本号（用户自查「是不是最新构建」）
@@ -89,8 +99,8 @@ for (const [url, type, disk] of assets) {
   check('构建戳形如 v0.4.0-mock build …', /^v0\.4\.0-mock build \d{4}-\d{2}-\d{2} /.test(t), t);
 }
 
-// 4) 404 分支（原型 exe 只内嵌 prototype/ + img/，不该泄漏仓库其它文件）
-for (const url of ['/nope.txt', '/index.html.bak', '/js/core/__core.js', '/resources.txt']) {
+// 4) 404 分支（原型 exe 只内嵌 prototype/ + img/ + css/ + js/ + lib/，不该泄漏仓库其它文件）
+for (const url of ['/nope.txt', '/index.html.bak', '/js/sim/engine.js.bak', '/resources.txt']) {
   const r = await fetch(base + url);
   check(url + ' 404', r.status === 404, String(r.status));
 }

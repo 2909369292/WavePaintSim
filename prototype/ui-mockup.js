@@ -2,8 +2,36 @@
  * WavePaint UI 原型逻辑（mock）—— 停靠布局引擎 + 浮出 + 预设 + 持久化
  * ----------------------------------------------------------------------------
  * 目的：给用户 review「Verdi 式多窗格 + Word 式自由拖拽」的**形态**。
- * 说明：本文件只服务于 prototype/ 原型页，内容全是假数据；不连接仿真服务，
- *       不改动 index.html / js/**，不进入 exe 内嵌资源清单（见 tools/gen-resources.mjs）。
+ *
+ * ★ 1:1 照搬原则（用户第三十七轮拍板，本文件最高优先级）
+ *   波形 / 源码 / RTL / VCD / TB 五个面板的内容**不是仿制**，而是把真机
+ *   index.html 里的原生节点整块搬进面板：
+ *     wave   ← #main-area（内含 #wave-view > #wave-canvas，真画布 + 真绘制代码）
+ *     source ← #sim-card-source（CodeMirror 6 宿主 / 源文件工具条 / 解析结果）
+ *     rtl    ← #sim-card-rtl（#rtl-tree）
+ *     vcd    ← #sim-card-vcd（#vcd-tree）
+ *     tb     ← #sim-card-tb（#tb-source）
+ *   于是外壳的 DOM / CSS / JS 与真机是同一份：菜单栏、工具带、画布、代码区
+ *   的观感与行为都等于真机，只是从「全屏」变成「面板」。
+ *   ⚠ 绝不在本文件里重写这些区域的外观。历史教训：早期版本按「预测的显示
+ *     效果」自绘了一套假菜单栏 / 假工具带 / 假波形 SVG / 假源码高亮，与真机
+ *     不一致，用户第三十七轮明确否决，那批代码已全部删除，不许再长回来。
+ *
+ * ★ 节点常驻约束
+ *   真机脚本（js/sim/ui-bridge.js）用 getElementById 抓节点，所以被搬走的节点
+ *   必须**始终留在文档里**：面板没显示时（被隐藏 / 被并成页签 / 停在别处），
+ *   节点被摘到 #mk-park（display:none）暂存，**绝不 remove()**。
+ *   同理 #sim-panel / #sim-panel-body / #sim-resize-x 原地不动（只是被 CSS 隐藏），
+ *   好让 ui-bridge 的 initRefs() 与 installSimPanelLayout() 都拿到非空引用
+ *   （后者因为 #sim-panel-body 里已无 [data-sim-card] 而返回 null，属预期）。
+ *
+ * ★ 落点预览 == 落位结果（用户第三十七轮点名要修的两个 bug）
+ *   computeDrop() 是唯一数据源：先把候选操作在**布局树副本**上真的执行一遍，
+ *   再用布局求解器反算目标矩形；showIndicator() 只画这个矩形，
+ *   placePanel() 只执行同一个操作。任何一方都不许自己算几何 —— 这正是
+ *   「预览矩形 ≠ 落位后矩形」的历史根因（过去预览用一套 90px 常量、落位用
+ *   另一套 0.34 比例，互相对不上）。
+ *
  * 布局模型：
  *   split 节点 {kind:'split', dir:'row'|'col', sizes:[..], children:[..]}
  *   tabs  节点 {kind:'tabs',  id:'z-xxx', panels:['wave',...], active:'wave'}
@@ -17,7 +45,7 @@ const PANELS = {
   source:  { title: 'Verilog / SV 源码' },
   rtl:     { title: 'RTL 结构树' },
   vcd:     { title: 'VCD 信号层次' },
-  tb:      { title: 'Testbench' },
+  tb:      { title: 'Testbench (TB)' },
   console: { title: '控制台' },
   files:   { title: '源文件' },
   props:   { title: '端口 / 模块' },
@@ -26,10 +54,23 @@ const PANEL_ORDER = ['wave', 'source', 'rtl', 'vcd', 'tb', 'console', 'files', '
 const HOME_ZONE = { wave: 'z-center', source: 'z-right', rtl: 'z-left', vcd: 'z-left',
   tb: 'z-right', console: 'z-bottom', files: 'z-left', props: 'z-right' };
 
+// 真机宿主映射（id 见 index.html:838 / 861 / 898 / 909 / 919）
+const HOST_ID = {
+  wave: 'main-area',
+  source: 'sim-card-source',
+  rtl: 'sim-card-rtl',
+  vcd: 'sim-card-vcd',
+  tb: 'sim-card-tb',
+};
+const HOST_PANELS = Object.keys(HOST_ID);
+const HOST_EL = {};
+HOST_PANELS.forEach((pid) => { HOST_EL[pid] = document.getElementById(HOST_ID[pid]); });
+
 /* ── 2. 布局树 / 预设 ───────────────────────────────────────────────── */
 let seq = 0;
-const tabs = (panels, active) => ({ kind: 'tabs', id: 'z-' + (++seq), panels: panels.slice(), active: active || panels[0] });
-const split = (dir, sizes, children) => ({ kind: 'split', dir, sizes: sizes.slice(), children });
+const tabs = (panels, active) => ({ kind: 'tabs', id: 'z-' + (++seq), panels: panels.slice(), active: active || panels[0] || null });
+// split 节点也给稳定 id：拖分隔条时不缓存 DOM，靠 data-split-id 重新查活节点
+const split = (dir, sizes, children) => ({ kind: 'split', id: 's-' + (++seq), dir, sizes: sizes.slice(), children });
 
 function presetSim() {
   return split('col', [0.74, 0.26], [
@@ -52,7 +93,7 @@ function presetEdit() {
   ]);
 }
 function presetReview() {
-  const t = split('col', [0.72, 0.28], [
+  return split('col', [0.72, 0.28], [
     split('row', [0.16, 0.58, 0.26], [
       tabs(['rtl', 'vcd'], 'vcd'),
       tabs(['wave', 'source'], 'wave'),
@@ -60,7 +101,6 @@ function presetReview() {
     ]),
     tabs(['console'], 'console'),
   ]);
-  return t;
 }
 const PRESETS = { sim: presetSim, edit: presetEdit, review: presetReview };
 const PRESET_NAME = { sim: '仿真', edit: '编辑', review: '审阅' };
@@ -76,6 +116,11 @@ function eachTabs(node, fn) {
   if (!node) return;
   if (node.kind === 'tabs') { fn(node); return; }
   node.children.forEach((c) => eachTabs(c, fn));
+}
+function cloneTree(node) {
+  if (!node) return null;
+  if (node.kind === 'tabs') return { kind: 'tabs', id: node.id, panels: node.panels.slice(), active: node.active };
+  return { kind: 'split', id: node.id, dir: node.dir, sizes: node.sizes.slice(), children: node.children.map(cloneTree) };
 }
 function allTabsIds() { const out = []; eachTabs(root, (n) => out.push(n.id)); return out; }
 function findTabs(node, id) {
@@ -104,6 +149,9 @@ function prune(node) {
   node.sizes = sizes.map((s) => s / sum);
   return node;
 }
+// 摘掉一个面板。注意：**不在这里兜底恢复预设**——树被摘空（root 变 null）是合法
+// 中间态，由 placePanel / showPanel 决定怎么收场；旧版在这里 `|| presetSim()`
+// 会让「把最后一个面板拖走」变成「整棵布局突然回到仿真预设」。
 function removePanel(panelId) {
   const owner = findTabsOfPanel(root, panelId);
   if (!owner) return;
@@ -111,7 +159,7 @@ function removePanel(panelId) {
   lastDock[panelId] = { tabsId: owner.id, index: idx };
   owner.panels.splice(idx, 1);
   if (owner.active === panelId) owner.active = owner.panels[Math.min(idx, owner.panels.length - 1)] || null;
-  root = prune(root) || presetSim();
+  root = prune(root);
 }
 function insertTab(tabsId, panelId, index) {
   const target = findTabs(root, tabsId);
@@ -134,336 +182,189 @@ function replaceNode(target, replacement) {
   })(root);
   return done;
 }
-function splitAt(tabsId, side, panelId) {
+
+/* 落位操作（唯一的三个：并入页签 / 组内切分 / 工作区外缘新建）
+   —— 三者都只做「可预测的定比例插入」，比例常量集中在 DROP，绝不因为
+      父节点方向相同就改用另一套比例（那正是旧版预览对不上的原因之一）。 */
+const DROP = {
+  outer: 14,          // 工作区最外缘环带宽度（px）：新建整行 / 整列
+  tabBand: 3,         // 页签条下方的额外容差（px）
+  groupRatio: 0.25,   // 组内边缘带 = 组短边 * 该比例
+  groupMin: 28,       //   但不小于 28px
+  groupMax: 96,       //   也不大于 96px
+  splitShare: 0.30,   // 组内切分：新面板占该组的比例
+  rootShare: 0.22,    // 工作区外缘插入：新面板占工作区的比例
+};
+
+function applyOp(op, panelId) {
+  if (!op || !root) return false;
+  if (op.type === 'tab') return insertTab(op.tabsId, panelId, op.index);
+  if (op.type === 'split') return splitAtGroup(op.tabsId, op.side, panelId);
+  if (op.type === 'edge') return addRootEdge(op.side, panelId);
+  return false;
+}
+// 组内切分：始终把目标组包进一个新的 split（不论父节点是不是同方向），
+// 这样新面板的矩形 = 目标组矩形 * DROP.splitShare，与预览严格一致。
+function splitAtGroup(tabsId, side, panelId) {
   const target = findTabs(root, tabsId);
   if (!target) return false;
   const horiz = side === 'left' || side === 'right';
   const dir = horiz ? 'row' : 'col';
   const before = (side === 'left' || side === 'top');
-  // 找 target 的父 split（若能直接容纳该方向，就插成兄弟）
-  let parent = null, pidx = -1;
-  (function walk(n) {
-    if (parent || n.kind === 'tabs') return;
-    n.children.forEach((c, i) => { if (parent) return; if (c === target) { parent = n; pidx = i; return; } walk(c); });
-  })(root);
-  if (parent && parent.dir === dir) {
-    const share = Math.max(0.12, parent.sizes[pidx] * 0.34);
-    parent.sizes[pidx] -= share;
-    parent.children.splice(before ? pidx : pidx + 1, 0, tabs([panelId], panelId));
-    parent.sizes.splice(before ? pidx : pidx + 1, 0, share);
-    return true;
-  }
+  const s = DROP.splitShare;
   const fresh = tabs([panelId], panelId);
-  const node = before ? split(dir, [0.32, 0.68], [fresh, target]) : split(dir, [0.68, 0.32], [target, fresh]);
+  const node = before ? split(dir, [s, 1 - s], [fresh, target])
+    : split(dir, [1 - s, s], [target, fresh]);
   return replaceNode(target, node);
 }
-function topHost(dir) {
-  if (root.kind === 'split' && root.dir === dir) return root;
-  if (root.kind === 'split') { for (const c of root.children) if (c.kind === 'split' && c.dir === dir) return c; }
-  return null;
-}
+// 工作区外缘：在整棵树的这一侧新建一整行 / 一整列，新面板占 DROP.rootShare。
 function addRootEdge(side, panelId) {
+  const dir = (side === 'left' || side === 'right') ? 'row' : 'col';
+  const before = (side === 'left' || side === 'top');
+  const s = DROP.rootShare;
   const fresh = tabs([panelId], panelId);
-  if (side === 'bottom' || side === 'top') {
-    let host = topHost('col');
-    if (!host) { root = split('col', [0.76, 0.24], [root, fresh]); return true; }
-    if (host === root) {
-      root.sizes = root.sizes.map((s) => s * 0.78);
-      if (side === 'top') { root.children.unshift(fresh); root.sizes.unshift(0.22); }
-      else { root.children.push(fresh); root.sizes.push(0.22); }
-      return true;
-    }
-    const share = 0.78 / Math.max(1, host.children.length);
-    host.sizes = host.sizes.map((s) => s * 0.78);
-    if (side === 'top') { host.children.unshift(fresh); host.sizes.unshift(0.22); }
-    else { host.children.push(fresh); host.sizes.push(0.22); }
+  if (root.kind === 'split' && root.dir === dir) {
+    root.sizes = root.sizes.map((v) => v * (1 - s));
+    const idx = before ? 0 : root.children.length;
+    root.children.splice(idx, 0, fresh);
+    root.sizes.splice(idx, 0, s);
     return true;
   }
-  let host = topHost('row');
-  if (!host) { root = split('row', side === 'left' ? [0.22, 0.78] : [0.78, 0.22], side === 'left' ? [fresh, root] : [root, fresh]); return true; }
-  if (host === root) {
-    root.sizes = root.sizes.map((s) => s * 0.8);
-    if (side === 'left') { root.children.unshift(fresh); root.sizes.unshift(0.2); }
-    else { root.children.push(fresh); root.sizes.push(0.2); }
-    return true;
-  }
-  host.sizes = host.sizes.map((s) => s * 0.8);
-  if (side === 'left') { host.children.unshift(fresh); host.sizes.unshift(0.2); }
-  else { host.children.push(fresh); host.sizes.push(0.2); }
+  root = before ? split(dir, [s, 1 - s], [fresh, root]) : split(dir, [1 - s, s], [root, fresh]);
   return true;
 }
-function placePanel(panelId, target) {
-  removePanel(panelId);
-  if (!target) return false;
-  if (target.type === 'tab') return insertTab(target.tabsId, panelId, target.index);
-  if (target.type === 'split') return splitAt(target.tabsId, target.side, panelId);
-  if (target.type === 'edge') return addRootEdge(target.side, panelId);
-  return false;
+
+/* ── 4. 布局求解器（像素矩形）────────────────────────────────────────
+   必须与 CSS 完全同构：
+     · #workbench 的内容盒 = 起算原点（CSS 里是 padding: var(--mk-gap)）；
+     · 每个 split 有 n-1 条 flex:0 0 auto 的分隔条，宽/高 = --mk-handle；
+     · 剩下的可用长按 sizes 比例分给各 .mk-slot（CSS 为 flex: sizes[i] 1 0）。 */
+function metrics() {
+  const cs = getComputedStyle(document.documentElement);
+  const h = parseFloat(cs.getPropertyValue('--mk-handle'));
+  const g = parseFloat(cs.getPropertyValue('--mk-gap'));
+  return { handle: Number.isFinite(h) ? h : 7, gap: Number.isFinite(g) ? g : 6 };
 }
-function visiblePanels() {
-  const out = [];
-  eachTabs(root, (n) => n.panels.forEach((p) => out.push(p)));
-  Object.keys(floats).forEach((p) => out.push(p));
+function workbenchContentRect() {
+  const r = wb.getBoundingClientRect();
+  const cs = getComputedStyle(wb);
+  const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
+  const pl = num(cs.paddingLeft), pr = num(cs.paddingRight);
+  const pt = num(cs.paddingTop), pb = num(cs.paddingBottom);
+  return { x: r.left + pl, y: r.top + pt, w: Math.max(0, r.width - pl - pr), h: Math.max(0, r.height - pt - pb) };
+}
+function layoutRects(node, rect, out, M) {
+  out = out || {};
+  if (!node) return out;
+  if (node.kind === 'tabs') { out[node.id] = rect; return out; }
+  M = M || metrics();
+  const horiz = node.dir === 'row';
+  const n = node.children.length;
+  const total = horiz ? rect.w : rect.h;
+  const avail = Math.max(0, total - M.handle * Math.max(0, n - 1));
+  const sum = node.sizes.reduce((a, b) => a + b, 0) || 1;
+  let pos = horiz ? rect.x : rect.y;
+  for (let i = 0; i < n; i++) {
+    const size = avail * (node.sizes[i] / sum);
+    layoutRects(node.children[i],
+      horiz ? { x: pos, y: rect.y, w: size, h: rect.h } : { x: rect.x, y: pos, w: rect.w, h: size }, out, M);
+    pos += size + (i < n - 1 ? M.handle : 0);
+  }
   return out;
 }
 
-/* ── 4. 面板内容（全部假数据）───────────────────────────────────────── */
-const WAVE_W = 1000, ROW_H = 34, PAD = 8;
-function clockSegs(period) {
-  const out = []; let v = 0;
-  for (let t = 0; t < WAVE_W; t += period) { out.push([t, Math.min(t + period, WAVE_W), v]); v = v ? 0 : 1; }
-  return out;
-}
-function gridSvg() {
-  let s = '';
-  for (let i = 1; i <= 10; i++) s += `<line x1="${i * 100}" y1="0" x2="${i * 100}" y2="${ROW_H}" stroke="#e6efe6" stroke-width="1"/>`;
-  return s;
-}
-function bitsSvg(segs, color) {
-  const yHi = PAD, yLo = ROW_H - PAD;
-  let d = '';
-  segs.forEach(([a, b, v], i) => {
-    const y = v ? yHi : yLo;
-    d += (i === 0 ? `M${a} ${y}` : `L${a} ${y}`) + `L${b} ${y}`;
-  });
-  return `<svg viewBox="0 0 ${WAVE_W} ${ROW_H}">${gridSvg()}` +
-    `<path d="${d}" fill="none" stroke="${color || '#2e7d32'}" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
-}
-function busSvg(vals) {
-  const yHi = PAD + 1, yLo = ROW_H - PAD - 1, sl = 6;
-  let s = gridSvg();
-  vals.forEach(([a, b, v]) => {
-    s += `<path d="M${a + sl} ${yHi} L${b - sl} ${yHi} L${b} ${yLo} L${a} ${yLo} Z" ` +
-      `fill="rgba(46,125,50,.10)" stroke="#2e7d32" stroke-width="1.1"/>` +
-      `<text x="${(a + b) / 2}" y="${ROW_H / 2 + 4}" text-anchor="middle" ` +
-      `font-family="Consolas,monospace" font-size="11" fill="#1f4d22">${v}</text>`;
-  });
-  return `<svg viewBox="0 0 ${WAVE_W} ${ROW_H}">${s}</svg>`;
-}
-const SIGS = [
-  { name: 'clk', w: 1, kind: 'bits', segs: clockSegs(50), bad: '' },
-  { name: 'rst_n', w: 1, kind: 'bits', segs: [[0, 180, 0], [180, WAVE_W, 1]] },
-  { name: 'state', w: 3, kind: 'bus', vals: [[0, 140, 'IDLE'], [140, 380, 'FETCH'], [380, 700, 'EXEC'], [700, WAVE_W, 'DONE']] },
-  { name: 'valid', w: 1, kind: 'bits', segs: [[0, 120, 0], [120, 700, 1], [700, 820, 1], [820, 860, 0], [860, WAVE_W, 0]] },
-  { name: 'data', w: 8, kind: 'bus', vals: [[0, 150, '00'], [150, 330, 'A5'], [330, 560, '3F'], [560, 820, '7E'], [820, WAVE_W, '00']] },
-  { name: 'addr', w: 16, kind: 'bus', vals: [[0, 200, '0000'], [200, 520, '0010'], [520, 820, '0014'], [820, WAVE_W, '0000']] },
-  { name: 'cnt', w: 12, kind: 'bus', vals: [[0, 60, '000'], [60, 220, '001'], [220, 380, '002'], [380, 540, '003'], [540, 700, '004'], [700, 860, '005'], [860, WAVE_W, '006']] },
-];
-function panelWave() {
-  const names = SIGS.map((s, i) =>
-    `<div class="mk-name-row${i % 2 ? ' alt' : ''}${i === 4 ? ' sel' : ''}">` +
-    `<span class="mk-color-chip"></span><span class="mk-sig">${s.name}</span>` +
-    (s.w > 1 ? `<span class="mk-width-badge">[${s.w - 1}:0]</span>` : `<span class="mk-width-badge">bit</span>`) +
-    `</div>`).join('');
-  const rows = SIGS.map((s, i) =>
-    `<div class="mk-track-row${i % 2 ? ' alt' : ''}${i === 4 ? ' sel' : ''}" data-row="${i}">` +
-    (s.kind === 'bits' ? bitsSvg(s.segs) : busSvg(s.vals)) + `</div>`).join('');
-  let ticks = '';
-  for (let i = 0; i <= 10; i++) ticks += `<div class="mk-wave-tick" style="left:${i * 100}px"><span>${i * 100}ns</span></div>`;
-  // U0-R：波形面板不再有子工具带，全部绘图/编辑控件回到 L1 统一工具带
-  return `<div class="mk-wave">
-      <div class="mk-wave-scroll">
-        <div class="mk-wave-names" id="mk-name-col">
-          <div class="mk-wave-names-head">信号名 / 位宽</div>${names}
-        </div>
-        <div class="mk-wave-name-split" id="mk-name-split"></div>
-        <div class="mk-wave-tracks" id="mk-tracks">
-          <div class="mk-wave-tracks-inner">
-            <div class="mk-track-row" style="height:24px;background:var(--header-bg)"></div>
-            ${rows}
-            <div class="mk-cursor" id="mk-cursor" data-t="420ns" style="left:420px"></div>
-          </div>
-        </div>
-      </div>
-      <div class="mk-taxis">
-        <div class="mk-taxis-pad">时间轴</div>
-        <div class="mk-taxis-scroll"><div class="mk-taxis-inner">${ticks}</div></div>
-      </div>
-    </div>`;
-}
-const CODE_LINES = [
-  '<span class="mk-kw">module</span> <span class="mk-id">fifo_ctrl</span> <span class="mk-anno" style="left:210px;top:2px">双击变量名 → 直接加入波形（仿 nWave 中追）</span>',
-  '  <span class="mk-kw">input</span>  <span class="mk-kw">wire</span> <span class="mk-id">clk</span>,',
-  '  <span class="mk-kw">input</span>  <span class="mk-kw">wire</span> <span class="mk-id">rst_n</span>,',
-  '  <span class="mk-kw">input</span>  <span class="mk-kw">wire</span> [<span class="mk-num">7</span>:<span class="mk-num">0</span>] <span class="mk-id">data_in</span>,',
-  '  <span class="mk-kw">output</span> <span class="mk-kw">reg</span>  [<span class="mk-num">7</span>:<span class="mk-num">0</span>] <span class="mk-id">data_out</span>',
-  ');',
-  '',
-  '  <span class="mk-kw">localparam</span> IDLE = <span class="mk-num">3</span>\'d0, RUN = <span class="mk-num">3</span>\'d1;',
-  '  <span class="mk-kw">reg</span> [<span class="mk-num">2</span>:<span class="mk-num">0</span>] <span class="mk-id">state</span>, <span class="mk-id">nstate</span>;',
-  '  <span class="mk-kw">reg</span> [<span class="mk-num">11</span>:<span class="mk-num">0</span>] <span class="mk-id">cnt</span>;',
-  '',
-  '  <span class="mk-kw">always</span> @(<span class="mk-kw">posedge</span> <span class="mk-id">clk</span> <span class="mk-kw">or</span> <span class="mk-kw">negedge</span> <span class="mk-id">rst_n</span>) <span class="mk-kw">begin</span>',
-  '    <span class="mk-kw">if</span> (!<span class="mk-id">rst_n</span>) <span class="mk-kw">begin</span> <span class="mk-id">state</span> &lt;= IDLE; <span class="mk-id">cnt</span> &lt;= <span class="mk-num">0</span>; <span class="mk-kw">end</span>',
-  '    <span class="mk-kw">else</span> <span class="mk-kw">begin</span>',
-  '      <span class="mk-id">state</span> &lt;= <span class="mk-id">nstate</span>;',
-  '      <span class="mk-id">cnt</span>   &lt;= <span class="mk-id">cnt</span> + <span class="mk-num">1</span>\'b1;   <span class="mk-cmt">// 计数器</span>',
-  '    <span class="mk-kw">end</span>',
-  '  <span class="mk-kw">end</span>',
-  '',
-  '  <span class="mk-kw">assign</span> <span class="mk-id">data_out</span> = <span class="mk-id">data_in</span> ^ {<span class="mk-num">8</span>{<span class="mk-id">valid</span>}};',
-  '<span class="mk-kw">endmodule</span>',
-];
-function panelSource() {
-  const gutter = CODE_LINES.map((_, i) => i + 1).join('\n');
-  // L3 源码面板上下文带：不再重复「运行仿真」（R2 —— 全应用唯一入口在 L1）
-  return `<div class="mk-toolrow">
-      <div class="mk-tbg"><button>打开…</button><button>保存</button></div>
-      <div class="mk-tbg"><button>解析 RTL</button><button>生成 TB</button></div>
-      <div class="mk-tbg mk-ovf">
-        <button type="button" class="tool-btn mk-ovf-btn" title="更多（本带放不下的整组控件收在这里）">⋯</button>
-        <div class="mk-ovf-menu"></div>
-      </div>
-    </div>
-    <div class="mk-code">
-      <div class="mk-gutter">${gutter}</div>
-      <div class="mk-code-body">${CODE_LINES.join('\n')}</div>
-    </div>`;
-}
-function panelRtl() {
-  const row = (depth, text, cls, extra) =>
-    `<div class="mk-node-row ${cls || ''}" style="padding-left:${6 + depth * 14}px">` +
-    `<span class="mk-tw">${extra && extra.tw ? extra.tw : ''}</span>${text}` +
-    `${extra && extra.w ? `<span class="mk-w">${extra.w}</span>` : ''}</div>`;
-  return `<div class="mk-toolrow">
-      <div class="mk-tbg"><button>展开全部</button><button>折叠全部</button></div>
-      <div class="mk-tbg mk-ovf">
-        <button type="button" class="tool-btn mk-ovf-btn" title="更多（本带放不下的整组控件收在这里）">⋯</button>
-        <div class="mk-ovf-menu"></div>
-      </div>
-    </div>
-    <div class="mk-tree">
-      ${row(0, '<span class="mk-scope">▾</span> fifo_ctrl.v')}
-      ${row(1, '<span class="mk-scope">▾</span> <b>fifo_ctrl</b>（顶层）', '', { w: 'module' })}
-      ${row(2, '<span class="mk-scope">▾</span> u_fifo : <span class="mk-scope">fifo_core</span>', 'inst', { w: 'inst' })}
-      ${row(3, 'u_ram : <span class="mk-scope">sram_1rw</span>', 'inst', { w: 'inst' })}
-      ${row(3, 'u_ptr : <span class="mk-scope">ptr_ctrl</span>', 'inst', { w: 'inst' })}
-      ${row(2, 'u_arb : <span class="mk-scope">arbiter</span>', 'inst', { w: 'inst' })}
-      ${row(1, '<span class="mk-scope">▸</span> <b>fifo_core</b>', '', { w: 'module' })}
-      ${row(1, '<span class="mk-scope">▸</span> <b>sram_1rw</b>', '', { w: 'module' })}
-      ${row(0, '<span class="mk-scope">▸</span> tb_fifo.v')}
-      ${row(1, '<span class="mk-scope">▸</span> <b>tb</b>', '', { w: 'module' })}
-    </div>`;
-}
-function panelVcd() {
-  const sig = (depth, name, w, hot) =>
-    `<div class="mk-node-row sig${hot ? ' hot' : ''}" style="padding-left:${6 + depth * 14}px">` +
-    `<span class="mk-tw"></span>${name}<span class="mk-w">${w}</span></div>`;
-  return `<div class="mk-toolrow">
-      <div class="mk-tbg"><button>全部加入波形</button><button>过滤…</button></div>
-      <div class="mk-tbg mk-ovf">
-        <button type="button" class="tool-btn mk-ovf-btn" title="更多（本带放不下的整组控件收在这里）">⋯</button>
-        <div class="mk-ovf-menu"></div>
-      </div>
-    </div>
-    <div class="mk-tree">
-      <div class="mk-node-row"><span class="mk-tw">▾</span><span class="mk-scope">tb</span><span class="mk-path">tb</span></div>
-      <div class="mk-node-row"><span class="mk-tw">▾</span><span class="mk-scope">dut</span><span class="mk-path">tb.dut</span></div>
-      ${sig(2, 'clk', 'bit')}
-      ${sig(2, 'rst_n', 'bit')}
-      ${sig(2, 'state', '[2:0]')}
-      ${sig(2, 'valid', 'bit')}
-      ${sig(2, 'data', '[7:0]', true)}
-      ${sig(2, 'addr', '[15:0]')}
-      ${sig(2, 'cnt', '[11:0]')}
-    </div>`;
-}
-function panelTb() {
-  return `<div class="mk-toolrow">
-      <div class="mk-tbg"><button>自动生成</button><button>手动编辑</button></div>
-      <div class="mk-tbg"><button>复制</button><button>导出 .sv</button></div>
-      <div class="mk-tbg mk-ovf">
-        <button type="button" class="tool-btn mk-ovf-btn" title="更多（本带放不下的整组控件收在这里）">⋯</button>
-        <div class="mk-ovf-menu"></div>
-      </div>
-    </div>
-    <pre class="mk-pre">\`timescale 1ns/1ps
-module tb;
-  reg         clk = 0;
-  reg         rst_n = 0;
-  reg  [7:0]  data_in = 8'h00;
-  wire [7:0]  data_out;
-
-  fifo_ctrl dut (.clk(clk), .rst_n(rst_n), .data_in(data_in), .data_out(data_out));
-
-  always #5 clk = ~clk;              // 10ns 周期
-
-  initial begin
-    $dumpfile("wave_out.vcd");
-    $dumpvars(0, tb);
-    #20 rst_n = 1;
-    #40 data_in = 8'hA5;
-    #80 data_in = 8'h3F;
-    #200 $finish;
-  end
-endmodule</pre>`;
-}
+/* ── 5. 假数据面板（控制台 / 源文件 / 端口；真机没有这三块）──────────── */
 function panelConsole() {
-  return `<div class="mk-console"><span class="c-cmd">$ iverilog -g2012 -s tb -o sim.vvp fifo_ctrl.v tb_fifo.v</span>
+  return `<div class="mk-mockrow">原型假数据 <em>（真机没有这块面板）</em></div>
+<div class="mk-console"><span class="c-cmd">$ iverilog -g2012 -s tb -o sim.vvp counter.sv tb_counter.sv</span>
 <span class="c-dim">  本地仿真服务 127.0.0.1:17817 · 引擎 ivl 12.0</span>
 <span class="c-ok">[编译] 成功（0 error / 0 warning）→ sim.vvp</span>
 <span class="c-cmd">$ vvp sim.vvp</span>
-<span class="c-warn">[警告] fifo_ctrl.v:23: 位宽隐式扩展 (8 → 12)</span>
-<span class="c-ok">[仿真] 完成 @ 200ns · VCD 2.1 KB / 7 条信号</span>
-<span class="c-dim">[回传] wave_out.vcd 已解析 → 波形窗口 7 条信号</span>
+<span class="c-warn">[警告] counter.sv:23: 位宽隐式扩展 (8 → 12)</span>
+<span class="c-ok">[仿真] 完成 @ 200ns · VCD 2.1 KB / 4 条信号</span>
+<span class="c-dim">[回传] wave_out.vcd 已解析 → 波形窗口 4 条信号</span>
 <span class="c-dim">就绪。</span></div>`;
 }
 function panelFiles() {
   const f = (n, a) => `<span class="mk-file${a ? ' active' : ''}">${n}<span class="x">✕</span></span>`;
-  return `<div class="mk-toolrow">
-      <div class="mk-tbg"><button>添加文件</button><button>导入源码…</button><button>移除文件</button></div>
-      <div class="mk-tbg" data-ovp="1"><button>解析 RTL</button><button>自动加信号</button><button>生成 TB</button></div>
-      <div class="mk-tbg mk-ovf">
-        <button type="button" class="tool-btn mk-ovf-btn" title="更多（本带放不下的整组控件收在这里）">⋯</button>
-        <div class="mk-ovf-menu"></div>
-      </div>
-    </div>
-    <div class="mk-filelist">${f('fifo_ctrl.v', 1)}${f('fifo_core.v')}${f('tb_fifo.v')}</div>
+  return `<div class="mk-mockrow">原型假数据 <em>（真机没有这块面板，真机是源码卡片里的文件页签）</em></div>
+    <div class="mk-filelist">${f('counter.sv', 1)}${f('tb_counter.sv')}</div>
     <div class="mk-table"><table>
-      <tr><th>顶层候选</th><th>未被例化</th></tr>
-      <tr><td>fifo_ctrl</td><td>✔</td></tr>
-      <tr><td>fifo_core</td><td>—</td></tr>
+      <tr><th>模块</th><th>顶层候选</th></tr>
+      <tr><td>counter</td><td>✔</td></tr>
+      <tr><td>tb</td><td>—</td></tr>
     </table></div>`;
 }
 function panelProps() {
   const d = (k) => `<span class="mk-dir ${k}">${k === 'in' ? 'input' : k === 'out' ? 'output' : 'inout'}</span>`;
-  return `<div class="mk-toolrow">
-      <div class="mk-tbg"><button>全部加入波形</button></div>
-      <div class="mk-tbg mk-ovf">
-        <button type="button" class="tool-btn mk-ovf-btn" title="更多（本带放不下的整组控件收在这里）">⋯</button>
-        <div class="mk-ovf-menu"></div>
-      </div>
-    </div>
+  return `<div class="mk-mockrow">原型假数据 <em>（真机把端口预览放在源码卡片底部）</em></div>
     <div class="mk-table"><table>
       <tr><th>端口</th><th>方向</th><th>位宽</th><th>类型</th></tr>
       <tr><td>clk</td><td>${d('in')}</td><td>1</td><td>wire</td></tr>
       <tr><td>rst_n</td><td>${d('in')}</td><td>1</td><td>wire</td></tr>
-      <tr><td>data_in</td><td>${d('in')}</td><td>[7:0]</td><td>wire</td></tr>
-      <tr><td>data_out</td><td>${d('out')}</td><td>[7:0]</td><td>reg</td></tr>
-      <tr><td colspan="4" style="color:var(--text-muted)">参数：WIDTH=8（默认）· DEPTH=16</td></tr>
+      <tr><td>en</td><td>${d('in')}</td><td>1</td><td>wire</td></tr>
+      <tr><td>q</td><td>${d('out')}</td><td>[7:0]</td><td>reg</td></tr>
+      <tr><td colspan="4" style="color:var(--text-muted)">参数：WIDTH=8（默认）· N=4</td></tr>
     </table></div>`;
 }
-const RENDER = { wave: panelWave, source: panelSource, rtl: panelRtl, vcd: panelVcd,
-  tb: panelTb, console: panelConsole, files: panelFiles, props: panelProps };
+const MOCK_RENDER = {
+  console: () => panelConsole(),
+  files: () => panelFiles(),
+  props: () => panelProps(),
+};
 
-/* ── 5. 渲染 ────────────────────────────────────────────────────────── */
+/* ── 6. 渲染（把真机节点搬进面板 / 其余摘到暂存区）────────────────── */
 const wb = document.getElementById('workbench');
 const floatsLayer = document.getElementById('mk-floats');
 const dropEl = document.getElementById('mk-drop');
 const caretEl = document.getElementById('mk-caret');
+const parkEl = document.getElementById('mk-park');
 let focusedTabsId = null;
 
+function parkHost(pid) {
+  const el = HOST_EL[pid];
+  if (el && el.parentNode !== parkEl) parkEl.appendChild(el);
+}
+// 面板内容：真机节点直接搬（不是克隆），假数据面板才自己产 HTML。
+function buildPanelBody(pid) {
+  const body = document.createElement('div');
+  body.className = 'mk-panel';
+  if (HOST_ID[pid]) {
+    body.classList.add('mk-host');
+    if (HOST_EL[pid]) body.appendChild(HOST_EL[pid]);
+  } else {
+    body.classList.add('mk-mock');
+    if (MOCK_RENDER[pid]) body.innerHTML = MOCK_RENDER[pid]();
+  }
+  return body;
+}
+
 function render() {
+  // 1) 先把所有真机节点收回暂存区：这样旧树被删时不会把节点一起带走
+  HOST_PANELS.forEach(parkHost);
+  // 2) 重建停靠树（buildPanelBody 会把用到的节点从暂存区里再摘出来）
   wb.querySelectorAll(':scope > .mk-split').forEach((el) => el.remove());
-  wb.insertBefore(buildNode(root), floatsLayer);
+  if (root) wb.insertBefore(buildNode(root), floatsLayer);
   renderFloats();
+  // 3) 画布只认 #wave-view 的尺寸，而真机 clean.js 没有 resize 监听
+  //    （全靠 js/editor/measure.js:187 的 window resize → scheduleDraw）→
+  //    每次重排后必须手动派发一次，等 flex 收敛再补一发。
+  afterLayout();
   updateStatus();
-  setupBands();
+}
+let rafId = 0;
+function afterLayout() {
+  cancelAnimationFrame(rafId);
+  rafId = requestAnimationFrame(() => {
+    window.dispatchEvent(new Event('resize'));
+    window.setTimeout(() => window.dispatchEvent(new Event('resize')), 60);
+  });
 }
 function buildNode(node) {
   if (node.kind === 'tabs') return buildGroup(node);
   const el = document.createElement('div');
   el.className = 'mk-split ' + node.dir;
+  el.dataset.splitId = node.id;
   node.children.forEach((child, i) => {
     if (i > 0) {
       const h = document.createElement('div');
@@ -517,7 +418,10 @@ function buildGroup(node) {
   const mk = (label, title, fn) => {
     const b = document.createElement('button');
     b.type = 'button'; b.textContent = label; b.title = title;
+    // pointerdown 与 pointermove 都要拦住：历史 bug —— 拖拽时指针划过别的面板的
+    // ⧉▣✕ 会把它们「点亮」，看起来像按钮在乱闪。CSS 侧另有 body.mk-dragging 兜底。
     b.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+    b.addEventListener('pointermove', (ev) => ev.stopPropagation());
     b.addEventListener('click', (ev) => { ev.stopPropagation(); fn(); });
     return b;
   };
@@ -527,186 +431,177 @@ function buildGroup(node) {
   btns.appendChild(mk('✕', '关闭当前面板', () => act && hidePanel(act)));
   bar.appendChild(btns);
   el.appendChild(bar);
-
-  const body = document.createElement('div');
-  body.className = 'mk-panel';
-  const pid = node.active || node.panels[0];
-  if (pid) body.innerHTML = RENDER[pid]();
-  el.appendChild(body);
-  if (pid === 'wave') afterWave(body);
+  el.appendChild(buildPanelBody(node.active || node.panels[0]));
   return el;
 }
 
-/* 波形面板内的三个小交互：游标拖动 + 信号名列宽 + 时间轴随横滚同步 */
-function afterWave(scope) {
-  const cursor = scope.querySelector('#mk-cursor');
-  const tracks = scope.querySelector('#mk-tracks');
-  if (cursor && tracks) {
-    cursor.addEventListener('pointerdown', (ev) => {
-      ev.preventDefault();
-      cursor.setPointerCapture(ev.pointerId);
-      const move = (e) => {
-        // 以滚动视口 tracks 的左上为基准，再补上自身 scrollLeft（视觉位置 = t - scrollLeft）
-        const r = tracks.getBoundingClientRect();
-        const t = Math.max(0, Math.min(WAVE_W, e.clientX - r.left + tracks.scrollLeft));
-        cursor.style.left = t + 'px';
-        cursor.dataset.t = Math.round(t) + 'ns';
-      };
-      const up = () => { cursor.removeEventListener('pointermove', move); cursor.removeEventListener('pointerup', up); };
-      cursor.addEventListener('pointermove', move);
-      cursor.addEventListener('pointerup', up);
-    });
-  }
-  const axisScroll = scope.querySelector('.mk-taxis-scroll');
-  if (tracks && axisScroll) {
-    const sync = () => { axisScroll.scrollLeft = tracks.scrollLeft; };
-    tracks.addEventListener('scroll', sync);
-    sync();
-  }
-  const splitEl = scope.querySelector('#mk-name-split');
-  const nameCol = scope.querySelector('#mk-name-col');
-  const waveEl = scope.querySelector('.mk-wave');
-  if (splitEl && nameCol && waveEl) {
-    splitEl.addEventListener('pointerdown', (ev) => {
-      ev.preventDefault();
-      const startX = ev.clientX, startW = nameCol.getBoundingClientRect().width;
-      const move = (e) => {
-        const w = Math.max(120, Math.min(460, startW + (e.clientX - startX)));
-        waveEl.style.setProperty('--mk-name-w', w + 'px');
-      };
-      const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
-      window.addEventListener('pointermove', move);
-      window.addEventListener('pointerup', up);
-    });
-  }
-  scope.querySelectorAll('.mk-track-row[data-row]').forEach((row) => {
-    row.addEventListener('click', () => {
-      scope.querySelectorAll('.mk-track-row.sel').forEach((r) => r.classList.remove('sel'));
-      row.classList.add('sel');
-    });
-  });
-}
+/* 工具带溢出收集：真机 #toolbar 现在被逐字照搬（自带 flex-wrap:nowrap 与它自己的
+   溢出行为），原型不再改它的 DOM。保留本函数只为不破坏 __mock.setupBands 契约。 */
+function setupBands() { /* 真机工具带原样保留，不做任何收拢 */ }
 
-/* ── 5.5 控件层（第二十四轮 U0：分层 / 刻度 / 溢出收集 / 假交互）──────────
-   规范见 memory/08-ROADMAP.md §7（R1~R9）：
-   · R5 组内 4px、组间 12px —— 全部由父容器 gap 给，组件不带 margin；
-   · R6 带子 flex-wrap:nowrap，放不下的「整组」按 data-ovp 优先级收进本带 ⋯；
-   · R2/R3 全应用唯一主按钮 = L1 的 #sim-run；
-   · R9 长文本只进状态栏 / 面板头，不进工具带。
-   本函数在每次 render() 与 resize 后重跑（幂等：先按出厂顺序还原，再测量）。 */
-function setupBands() {
-  document.querySelectorAll('#toolbar, .mk-toolrow').forEach((band) => {
-    if (!band.__order) band.__order = Array.from(band.children);
-    const order = band.__order;
-    const ovf = order.find((el) => el.classList && el.classList.contains('mk-ovf'));
-    if (!ovf) return;
-    // 1) 还原出厂顺序（把上次收进菜单的组放回带里），才能量到真实宽度
-    order.forEach((el) => band.appendChild(el));
-    ovf.style.display = '';                                   // 先显示 ⋯ 才能量到它的宽度
-    const groups = order.filter((el) => el.classList && el.classList.contains('mk-tbg') && el !== ovf);
-    const menu = ovf.querySelector('.mk-ovf-menu');
-    const GAP = 12;                                          // = --ui-gap-out
-    const cs = getComputedStyle(band);
-    const avail = band.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-    const ovfW = ovf.querySelector('.mk-ovf-btn').offsetWidth + GAP;
-    const widthOf = (list) => list.reduce((s, g) => s + g.offsetWidth, 0) + GAP * Math.max(0, list.length - 1);
-
-    let kept = groups.slice();
-    const moved = [];
-    if (widthOf(kept) > avail) {
-      const cand = groups.filter((g) => g.dataset.ovp).sort((a, b) => Number(a.dataset.ovp) - Number(b.dataset.ovp));
-      for (const g of cand) {
-        if (widthOf(kept) <= avail - ovfW) break;
-        kept = kept.filter((x) => x !== g);
-        moved.push(g);
-      }
-      // 若把全部候选都收走仍放不下（极端窄窗口），保持现状不硬塞
-      if (widthOf(kept) > avail - ovfW) { kept = groups.slice(); moved.length = 0; }
-    }
-    ovf.style.display = moved.length ? '' : 'none';
-    menu.innerHTML = '';
-    moved.sort((a, b) => order.indexOf(a) - order.indexOf(b)).forEach((g) => menu.appendChild(g));
-  });
-}
-
-/* 下拉（位状态 / 添加信号 / ⋯）：点外面/再点一次自动收起 */
-function setupFlyouts() {
-  document.addEventListener('click', (ev) => {
-    const host = ev.target.closest('.mk-dd, .mk-ovf');
-    document.querySelectorAll('.mk-dd.open, .mk-ovf.open').forEach((d) => { if (d !== host) d.classList.remove('open'); });
-    if (host && host.querySelector('.mk-dd-menu, .mk-ovf-menu').children.length) host.classList.toggle('open');
-  });
-  document.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Escape') document.querySelectorAll('.mk-dd.open, .mk-ovf.open').forEach((d) => d.classList.remove('open'));
-  });
-}
-
-/* 分段控件（整步·子步 / Dec·Hex·Bin）与步进器 ±1：点了有反馈 */
-function setupCtlFeedback() {
-  document.addEventListener('click', (ev) => {
-    const segBtn = ev.target.closest('.mk-seg button');
-    if (segBtn) {
-      const seg = segBtn.closest('.mk-seg');
-      seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === segBtn));
-      return;
-    }
-    const arrow = ev.target.closest('.mk-stepper button');
-    if (arrow) {
-      const inp = arrow.closest('.mk-step-input').querySelector('input');
-      const dir = arrow.textContent.trim() === '▲' ? 1 : -1;
-      inp.value = String(Math.max(0, (parseInt(inp.value, 10) || 0) + dir));
-    }
-  });
-}
-setupFlyouts();
-setupCtlFeedback();
-
-/* ── 6. 分隔条拖拽 ──────────────────────────────────────────────────── */
+/* ── 7. 分隔条拖拽 ──────────────────────────────────────────────────── */
 function startSplitDrag(ev, node, idx, splitEl) {
   ev.preventDefault();
   const handle = ev.currentTarget;
-  const slots = Array.from(splitEl.children).filter((el) => el.classList.contains('mk-slot'));
+  const slotsOf = (el) => Array.from(el.children).filter((c) => c.classList.contains('mk-slot'));
+  // ★ 不缓存 DOM：拖动期间任何一次 render() 都会重建整棵树，缓存的 slot/handle
+  //   会变成游离节点（写样式无效 → 视觉上「拖动中」与「松手后」不一致）。
+  //   每个 move 都按 node.id 重新查活节点，node.sizes 始终是唯一数据源。
+  const liveSplit = () => document.querySelector('.mk-split[data-split-id="' + node.id + '"]') || splitEl;
+  const slots = slotsOf(splitEl);
   const a = slots[idx], b = slots[idx + 1];
   if (!a || !b) return;
   const horizontal = node.dir === 'row';
   const startPos = horizontal ? ev.clientX : ev.clientY;
   const sizeA = horizontal ? a.offsetWidth : a.offsetHeight;
   const sizeB = horizontal ? b.offsetWidth : b.offsetHeight;
-  const total = sizeA + sizeB;
-  const MIN = 120;
-  handle.classList.add('active');
-  handle.setPointerCapture(ev.pointerId);
+  // ★ 关键：只动「这一对」的归一化份额（pairNorm 恒定），绝不重写其它 slot 的 flex。
+  //   旧版有三处错：① 用 a+b(px) 当总量、② 只重写被拖的两个 slot 的 flex（其余子项
+  //   的 grow 仍是 0.26 这种小数份额，会被 546 / 1108 这种大数直接挤成 0）、
+  //   ③ 把「绝对像素目标」又乘了一遍 share（尺寸被缩成 0.74×）。
+  //   现在：像素 → 归一化 的换算严格用本对自身的 (pairPx ↔ pairNorm) 比例，
+  //   而 render() 里所有 slot 共用同一个 px/norm 因子，所以
+  //   拖动中的实时宽度 == 松手后 render() 的宽度（逐像素相等），分界线严格跟随指针，
+  //   且相邻的第三个面板不受任何影响。
+  const pairPx = sizeA + sizeB || 1;
+  const pairNorm = node.sizes[idx] + node.sizes[idx + 1] || 1;
+  const scale = pairNorm / pairPx;              // 归一化份额 / 像素
+  const MIN = Math.min(120, pairPx / 2);
+  const savedSizes = node.sizes.slice();
+  const apply = (na) => {
+    node.sizes[idx] = na * scale;
+    node.sizes[idx + 1] = (pairPx - na) * scale;
+    slotsOf(liveSplit()).forEach((el, i) => { el.style.flex = node.sizes[i] + ' 1 0'; });
+  };
+  const liveHandle = () => liveSplit().querySelector('.mk-handle[data-split-idx="' + idx + '"]') || handle;
+  liveHandle().classList.add('active');
   const move = (e) => {
     const cur = horizontal ? e.clientX : e.clientY;
-    let na = sizeA + (cur - startPos);
-    na = Math.max(MIN, Math.min(total - MIN, na));
-    a.style.flex = na + ' 0 0'; a.style.flexBasis = na + 'px';
-    b.style.flex = (total - na) + ' 0 0'; b.style.flexBasis = (total - na) + 'px';
-    a.dataset.px = String(na); b.dataset.px = String(total - na);
+    const na = Math.max(MIN, Math.min(pairPx - MIN, sizeA + (cur - startPos)));
+    apply(na);
   };
   const up = () => {
-    handle.classList.remove('active');
-    handle.removeEventListener('pointermove', move);
-    handle.removeEventListener('pointerup', up);
-    const na = Number(a.dataset.px || sizeA), nb = Number(b.dataset.px || sizeB);
-    const sum = na + nb || 1;
-    // 把「本对」的比例换算回整棵树的归一化 sizes
-    const share = node.sizes[idx] + node.sizes[idx + 1];
-    node.sizes[idx] = share * (na / sum);
-    node.sizes[idx + 1] = share * (nb / sum);
-    delete a.dataset.px; delete b.dataset.px;
+    liveHandle().classList.remove('active');
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    window.removeEventListener('pointercancel', cancel);
+    // node.sizes 在拖动过程中就已经是「最终值」，render() 只是把同一份数据重建成
+    // 同样的 DOM / 同样的 flex —— 因此松手前后不产生任何跳变。
     render(); persist();
   };
-  handle.addEventListener('pointermove', move);
-  handle.addEventListener('pointerup', up);
+  const cancel = () => {
+    liveHandle().classList.remove('active');
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    window.removeEventListener('pointercancel', cancel);
+    node.sizes = savedSizes;
+    render();
+  };
+  // 监听挂在 window 上：手柄被 render() 换掉也不会中断拖动
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+  window.addEventListener('pointercancel', cancel);
 }
 
-/* ── 7. 面板拖拽停靠（DnD）──────────────────────────────────────────── */
+/* ── 8. 面板拖拽停靠（预览 == 落位：唯一数据源 computeDrop）────────── */
 let drag = null;
+
+// 候选操作：只看指针落在哪，不算任何几何
+function hitTestOp(x, y, panelId) {
+  if (!root) return null;
+  const c = workbenchContentRect();
+  const M = metrics();
+  if (x < c.x - M.gap || x > c.x + c.w + M.gap || y < c.y - M.gap || y > c.y + c.h + M.gap) return null;
+
+  const groups = Array.from(wb.querySelectorAll('.mk-group'));
+  const hit = groups.find((g) => {
+    const r = g.getBoundingClientRect();
+    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+  });
+
+  // a) 工作区最外缘环带 → 新建一整行 / 一整列（优先于组内带，否则最外侧的组
+  //    永远只剩「组内切分」，做不出整行/整列）
+  const dEdge = Math.min(x - c.x, c.x + c.w - x, y - c.y, c.y + c.h - y);
+  if (dEdge <= DROP.outer) {
+    const dl = x - c.x, dr = c.x + c.w - x, dt = y - c.y, db = c.y + c.h - y;
+    const m = Math.min(dl, dr, dt, db);
+    const side = m === dl ? 'left' : m === dr ? 'right' : m === dt ? 'top' : 'bottom';
+    return { type: 'edge', side, panelId };
+  }
+
+  if (!hit) return null;
+  const node = findTabs(root, hit.dataset.tabsId);
+  if (!node) return null;
+  const r = hit.getBoundingClientRect();
+  const barR = hit.querySelector('.mk-tabbar').getBoundingClientRect();
+
+  // b) 页签条 → 并入该组（含组内重排）
+  if (y <= barR.bottom + DROP.tabBand) {
+    return { type: 'tab', tabsId: node.id, index: tabInsertIndex(node, hit, x, panelId), panelId };
+  }
+  const only = node.panels.length === 1 && node.panels[0] === panelId;
+  // c) 组内边缘 → 在该侧切分
+  const band = Math.max(DROP.groupMin, Math.min(DROP.groupMax, Math.min(r.width, r.height) * DROP.groupRatio));
+  const dl = x - r.left, dr = r.right - x, dt = y - r.top, db = r.bottom - y;
+  const m = Math.min(dl, dr, dt, db);
+  if (m <= band && !only) {
+    const side = m === dl ? 'left' : m === dr ? 'right' : m === dt ? 'top' : 'bottom';
+    return { type: 'split', tabsId: node.id, side, panelId };
+  }
+  // d) 组内部 → 追加为该组最后一个页签（拖回自己所在的独苗组 = 无操作）
+  if (only) return null;
+  return { type: 'tab', tabsId: node.id, index: node.panels.length, panelId };
+}
+// 页签插入位序号：按「摘掉被拖面板之后」的数组来数，这样预览与落位不会差一位
+function tabInsertIndex(node, groupEl, x, panelId) {
+  const els = Array.from(groupEl.querySelectorAll('.mk-tab'));
+  let idx = 0;
+  for (const el of els) {
+    const r = el.getBoundingClientRect();
+    if (x < r.left + r.width / 2) break;
+    if (el.dataset.panel !== panelId) idx++;
+  }
+  return idx;
+}
+// 在布局树副本上真跑一遍操作，得到"松手后"的树
+function simulateDrop(panelId, op) {
+  const saved = root;
+  root = cloneTree(saved);
+  let next = null;
+  try {
+    removePanel(panelId);
+    if (root && applyOp(op, panelId)) next = root;
+  } catch (e) {
+    next = null;
+  }
+  root = saved;
+  return next;
+}
+// ★ 唯一数据源：{op: 候选操作, rect: 松手后该面板的真实矩形(client 坐标)}
+function computeDrop(x, y, panelId) {
+  const op = hitTestOp(x, y, panelId);
+  if (!op) return null;
+  const tree = simulateDrop(panelId, op);
+  if (!tree) return null;
+  const node = findTabsOfPanel(tree, panelId);
+  if (!node) return null;
+  const rect = layoutRects(tree, workbenchContentRect(), {})[node.id];
+  if (!rect || rect.w < 1 || rect.h < 1) return null;
+  return { op, tree, rect };
+}
+// 只执行操作（与 computeDrop 同一条代码路径，因此结果必然一致）
+function placePanel(panelId, target) {
+  if (!target) return false;
+  const tree = target.tree || simulateDrop(panelId, target.op || target);
+  if (!tree) return false;
+  root = tree;
+  return true;
+}
+
 function startPanelDrag(ev, panelId, fromTabsId) {
   if (ev.button !== 0) return;
   ev.preventDefault();
-  drag = { panelId, fromTabsId, x: ev.clientX, y: ev.clientY, moved: false, target: null };
+  drag = { panelId, fromTabsId, x: ev.clientX, y: ev.clientY, moved: false, drop: null };
   document.addEventListener('pointermove', onDragMove);
   document.addEventListener('pointerup', onDragEnd);
 }
@@ -715,6 +610,8 @@ function onDragMove(ev) {
   drag.x = ev.clientX; drag.y = ev.clientY;
   if (!drag.moved) {
     drag.moved = true;
+    // 拖拽期间靠这个类强制隐藏所有悬停显隐（⧉▣✕ / 页签 ✕ / 页签高亮）
+    document.body.classList.add('mk-dragging');
     const g = document.createElement('div');
     g.className = 'mk-drag-ghost';
     g.textContent = '⠿ ' + PANELS[drag.panelId].title;
@@ -723,111 +620,71 @@ function onDragMove(ev) {
   }
   drag.ghost.style.left = (ev.clientX + 12) + 'px';
   drag.ghost.style.top = (ev.clientY + 12) + 'px';
-  drag.target = hitTest(ev.clientX, ev.clientY, drag.panelId);
-  showIndicator(drag.target);
+  drag.drop = computeDrop(ev.clientX, ev.clientY, drag.panelId);
+  showIndicator(drag.drop);
 }
-function onDragEnd() {
+function endPanelDrag(commit) {
   if (!drag) return;
   document.removeEventListener('pointermove', onDragMove);
   document.removeEventListener('pointerup', onDragEnd);
+  document.body.classList.remove('mk-dragging');
   if (drag.ghost) drag.ghost.remove();
   hideIndicator();
-  if (drag.moved && drag.target) {
-    placePanel(drag.panelId, drag.target);
-    if (floats[drag.panelId]) delete floats[drag.panelId];
+  const moved = drag.moved;
+  const panelId = drag.panelId;
+  const drop = drag.drop;
+  drag = null;
+  if (!moved) return;
+  if (commit && drop) {
+    placePanel(panelId, drop);
+    if (floats[panelId]) delete floats[panelId];
     render(); persist();
   }
-  drag = null;
 }
-function hitTest(x, y, panelId) {
-  const wbR = wb.getBoundingClientRect();
-  if (x < wbR.left || x > wbR.right || y < wbR.top || y > wbR.bottom) return null;
-  const EDGE = 22;
-  const groups = Array.from(wb.querySelectorAll('.mk-group'));
-  // 外缘环带（新建区）优先——但仅当没有命中「更贴边」的组内带时
-  const inner = groups.find((g) => {
-    const r = g.getBoundingClientRect();
-    return x > r.left + EDGE && x < r.right - EDGE && y > r.top && y < r.bottom;
-  });
-  if (!inner) {
-    if (x < wbR.left + EDGE) return { type: 'edge', side: 'left' };
-    if (x > wbR.right - EDGE) return { type: 'edge', side: 'right' };
-    if (y > wbR.bottom - EDGE) return { type: 'edge', side: 'bottom' };
-    if (y < wbR.top + EDGE) return { type: 'edge', side: 'top' };
-  }
-  for (const g of groups) {
-    const r = g.getBoundingClientRect();
-    if (x < r.left || x > r.right || y < r.top || y > r.bottom) continue;
-    const node = findTabs(root, g.dataset.tabsId);
-    if (!node) continue;
-    const barR = g.querySelector('.mk-tabbar').getBoundingClientRect();
-    if (y <= barR.bottom + 3) {
-      return { type: 'tab', tabsId: node.id, index: tabInsertIndex(node, g, x), rect: barR };
-    }
-    const band = Math.max(24, Math.min(120, Math.min(r.width, r.height) * 0.26));
-    const d = { left: x - r.left, right: r.right - x, top: y - r.top, bottom: r.bottom - y };
-    const min = Math.min(d.left, d.right, d.top, d.bottom);
-    if (min <= band) {
-      const side = min === d.left ? 'left' : min === d.right ? 'right' : min === d.top ? 'top' : 'bottom';
-      return { type: 'split', tabsId: node.id, side, rect: r, band };
-    }
-    if (node.panels.length === 1 && node.panels[0] === panelId) continue;
-    return { type: 'tab', tabsId: node.id, index: node.panels.length, rect: barR };
-  }
-  return null;
-}
-function tabInsertIndex(node, groupEl, x) {
-  const tabsEls = Array.from(groupEl.querySelectorAll('.mk-tab'));
-  for (let i = 0; i < tabsEls.length; i++) {
-    const r = tabsEls[i].getBoundingClientRect();
-    if (x < r.left + r.width / 2) return i;
-  }
-  return node.panels.length;
-}
-function showIndicator(t) {
+function onDragEnd() { endPanelDrag(true); }
+
+/* 落点提示：只消费 computeDrop().rect，绝不自己算几何 */
+function clearDropMarks() {
   document.querySelectorAll('.mk-group.drop-tab').forEach((el) => el.classList.remove('drop-tab'));
-  if (!t) { dropEl.style.display = 'none'; caretEl.style.display = 'none'; return; }
-  const wbR = wb.getBoundingClientRect();
-  if (t.type === 'tab') {
-    caretEl.style.display = 'block';
-    const bar = t.rect;
-    const owner = document.querySelector('.mk-group[data-tabs-id="' + t.tabsId + '"]');
-    if (owner) owner.classList.add('drop-tab');
-    caretEl.style.left = (bar.left - wbR.left + 2) + 'px';
-    caretEl.style.top = (bar.top - wbR.top) + 'px';
-    caretEl.style.height = bar.height + 'px';
-    dropEl.style.display = 'none';
-    return;
-  }
-  caretEl.style.display = 'none';
-  let r;
-  if (t.type === 'edge') {
-    const R = { left: [wbR.left + 2, wbR.top + 2, 90, wbR.height - 4],
-      right: [wbR.right - 92, wbR.top + 2, 90, wbR.height - 4],
-      top: [wbR.left + 2, wbR.top + 2, wbR.width - 4, 90],
-      bottom: [wbR.left + 2, wbR.bottom - 92, wbR.width - 4, 90] }[t.side];
-    r = R;
-  } else {
-    const b = t.rect, band = t.band;
-    r = t.side === 'left' ? [b.left, b.top, band, b.height]
-      : t.side === 'right' ? [b.right - band, b.top, band, b.height]
-        : t.side === 'top' ? [b.left, b.top, b.width, band]
-          : [b.left, b.bottom - band, b.width, band];
-  }
-  dropEl.style.display = 'block';
-  dropEl.style.left = (r[0] - wbR.left) + 'px';
-  dropEl.style.top = (r[1] - wbR.top) + 'px';
-  dropEl.style.width = r[2] + 'px';
-  dropEl.style.height = r[3] + 'px';
 }
 function hideIndicator() {
   dropEl.style.display = 'none';
   caretEl.style.display = 'none';
-  document.querySelectorAll('.mk-group.drop-tab').forEach((el) => el.classList.remove('drop-tab'));
+  clearDropMarks();
+}
+function showIndicator(d) {
+  clearDropMarks();
+  if (!d) { hideIndicator(); return; }
+  const wbR = wb.getBoundingClientRect();
+  const r = d.rect;
+  dropEl.className = d.op.type === 'tab' ? 'tab' : '';
+  dropEl.style.display = 'block';
+  dropEl.style.left = (r.x - wbR.left) + 'px';
+  dropEl.style.top = (r.y - wbR.top) + 'px';
+  dropEl.style.width = r.w + 'px';
+  dropEl.style.height = r.h + 'px';
+  if (d.op.type !== 'tab') { caretEl.style.display = 'none'; return; }
+  const owner = document.querySelector('.mk-group[data-tabs-id="' + d.op.tabsId + '"]');
+  if (owner) owner.classList.add('drop-tab');
+  const bar = owner && owner.querySelector('.mk-tabbar');
+  if (!bar) { caretEl.style.display = 'none'; return; }
+  const barR = bar.getBoundingClientRect();
+  const rest = Array.from(owner.querySelectorAll('.mk-tab')).filter((el) => el.dataset.panel !== d.op.panelId);
+  let cx = barR.left + 2;
+  if (rest.length) {
+    cx = d.op.index >= rest.length
+      ? rest[rest.length - 1].getBoundingClientRect().right + 1
+      : rest[d.op.index].getBoundingClientRect().left;
+  }
+  caretEl.style.display = 'block';
+  caretEl.style.left = (cx - wbR.left) + 'px';
+  caretEl.style.top = (barR.top - wbR.top + 2) + 'px';
+  caretEl.style.height = (barR.height - 4) + 'px';
 }
 
-/* ── 8. 浮出 / 收回 ─────────────────────────────────────────────────── */
+/* ── 9. 浮出 / 收回 ─────────────────────────────────────────────────── */
 let cascade = 0;
+let draggingFloatId = null;
 function floatPanel(id, opts) {
   opts = opts || {};
   if (!PANELS[id]) return;
@@ -843,11 +700,14 @@ function floatPanel(id, opts) {
   focusedTabsId = null;
   render(); persist();
 }
-function dockPanel(id, target) {
+function dockPanel(id, drop) {
   delete floats[id];
-  const fallback = lastDock[id];
-  if (!placePanel(id, target) && !(fallback && insertTab(fallback.tabsId, id, fallback.index))) {
-    insertTab(allTabsIds()[0], id, null);
+  if (!placePanel(id, drop)) {
+    const fallback = lastDock[id];
+    if (!(fallback && insertTab(fallback.tabsId, id, fallback.index))) {
+      if (!root) root = tabs([id], id);
+      else if (!insertTab(allTabsIds()[0], id, null)) root = tabs([id], id);
+    }
   }
   render(); persist();
 }
@@ -856,7 +716,8 @@ function renderFloats() {
   Object.keys(floats).forEach((id) => {
     const f = floats[id];
     const el = document.createElement('div');
-    el.className = 'mk-float' + (f.max ? ' max' : '');
+    // draggingFloatId 是模块级状态：拖动中即使浮窗被重建，也保持「拖动中」外观
+    el.className = 'mk-float' + (f.max ? ' max' : '') + (draggingFloatId === id ? ' dragging' : '');
     el.dataset.float = id;
     el.style.left = f.x + 'px'; el.style.top = f.y + 'px';
     el.style.width = f.w + 'px'; el.style.height = f.h + 'px';
@@ -867,6 +728,7 @@ function renderFloats() {
       const b = document.createElement('button');
       b.type = 'button'; b.textContent = label; b.title = title;
       b.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+      b.addEventListener('pointermove', (ev) => ev.stopPropagation());
       b.addEventListener('click', (ev) => { ev.stopPropagation(); fn(); });
       return b;
     };
@@ -874,11 +736,7 @@ function renderFloats() {
     head.appendChild(mkBtn('▣', '最大化 / 还原', () => { f.max = !f.max; render(); persist(); }));
     head.appendChild(mkBtn('✕', '关闭面板', () => hidePanel(id)));
     el.appendChild(head);
-    const body = document.createElement('div');
-    body.className = 'mk-float-body';
-    body.innerHTML = RENDER[id]();
-    el.appendChild(body);
-    if (id === 'wave') afterWave(body);
+    el.appendChild(buildPanelBody(id));
     const rz = document.createElement('div');
     rz.className = 'mk-float-resize';
     el.appendChild(rz);
@@ -892,36 +750,66 @@ function startFloatDrag(ev, id, el) {
   ev.preventDefault();
   const f = floats[id];
   const sx = ev.clientX, sy = ev.clientY, ox = f.x, oy = f.y;
+  document.body.classList.add('mk-dragging');
+  draggingFloatId = id;
+  const live0 = floatsLayer.querySelector('.mk-float[data-float="' + id + '"]') || el;
+  live0.classList.add('dragging');
   const move = (e) => {
     const wbR = wb.getBoundingClientRect();
-    f.x = Math.max(0, Math.min(wbR.width - 60, ox + (e.clientX - sx)));
-    f.y = Math.max(0, Math.min(wbR.height - 30, oy + (e.clientY - sy)));
-    el.style.left = f.x + 'px'; el.style.top = f.y + 'px';
-    showIndicator(hitTest(e.clientX, e.clientY, id));
+    f.x = Math.max(0, Math.min(Math.max(0, wbR.width - 60), ox + (e.clientX - sx)));
+    f.y = Math.max(0, Math.min(Math.max(0, wbR.height - 30), oy + (e.clientY - sy)));
+    // ★ 不缓存 el：拖动期间任何一次 render()（例如 afterLayout 的 60ms resize →
+    //   renderFloats）都会把浮窗重建，旧引用变游离节点 → 位置写进空气里，
+    //   看起来就是「拖动预览」和「松手后落位」不一致。每次按 data-float 查活节点。
+    const node = floatsLayer.querySelector('.mk-float[data-float="' + id + '"]') || el;
+    node.style.left = f.x + 'px'; node.style.top = f.y + 'px';
+    showIndicator(computeDrop(e.clientX, e.clientY, id));
   };
   const up = (e) => {
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
+    window.removeEventListener('pointercancel', onCancel);
+    document.body.classList.remove('mk-dragging');
+    draggingFloatId = null;
     if (typeof e.clientX === 'number') move(e);
+    const drop = computeDrop(e.clientX, e.clientY, id);
     hideIndicator();
-    const t = hitTest(e.clientX, e.clientY, id);
-    if (t) dockPanel(id, t); else persist();
+    // 中途若被 render() 换过节点，也必须让「松手后」的 DOM 就是 f 的最终值
+    if (drop) dockPanel(id, drop); else { renderFloats(); persist(); }
+  };
+  const onCancel = () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    window.removeEventListener('pointercancel', onCancel);
+    document.body.classList.remove('mk-dragging');
+    draggingFloatId = null;
+    hideIndicator();
+    renderFloats(); persist();
   };
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', up);
+  window.addEventListener('pointercancel', onCancel);
 }
 function startFloatResize(ev, id, el) {
   ev.preventDefault(); ev.stopPropagation();
   const f = floats[id];
   const sx = ev.clientX, sy = ev.clientY, ow = f.w, oh = f.h;
+  const elOf = () => floatsLayer.querySelector('.mk-float[data-float="' + id + '"]') || el;
   const move = (e) => {
     f.w = Math.max(260, ow + (e.clientX - sx));
     f.h = Math.max(150, oh + (e.clientY - sy));
-    el.style.width = f.w + 'px'; el.style.height = f.h + 'px';
+    const node = elOf();
+    node.style.width = f.w + 'px'; node.style.height = f.h + 'px';
   };
-  const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); persist(); };
+  const up = () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    window.removeEventListener('pointercancel', up);
+    renderFloats(); persist();
+  };
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', up);
+  window.addEventListener('pointercancel', up);
 }
 function hidePanel(id) {
   removePanel(id);
@@ -940,39 +828,59 @@ function showPanel(id) {
   render(); persist();
 }
 
-/* ── 9. 菜单 / 预设 / 持久化 ───────────────────────────────────────── */
-const menus = document.getElementById('menus');
-function closeMenus() { menus.querySelectorAll('.mk-menu.open').forEach((m) => m.classList.remove('open')); }
-menus.addEventListener('click', (ev) => {
-  const head = ev.target.closest('.mk-menu');
-  if (!head) return;
-  const opened = head.classList.contains('open');
-  closeMenus();
-  if (!opened && ev.target === head) head.classList.add('open');
+/* ── 10. 状态栏（原型独有）/ 菜单 / 预设 / 持久化 ────────────────────── */
+// 真机 #sim-status / #sim-recover 搬进原型状态栏（真机脚本仍按 id 找得到它们）
+function mountStatusNodes() {
+  const bar = document.getElementById('status-bar');
+  const st = document.getElementById('sim-status');
+  const rc = document.getElementById('sim-recover');
+  const ctx = document.getElementById('st-ctx');
+  if (!bar || !ctx) return;
+  if (st) bar.insertBefore(st, ctx.nextSibling);
+  if (rc) bar.insertBefore(rc, (st || ctx).nextSibling);
+}
+
+function closeMenus() {
+  document.querySelectorAll('#status-bar .mk-menu.open').forEach((m) => m.classList.remove('open'));
+}
+document.addEventListener('click', (ev) => {
   const mi = ev.target.closest('.mk-mi');
-  if (!mi) return;
-  ev.stopPropagation();
-  closeMenus();
-  if (mi.dataset.preset) { applyPreset(mi.dataset.preset); return; }
-  if (mi.dataset.panelToggle) {
-    const id = mi.dataset.panelToggle;
-    if (visiblePanels().indexOf(id) >= 0) hidePanel(id); else showPanel(id);
+  const head = ev.target.closest('.mk-menu');
+  if (mi) {
+    closeMenus();
+    if (mi.dataset.preset) { applyPreset(mi.dataset.preset); return; }
+    if (mi.dataset.panelToggle) {
+      const id = mi.dataset.panelToggle;
+      if (visiblePanels().indexOf(id) >= 0) hidePanel(id); else showPanel(id);
+      return;
+    }
+    const act = mi.dataset.act;
+    if (act === 'reset') applyPreset('sim', true);
+    else if (act === 'save') { persist(true); flash('布局已保存到 localStorage'); }
+    else if (act === 'clear') { try { localStorage.removeItem(LS_KEY); } catch (e) { /* ignore */ } flash('已清除保存的布局'); }
+    else if (act === 'float-all') { visiblePanels().slice().forEach((p) => { if (!floats[p]) floatPanel(p); }); }
+    else if (act === 'dock-all') { Object.keys(floats).slice().forEach((p) => dockPanel(p, null)); }
+    else if (act === 'cascade') {
+      cascade = 0; let i = 0;
+      Object.keys(floats).forEach((p) => { floats[p].x = 80 + i * 28; floats[p].y = 50 + i * 28; i++; });
+      renderFloats(); persist();
+    } else if (act === 'help') document.getElementById('help-overlay').classList.remove('hidden');
     return;
   }
-  const act = mi.dataset.act;
-  if (act === 'reset') applyPreset('sim', true);
-  else if (act === 'save') { persist(true); flash('布局已保存到 localStorage'); }
-  else if (act === 'clear') { try { localStorage.removeItem(LS_KEY); } catch (e) { /* ignore */ } flash('已清除保存的布局'); }
-  else if (act === 'float-all') { visiblePanels().slice().forEach((p) => { if (!floats[p]) floatPanel(p); }); }
-  else if (act === 'dock-all') { Object.keys(floats).slice().forEach((p) => dockPanel(p, null)); }
-  else if (act === 'cascade') { cascade = 0; let i = 0; Object.keys(floats).forEach((p) => { floats[p].x = 80 + i * 28; floats[p].y = 50 + i * 28; i++; }); renderFloats(); persist(); }
-  else if (act === 'help') document.getElementById('help-overlay').classList.remove('hidden');
+  if (head) {
+    const opened = head.classList.contains('open');
+    closeMenus();
+    if (!opened) head.classList.add('open');
+    return;
+  }
+  closeMenus();
 });
 document.addEventListener('pointerdown', (ev) => {
-  if (!ev.target.closest('.mk-menu')) closeMenus();
+  if (!ev.target.closest('#status-bar .mk-menu')) closeMenus();
 });
 function buildPanelMenu() {
   const box = document.getElementById('panel-menu');
+  if (!box) return;
   const vis = visiblePanels();
   box.innerHTML = '';
   PANEL_ORDER.forEach((id) => {
@@ -985,16 +893,16 @@ function buildPanelMenu() {
     box.appendChild(el);
   });
   const sep = document.createElement('div'); sep.className = 'mk-sep'; box.appendChild(sep);
-  const addAll = document.createElement('div');
-  addAll.className = 'mk-mi'; addAll.dataset.act = 'float-all'; addAll.textContent = '全部浮出（演示）';
-  box.appendChild(addAll);
+  const all = document.createElement('div');
+  all.className = 'mk-mi'; all.dataset.act = 'dock-all'; all.textContent = '全部收回停靠';
+  box.appendChild(all);
 }
 function applyPreset(name, hard) {
   if (!PRESETS[name]) return;
   root = PRESETS[name]();
-  // hard = 重置语义：丢弃当前浮动 / 隐藏状态（下面已清空），并把预设写回存储
+  // hard = 重置语义：丢弃当前浮动 / 隐藏状态（下面已清空）
   floats = {}; hidden = [];
-  if (name === 'review') {
+  if (name === 'review' && !hard) {
     floats.tb = { x: 120, y: 90, w: 560, h: 300, max: false };
     floats.vcd = { x: 700, y: 150, w: 420, h: 340, max: false };
   }
@@ -1007,9 +915,7 @@ const LS_KEY = 'wavepaint.mock.layout.v1';
 let saveTimer = null;
 function persist(now) {
   const doIt = () => {
-    try {
-      localStorage.setItem(LS_KEY, JSON.stringify({ root, floats, hidden, preset }));
-    } catch (e) { /* 隐私模式等：忽略 */ }
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ root, floats, hidden, preset })); } catch (e) { /* 隐私模式等：忽略 */ }
   };
   if (now) { doIt(); return; }
   clearTimeout(saveTimer);
@@ -1028,24 +934,39 @@ function restore() {
 function updateStatus() {
   let zones = 0, docked = 0;
   eachTabs(root, (n) => { zones++; docked += n.panels.length; });
-  document.getElementById('st-layout').textContent =
-    '布局：' + (PRESET_NAME[preset] || '自定义') + '预设' + (hidden.length ? '（' + hidden.length + ' 个面板已隐藏）' : '');
+  const elLayout = document.getElementById('st-layout');
+  if (elLayout) {
+    elLayout.textContent = '布局：' + (PRESET_NAME[preset] || '自定义') + '预设' +
+      (hidden.length ? '（' + hidden.length + ' 个面板已隐藏）' : '');
+  }
   const vis = visiblePanels();
   const unplaced = PANEL_ORDER.filter((p) => vis.indexOf(p) < 0).length;
-  document.getElementById('st-panels').textContent =
-    PANEL_ORDER.length + ' 面板：' + docked + ' 停靠 / ' + zones + ' 区 / ' +
-    Object.keys(floats).length + ' 浮动' + (unplaced ? ' / ' + unplaced + ' 未显示' : '');
+  const elPanels = document.getElementById('st-panels');
+  if (elPanels) {
+    elPanels.textContent = PANEL_ORDER.length + ' 面板：' + docked + ' 停靠 / ' + zones + ' 区 / ' +
+      Object.keys(floats).length + ' 浮动' + (unplaced ? ' / ' + unplaced + ' 未显示' : '');
+  }
   buildPanelMenu();
 }
-function flash(msg) { document.getElementById('st-text').textContent = msg; setTimeout(() => { document.getElementById('st-text').textContent = '就绪（原型演示）'; }, 2200); }
+function flash(msg) {
+  const t = document.getElementById('st-text');
+  if (!t) return;
+  t.textContent = msg;
+  setTimeout(() => { t.textContent = '就绪（原型演示）'; }, 2200);
+}
+function visiblePanels() {
+  const out = [];
+  eachTabs(root, (n) => n.panels.forEach((p) => out.push(p)));
+  Object.keys(floats).forEach((p) => out.push(p));
+  return out;
+}
 
-/* ── 10. 键盘 / 初始化 ─────────────────────────────────────────────── */
+/* ── 11. 键盘 / 初始化 ─────────────────────────────────────────────── */
 document.addEventListener('keydown', (ev) => {
   if (ev.key === 'Escape') {
     closeMenus();
     document.getElementById('help-overlay').classList.add('hidden');
-    if (drag) { if (drag.ghost) drag.ghost.remove(); hideIndicator(); drag = null;
-      document.removeEventListener('pointermove', onDragMove); document.removeEventListener('pointerup', onDragEnd); }
+    if (drag) endPanelDrag(false);
   }
   if (ev.ctrlKey && ev.altKey) {
     if (ev.key === '1') { ev.preventDefault(); applyPreset('sim'); }
@@ -1059,13 +980,25 @@ document.getElementById('help-close').addEventListener('click', () => document.g
 document.getElementById('help-overlay').addEventListener('click', (ev) => {
   if (ev.target.id === 'help-overlay') ev.target.classList.add('hidden');
 });
-window.addEventListener('resize', () => { if (Object.keys(floats).length) renderFloats(); setupBands(); });
+window.addEventListener('resize', () => { if (Object.keys(floats).length) renderFloats(); });
 
+mountStatusNodes();
 const restored = restore();
 render();
 if (!restored) persist();
 document.getElementById('st-text').textContent = restored ? '已恢复上次布局（localStorage）' : '就绪（原型演示）';
-window.__mock = { PANELS, get root() { return root; }, get floats() { return floats; }, visiblePanels,
-  applyPreset, floatPanel, dockPanel, hidePanel, showPanel, render, hitTest, placePanel,
-  setRoot: (r) => { root = r; }, persistState: () => { persist(true); }, reset: () => applyPreset('sim', true),
-  setupBands };
+document.documentElement.dataset.mockReady = '1';
+
+window.__mock = {
+  PANELS, get root() { return root; }, get floats() { return floats; }, visiblePanels,
+  applyPreset, floatPanel, dockPanel, hidePanel, showPanel, render,
+  // 几何 / 落点：hitTest 返回 computeDrop 的完整结果（{op, rect, tree}），
+  // 兼容旧断言只需读 .op.type / .op.side / .op.index。
+  hitTest: (x, y, panelId) => computeDrop(x, y, panelId),
+  computeDrop, placePanel, layoutRects, workbenchContentRect, metrics, DROP,
+  get ready() { return true; },
+  setRoot: (r) => { root = r; },
+  persistState: () => { persist(true); },
+  reset: () => applyPreset('sim', true),
+  setupBands,
+};

@@ -1,330 +1,283 @@
 /* ============================================================================
- * WavePaint UI 原型样式（mock，仿 Verdi 多窗格 + 可停靠/自由拖拽）
- * 主题变量抄自真实 css/wavepaint.e7b903ef.css 的 :root，保证观感一致。
- * 全部类名以 mk- 前缀，绝不与真实应用的契约面（24 个 id / .sim-card / .tool-btn 等）
- * 冲突；本目录不在 exe 内嵌资源清单里（见 tools/gen-resources.mjs）。
+ * WavePaint UI 原型样式表（mock 外壳层）
+ * ----------------------------------------------------------------------------
+ * 本文件只做两件事，**绝不重绘真机自身的观感**：
+ *   1) 宿主化（hosting）：把真机 index.html 的原生元素搬进面板后，覆盖掉那些
+ *      「只在整页全屏时成立」的定位 / 尺寸规则（#main-area 的 100vh 高、
+ *      #sim-panel 的 fixed 右挂、body.sim-open 的 padding-right 留白 …）。
+ *      真机元素自身的外观（菜单栏 / 工具带 / 波形画布 / 源码卡片 / 结构树）
+ *      一律沿用 css/wavepaint.e7b903ef.css + index.html 内联 <style>，本文件不改一字。
+ *   2) 新增真机没有的原型外壳：工作区 #workbench、窗格与分隔条、浮动窗、
+ *      底部状态栏、帮助浮层、拖拽落点提示。
+ * 类名前缀统一 mk-；本目录不在真机 exe 内嵌资源清单里（见 tools/gen-resources.mjs）。
+ * ⚠ 布局常量 --mk-handle / --mk-gap 必须与 prototype/ui-mockup.js 里的
+ *   HANDLE / GAP 完全一致（落点预览矩形就是按它们解析求解出来的）。
  * ========================================================================== */
-:root{
-  --bg-color:#f0f2f0;--menu-bg:#ffffff;--toolbar-bg:#f8faf8;--border-color:#d0dcd0;
-  --text-color:#1a1f1a;--text-muted:#5a6a5a;--hover-bg:#e8f0e8;--active-bg:#d0e0d0;
-  --active-border:#4CAF50;--side-bg:#f5f8f5;--canvas-bg:#ffffff;--accent:#4CAF50;
-  --accent-hover:#3d9141;--accent-soft:rgba(76,175,80,0.15);--arrow-color:#ff6b00;
-  --signal-color:#2e7d32;--shadow-soft:0 8px 24px rgba(0,0,0,0.12);
-  --shadow-strong:0 12px 40px rgba(0,0,0,0.18);--radius-sm:6px;--radius-md:10px;
-  --radius-lg:14px;--input-bg:#ffffff;--input-border:#c0d0c0;--input-focus:#4CAF50;
-  --section-bg:#f8faf8;--section-border:#e0e8e0;--header-bg:#f0f4f0;
-  --timeaxis-bg:#f0f2f0;--timeaxis-text:#333333;--timeaxis-tick:#888888;
-  --mk-row-h:34px;--mk-name-w:210px;--mk-band:26%;
-  /* 控件刻度（08 §7.5：R4 尺寸三档 / R5 间距只用 4·12） */
-  --ui-icon-h:28px;--ui-ctl-h:24px;--ui-band-h:36px;--ui-bar-h:44px;
-  --ui-gap-in:4px;--ui-gap-out:12px;
-}
-*{box-sizing:border-box}
-html,body{height:100%}
-body.mk{
-  margin:0;display:flex;flex-direction:column;height:100vh;overflow:hidden;
-  font-family:"Segoe UI","Microsoft YaHei",system-ui,-apple-system,sans-serif;
-  font-size:13px;color:var(--text-color);background:var(--bg-color);
+
+/* 原型自有变量（真机主题变量 --bg-color/--accent/… 由真机 CSS 提供，此处不重定义） */
+:root {
+    --mk-handle: 7px;          /* 分隔条粗细 */
+    --mk-gap: 6px;             /* 工作区内边距 */
+    --mk-tabbar-h: 32px;       /* 面板页签条高度（固定，保证落点预览 == 落位结果） */
 }
 
-/* ── 顶部原型横幅 ───────────────────────────────────────────────────── */
-#mock-banner{
-  flex:0 0 auto;display:flex;align-items:center;gap:8px;height:24px;padding:0 10px;
-  font-size:11px;color:#fff;background:linear-gradient(90deg,#2e7d32,#4CAF50);
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+
+/* 整页改成「纵向堆叠」：真机菜单栏 / 工具带 → 工作区（自适应）→ 状态栏 */
+body { display: flex; flex-direction: column; overflow: hidden; }
+
+/* ══ 1. 宿主化：真机元素搬进面板后的定位 / 尺寸覆盖 ══════════════════════ */
+/* 真机右侧仿真栏与它的收起标签在原型里没有意义（四张卡片已各自成为面板） */
+#sim-panel, #sim-toggle-btn { display: none !important; }
+
+/* 面板内容宿主：真机节点直接塞进来，自身撑满面板 */
+.mk-host { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+
+/* 波形区：#main-area 原本 height:calc(100vh - 78px) 且被侧栏留白挤压，
+   在面板里必须改成「由面板高度决定」并清掉全部侧栏留白与窄屏 180px 边距。
+   （真机内联样式里 body.sim-open / 窄屏媒体查询都会给它加 padding，这里 !important 兜底。） */
+.mk-host > #main-area {
+    flex: 1 1 auto; height: auto !important; min-height: 0;
+    margin: 0 !important; padding: 0 !important; transition: none !important;
 }
-#mock-banner b{letter-spacing:.5px}
-#mock-help-btn{
-  margin-left:auto;font:inherit;font-size:11px;color:#fff;background:rgba(255,255,255,.18);
-  border:1px solid rgba(255,255,255,.45);border-radius:999px;padding:1px 10px;cursor:pointer;
+.mk-host > #main-area > #wave-view { min-height: 0; }
+
+/* 源码 / RTL / VCD / TB：真机卡片（.sim-card）直接当成面板内容 */
+.mk-host > .sim-card { flex: 1 1 auto; min-height: 0; }
+
+/* 被停靠到别处的真机节点暂存区（display:none → 不参与布局，也不触发重排） */
+#mk-park { display: none !important; }
+
+/* 真机仿真状态行搬到底部状态栏里显示（原型状态栏是 mock 元素） */
+#status-bar #sim-status {
+    flex: 0 1 auto !important; max-width: 46%; min-width: 0;
+    margin: 0 !important; padding: 0 !important; border: 0 !important;
+    background: transparent !important; position: static !important; bottom: auto !important;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 11.5px; color: var(--text-muted);
 }
-#mock-help-btn:hover{background:rgba(255,255,255,.3)}
-
-/* ── 菜单栏 / 工具栏（外壳，纯展示）────────────────────────────────── */
-#chrome{flex:0 0 auto;background:var(--menu-bg);border-bottom:1px solid var(--border-color);z-index:60}
-#menu-bar{display:flex;align-items:center;gap:10px;height:38px;padding:0 10px}
-#logo{height:26px;width:auto}
-#menus{display:flex;align-items:center;gap:2px;list-style:none;margin:0;padding:0}
-.mk-menu{position:relative;padding:6px 10px;border-radius:var(--radius-sm);cursor:default;user-select:none}
-.mk-menu:hover{background:var(--hover-bg)}
-.mk-menu.open{background:var(--active-bg);color:#123f16}
-.mk-sub{
-  display:none;position:absolute;left:0;top:100%;min-width:216px;padding:4px;
-  background:var(--menu-bg);border:1px solid var(--border-color);border-radius:var(--radius-md);
-  box-shadow:var(--shadow-soft);z-index:600;
+/* #sim-recover 在真机里带 inline style（display:none;margin:6px 0 0;width:100%）
+   → 必须 !important 才能压住，否则在状态栏里会撑成整行。 */
+#status-bar #sim-recover {
+    flex: 0 0 auto !important; margin: 0 !important; width: auto !important;
+    height: 18px; padding: 0 8px; font-size: 11px;
 }
-.mk-menu.open>.mk-sub{display:block}
-.mk-mi{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:var(--radius-sm);
-  font-size:12.5px;white-space:nowrap;cursor:default}
-.mk-mi:hover{background:var(--hover-bg)}
-.mk-mi[data-noop]:hover{background:var(--hover-bg)}
-.mk-mi .mk-key{margin-left:auto;opacity:.5;font-size:11px}
-.mk-mi .mk-tick{width:14px;text-align:center;color:var(--accent);font-weight:700}
-.mk-sep{height:1px;background:var(--section-border);margin:4px 6px}
-.mk-spacer{flex:1 1 auto}
-.mk-version{font-size:11px;color:var(--text-muted)}
 
-/* L1 应用工具带：高度固定 44；内容 flex-wrap:nowrap；放不下的整组收进 ⋯（R4/R5/R6） */
-#toolbar{display:flex;align-items:center;gap:var(--ui-gap-out);flex-wrap:nowrap;padding:0 8px;height:var(--ui-bar-h);
-  background:var(--toolbar-bg);border-top:1px solid var(--section-border)}
-/* 控件组：组内 4px；组间只由父容器 gap 给（禁止组件自带 margin，R5） */
-.mk-tbg{position:relative;display:flex;align-items:center;gap:var(--ui-gap-in)}
-/* 组间分隔线画在 gap 正中（伪元素不算子元素，故不影响 ui-audit 的间距判定） */
-:where(#toolbar,.mk-toolrow)>.mk-tbg+.mk-tbg::before{content:"";position:absolute;left:-6px;top:50%;
-  transform:translateY(-50%);width:1px;height:20px;background:var(--section-border)}
-:where(#toolbar,.mk-toolrow)>.mk-spacer+.mk-tbg::before{display:none}
-.tool-btn{display:flex;align-items:center;justify-content:center;width:var(--ui-icon-h);height:var(--ui-icon-h);
-  padding:0;background:transparent;border:1px solid transparent;border-radius:var(--radius-sm);cursor:pointer}
-.tool-btn:hover{background:var(--hover-bg);border-color:var(--border-color)}
-.tool-btn img{width:16px;height:16px}
-.tool-btn.disabled{opacity:.4;cursor:not-allowed}
-.tool-btn.disabled:hover{background:transparent;border-color:transparent}
-.tool-btn.paint-color .color-box{width:16px;height:16px;border-radius:3px;background:var(--signal-color);
-  border:1px solid rgba(0,0,0,.18)}
-/* 全应用唯一主按钮（R3） */
-.mk-run{display:flex;align-items:center;gap:6px;height:var(--ui-ctl-h);padding:0 12px;font:inherit;font-size:12.5px;
-  font-weight:600;color:#fff;background:var(--accent);border:1px solid var(--accent);border-radius:var(--radius-sm);cursor:pointer}
-.mk-run:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
-.mk-run::before{content:"▶";font-size:9px;line-height:1}
-.mk-step-group{gap:6px}
-.mk-step-group>label{font-size:11px;color:var(--text-muted)}
-.mk-step-input{height:var(--ui-ctl-h)}
-.mk-step-input{display:flex;align-items:center;background:var(--input-bg);
-  border:1px solid var(--input-border);border-radius:var(--radius-sm);overflow:hidden}
-.mk-step-input input{width:48px;border:none;outline:none;padding:3px 6px;font:inherit;
-  font-size:12px;background:transparent;text-align:right}
-.mk-stepper{display:flex;flex-direction:column;border-left:1px solid var(--input-border)}
-.mk-stepper button{width:18px;height:11px;line-height:9px;font-size:8px;padding:0;border:none;
-  background:transparent;color:var(--text-muted);cursor:pointer}
-.mk-stepper button:hover{background:var(--hover-bg);color:var(--text-color)}
+/* ══ 2. 工作区 / 可停靠窗格 ═══════════════════════════════════════════════ */
+#workbench {
+    position: relative; flex: 1 1 auto; min-height: 0; display: flex;
+    padding: var(--mk-gap); background: var(--bg-color);
+}
+.mk-split { display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; position: relative; }
+.mk-split.row { flex-direction: row; }
+.mk-split.col { flex-direction: column; }
+.mk-slot { display: flex; min-width: 0; min-height: 0; position: relative; }
 
-/* 分段控件（整步·子步 / Dec·Hex·Bin）：文本控件统一 24 高（R4） */
-.mk-seg{display:flex;align-items:center;height:var(--ui-ctl-h);background:var(--input-bg);
-  border:1px solid var(--input-border);border-radius:var(--radius-sm);overflow:hidden}
-.mk-seg button{height:22px;padding:0 8px;font:inherit;font-size:11px;color:var(--text-muted);
-  background:transparent;border:none;cursor:pointer}
-.mk-seg button+button{border-left:1px solid var(--input-border)}
-.mk-seg button:hover{background:var(--hover-bg);color:var(--text-color)}
-.mk-seg button.on{background:var(--accent-soft);color:#123f16;font-weight:600}
+.mk-handle { flex: 0 0 auto; position: relative; z-index: 6; background: transparent; }
+.mk-handle.v { width: var(--mk-handle); cursor: col-resize; }
+.mk-handle.h { height: var(--mk-handle); cursor: row-resize; }
+.mk-handle::before {
+    content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    background: var(--border-color); border-radius: 2px; transition: background .12s ease;
+}
+.mk-handle.v::before { width: 2px; height: 34px; }
+.mk-handle.h::before { width: 34px; height: 2px; }
+.mk-handle.v:hover::before, .mk-handle.v.active::before {
+    background: var(--accent); width: 3px; height: auto; top: 6px; bottom: 6px;
+}
+.mk-handle.h:hover::before, .mk-handle.h.active::before {
+    background: var(--accent); height: 3px; width: auto; left: 6px; right: 6px; top: 50%;
+}
 
-/* 带 ▼ 的图标按钮：箭头内嵌，外框仍按 28×28 网格（R4） */
-.tool-btn.has-caret{gap:2px}
-.tool-btn .mk-caret{font-size:7px;line-height:1;color:var(--text-muted)}
+/* 面板组 = 一个 Tab 组 / 一个窗格 */
+.mk-group {
+    display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0;
+    background: var(--section-bg); border: 1px solid var(--section-border); border-radius: var(--radius-md);
+    overflow: hidden; box-shadow: 0 1px 2px rgba(0, 0, 0, .05);
+}
+.mk-group.focused { border-color: #b5cdb5; }
+.mk-group.drop-tab { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 
-/* 下拉（位状态 / 添加信号 / ⋯）：容器 .mk-dd 内联在工具带里 */
-.mk-dd{position:relative;display:flex}
-.mk-dd-menu,.mk-ovf-menu{display:none;position:absolute;left:0;top:calc(100% + 6px);min-width:150px;padding:4px;
-  background:var(--menu-bg);border:1px solid var(--border-color);border-radius:var(--radius-md);
-  box-shadow:var(--shadow-soft);z-index:700}
-.mk-dd.open>.mk-dd-menu,.mk-ovf.open>.mk-ovf-menu{display:flex}
-.mk-dd-i{display:flex;align-items:center;gap:8px;padding:4px 8px;border-radius:var(--radius-sm);
-  font-size:12px;white-space:nowrap;cursor:default}
-.mk-dd-i:hover{background:var(--hover-bg)}
-.mk-dd-h{font-size:10.5px;color:var(--text-muted);padding:4px 8px 2px}
+.mk-tabbar {
+    flex: 0 0 auto; height: var(--mk-tabbar-h); display: flex; align-items: center; gap: 2px;
+    padding: 2px 4px; overflow: hidden;
+    background: var(--header-bg); border-bottom: 1px solid var(--section-border);
+    cursor: grab; user-select: none;
+}
+.mk-tabbar:active { cursor: grabbing; }
+.mk-tab {
+    display: flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 6px 6px 0 0;
+    font-size: 12px; color: var(--text-muted); cursor: pointer; white-space: nowrap;
+}
+.mk-tab:hover { background: var(--hover-bg); color: var(--text-color); }
+.mk-tab.active { background: var(--canvas-bg); color: var(--text-color); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
+.mk-tab .mk-tab-x { font-size: 10px; opacity: 0; padding: 0 2px; border-radius: 3px; }
+.mk-tab:hover .mk-tab-x { opacity: .55; }
+.mk-tab .mk-tab-x:hover { opacity: 1; background: var(--active-bg); }
 
-/* ── 工作区 ─────────────────────────────────────────────────────────── */
-#workbench{position:relative;flex:1 1 auto;min-height:0;display:flex;padding:6px;background:var(--bg-color)}
-.mk-split{display:flex;flex:1 1 auto;min-width:0;min-height:0;position:relative}
-.mk-split.row{flex-direction:row}
-.mk-split.col{flex-direction:column}
-.mk-slot{display:flex;min-width:0;min-height:0;position:relative}
+/* 组右上角 ⧉ ▣ ✕：只在悬停「页签条本身」时出现（悬停面板内容不显示），
+   拖拽期间由 body.mk-dragging 强制隐藏（历史 bug：拖拽划过面板时按钮乱闪）。 */
+.mk-tabbar .mk-grp-btns { margin-left: auto; display: flex; gap: 1px; opacity: 0; }
+.mk-tabbar:hover .mk-grp-btns { opacity: 1; }
+.mk-grp-btns button {
+    width: 20px; height: 20px; font: inherit; font-size: 11px; line-height: 1; padding: 0; border: none;
+    border-radius: 4px; background: transparent; color: var(--text-muted); cursor: pointer;
+}
+.mk-grp-btns button:hover { background: var(--active-bg); color: var(--text-color); }
 
-.mk-handle{flex:0 0 auto;position:relative;z-index:6;background:transparent}
-.mk-handle.v{width:7px;cursor:col-resize}
-.mk-handle.h{height:7px;cursor:row-resize}
-.mk-handle::before{content:"";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
-  background:var(--border-color);border-radius:2px;transition:background .12s ease}
-.mk-handle.v::before{width:2px;height:34px}
-.mk-handle.h::before{width:34px;height:2px}
-.mk-handle:hover::before,.mk-handle.active::before{background:var(--accent);width:3px;height:auto;top:6px;bottom:6px}
-.mk-handle.h:hover::before,.mk-handle.h.active::before{height:3px;width:auto;left:6px;right:6px;top:50%}
+.mk-panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--canvas-bg); }
 
-/* 面板组（= 一个 Tab 组 / 一个窗格） */
-.mk-group{display:flex;flex-direction:column;flex:1 1 auto;min-width:0;min-height:0;
-  background:var(--section-bg);border:1px solid var(--section-border);border-radius:var(--radius-md);
-  overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,.05)}
-.mk-group.focused{border-color:#b5cdb5}
-.mk-group.drop-tab{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),var(--shadow-soft)}
-.mk-tabbar{flex:0 0 auto;display:flex;align-items:center;gap:2px;min-height:30px;padding:2px 4px;
-  background:var(--header-bg);border-bottom:1px solid var(--section-border);cursor:grab;user-select:none}
-.mk-tabbar:active{cursor:grabbing}
-.mk-tab{display:flex;align-items:center;gap:6px;padding:4px 9px;border-radius:6px 6px 0 0;
-  font-size:12px;color:var(--text-muted);cursor:pointer;white-space:nowrap}
-.mk-tab:hover{background:var(--hover-bg);color:var(--text-color)}
-.mk-tab.active{background:var(--canvas-bg);color:var(--text-color);font-weight:600;
-  box-shadow:inset 0 -2px 0 var(--accent)}
-.mk-tab .mk-tab-x{font-size:10px;opacity:0;padding:0 2px;border-radius:3px}
-.mk-tab:hover .mk-tab-x{opacity:.55}
-.mk-tab .mk-tab-x:hover{opacity:1;background:var(--active-bg)}
-.mk-tabbar .mk-grp-btns{margin-left:auto;display:flex;gap:1px;opacity:0}
-.mk-group:hover .mk-grp-btns{opacity:1}
-.mk-grp-btns button{width:20px;height:20px;font-size:11px;line-height:1;padding:0;border:none;
-  border-radius:4px;background:transparent;color:var(--text-muted);cursor:pointer}
-.mk-grp-btns button:hover{background:var(--active-bg);color:var(--text-color)}
-.mk-panel{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;overflow:hidden;background:var(--canvas-bg)}
+/* 拖拽中：指针全站变抓取态，且禁用一切悬停显隐 */
+body.mk-dragging { cursor: grabbing; }
+body.mk-dragging * { cursor: grabbing !important; user-select: none !important; }
+body.mk-dragging .mk-grp-btns,
+body.mk-dragging .mk-tab .mk-tab-x { opacity: 0 !important; pointer-events: none !important; }
+body.mk-dragging .mk-tab:hover { background: transparent; color: var(--text-muted); }
+body.mk-dragging .mk-tab.active { color: var(--text-color); }
 
-/* 落点提示（overlay） */
-#mk-drop{position:absolute;display:none;z-index:300;pointer-events:none;border:2px solid var(--accent);
-  background:var(--accent-soft);border-radius:var(--radius-sm)}
-#mk-caret{position:absolute;display:none;width:3px;background:var(--accent);border-radius:2px;
-  box-shadow:0 0 6px rgba(76,175,80,.7)}
-.mk-drag-ghost{position:fixed;z-index:900;pointer-events:none;padding:5px 10px;font-size:12px;
-  background:var(--menu-bg);border:1px solid var(--accent);border-radius:var(--radius-sm);
-  box-shadow:var(--shadow-soft);opacity:.95}
+/* 落点提示（overlay）：矩形 = 松手后该面板真实占位 */
+#mk-drop {
+    position: absolute; display: none; z-index: 450; pointer-events: none;
+    border: 2px solid var(--accent); background: var(--accent-soft); border-radius: var(--radius-sm);
+}
+/* 并入页签：矩形就是目标组的矩形，用虚线区分「不改几何，只加一个页签」 */
+#mk-drop.tab { border-style: dashed; background: rgba(76, 175, 80, .08); }
+#mk-caret {
+    position: absolute; display: none; width: 3px; z-index: 460; pointer-events: none;
+    background: var(--accent); border-radius: 2px; box-shadow: 0 0 6px rgba(76, 175, 80, .7);
+}
+.mk-drag-ghost {
+    position: fixed; z-index: 900; pointer-events: none; padding: 5px 10px; font-size: 12px;
+    background: var(--menu-bg); border: 1px solid var(--accent); border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-soft); opacity: .95;
+}
 
-/* 浮动窗 */
-#mk-floats{position:absolute;inset:0;pointer-events:none;z-index:400}
-.mk-float{position:absolute;pointer-events:auto;display:flex;flex-direction:column;min-width:260px;
-  min-height:150px;background:var(--menu-bg);border:1px solid var(--border-color);
-  border-radius:var(--radius-md);box-shadow:var(--shadow-strong);overflow:hidden}
-.mk-float.max{left:6px !important;top:6px !important;width:calc(100% - 12px) !important;
-  height:calc(100% - 12px) !important;border-radius:var(--radius-sm)}
-.mk-float-head{flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:5px 8px;
-  background:var(--header-bg);border-bottom:1px solid var(--section-border);cursor:move;user-select:none}
-.mk-float-head .mk-float-title{flex:1 1 auto;font-size:12px;font-weight:600;overflow:hidden;
-  text-overflow:ellipsis;white-space:nowrap}
-.mk-float-head button{width:20px;height:20px;padding:0;font-size:11px;line-height:1;border:none;
-  border-radius:4px;background:transparent;color:var(--text-muted);cursor:pointer}
-.mk-float-head button:hover{background:var(--active-bg);color:var(--text-color)}
-.mk-float-body{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;overflow:hidden}
-.mk-float-resize{position:absolute;right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;
-  background:linear-gradient(135deg,transparent 50%,var(--border-color) 50%,var(--border-color) 60%,transparent 60%)}
+/* ══ 3. 浮动窗（Word 式自由排布）═════════════════════════════════════════ */
+#mk-floats { position: absolute; inset: 0; pointer-events: none; z-index: 400; }
+.mk-float {
+    position: absolute; pointer-events: auto; display: flex; flex-direction: column; min-width: 260px; min-height: 150px;
+    background: var(--menu-bg); border: 1px solid var(--border-color); border-radius: var(--radius-md);
+    box-shadow: var(--shadow-strong); overflow: hidden;
+}
+.mk-float.max {
+    left: var(--mk-gap) !important; top: var(--mk-gap) !important;
+    width: calc(100% - 2 * var(--mk-gap)) !important; height: calc(100% - 2 * var(--mk-gap)) !important;
+    border-radius: var(--radius-sm);
+}
+/* 拖动中的浮窗：抬升 + 高亮标题栏。类名由 js 侧 draggingFloatId 持久化，
+   所以中途被 renderFloats() 重建也不会掉状态（历史 bug：拖动时观感乱跳）。*/
+.mk-float.dragging {
+    z-index: 500; border-color: var(--accent);
+    box-shadow: 0 14px 34px rgba(0, 0, 0, .26);
+}
+.mk-float.dragging .mk-float-head { background: var(--active-bg); }
+.mk-float.dragging .mk-float-head, .mk-float.dragging .mk-float-head * { cursor: grabbing !important; }
+.mk-float.dragging .mk-float-body { pointer-events: none; }
+.mk-float-head {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 5px 8px;
+    background: var(--header-bg); border-bottom: 1px solid var(--section-border); cursor: move; user-select: none;
+}
+.mk-float-head .mk-float-title { flex: 1 1 auto; font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mk-float-head button {
+    width: 20px; height: 20px; padding: 0; font: inherit; font-size: 11px; line-height: 1; border: none;
+    border-radius: 4px; background: transparent; color: var(--text-muted); cursor: pointer;
+}
+.mk-float-head button:hover { background: var(--active-bg); color: var(--text-color); }
+.mk-float-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.mk-float-resize {
+    position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize;
+    background: linear-gradient(135deg, transparent 50%, var(--border-color) 50%, var(--border-color) 60%, transparent 60%);
+}
 
-/* ── 状态栏 ─────────────────────────────────────────────────────────── */
-#status-bar{flex:0 0 auto;display:flex;align-items:center;gap:10px;height:26px;padding:0 12px;
-  font-size:11.5px;color:var(--text-muted);background:var(--header-bg);border-top:1px solid var(--border-color);
-  white-space:nowrap}
-.mk-st-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 6px var(--accent)}
-.mk-st-sep{width:1px;height:14px;background:var(--border-color)}
-#st-ctx{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
-#st-text,.mk-st-sep,#st-layout,#st-panels{flex:0 0 auto}
+/* ══ 4. 底部状态栏（原型独有）══════════════════════════════════════════ */
+#status-bar {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 10px; height: 26px; padding: 0 12px;
+    font-size: 11.5px; color: var(--text-muted); background: var(--header-bg);
+    border-top: 1px solid var(--border-color); white-space: nowrap;
+}
+.mk-st-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.mk-st-sep { flex: 0 0 auto; width: 1px; height: 14px; background: var(--border-color); }
+.mk-spacer { flex: 1 1 auto; }
+#st-text, #st-layout, #st-panels { flex: 0 0 auto; }
+#st-ctx { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.mk-version { font-size: 11px; color: var(--text-muted); }
 
-/* ══ 面板内容（全部假数据）══════════════════════════════════════════ */
-/* L2/L3 面板上下文带：固定 36 高、禁折行、放不下的整组进本带 ⋯（R4/R6） */
-.mk-toolrow{flex:0 0 auto;display:flex;align-items:center;gap:var(--ui-gap-out);padding:0 8px;height:var(--ui-band-h);
-  background:var(--toolbar-bg);border-bottom:1px solid var(--section-border);flex-wrap:nowrap}
-.mk-toolrow button{font:inherit;font-size:11.5px;height:var(--ui-ctl-h);padding:0 8px;color:var(--text-color);
-  background:var(--input-bg);border:1px solid var(--input-border);border-radius:var(--radius-sm);cursor:pointer}
-.mk-toolrow button:hover{background:var(--hover-bg);border-color:var(--accent)}
-.mk-toolrow .tool-btn{background:transparent;border-color:transparent}
-.mk-toolrow .tool-btn:hover{background:var(--hover-bg);border-color:var(--border-color)}
-/* ⋯ 溢出菜单：被收进来的整组在菜单里竖排（右对齐展开，避免贴面板右缘被裁切） */
-.mk-ovf-menu .mk-tbg{padding:3px 4px;border-radius:var(--radius-sm)}
-.mk-ovf-menu{left:auto;right:0;min-width:0;flex-direction:column;gap:2px}
+#mock-help-btn {
+    flex: 0 0 auto; font: inherit; font-size: 11px; line-height: 16px; color: var(--text-color);
+    background: var(--input-bg); border: 1px solid var(--input-border); border-radius: 999px;
+    padding: 0 9px; cursor: pointer;
+}
+#mock-help-btn:hover { background: var(--hover-bg); border-color: var(--accent); }
 
-/* 波形窗 */
-.mk-wave{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;background:var(--canvas-bg)}
-.mk-wave-scroll{flex:1 1 auto;min-height:0;display:flex;overflow:hidden}
-.mk-wave-names{flex:0 0 auto;width:var(--mk-name-w);border-right:1px solid var(--section-border);
-  background:var(--side-bg);overflow:hidden}
-.mk-wave-names-head,.mk-wave-tracks-head{height:24px;display:flex;align-items:center;padding:0 8px;
-  font-size:11px;color:var(--text-muted);background:var(--header-bg);border-bottom:1px solid var(--section-border)}
-.mk-name-row{height:var(--mk-row-h);display:flex;align-items:center;gap:6px;padding:0 8px;
-  border-bottom:1px solid #eef3ee;font-size:12px;white-space:nowrap;overflow:hidden}
-.mk-name-row.alt{background:#fbfdfb}
-.mk-name-row.sel{background:var(--accent-soft);box-shadow:inset 2px 0 0 var(--accent)}
-.mk-color-chip{flex:0 0 auto;width:8px;height:8px;border-radius:2px;background:var(--signal-color)}
-.mk-name-row .mk-sig{font-family:Consolas,"Courier New",monospace;overflow:hidden;text-overflow:ellipsis}
-.mk-width-badge{flex:0 0 auto;margin-left:auto;font-size:10px;font-family:Consolas,monospace;
-  color:#2e7d32;background:#e7f2e7;border:1px solid #cfe4cf;border-radius:4px;padding:0 4px}
-.mk-wave-name-split{flex:0 0 auto;width:6px;cursor:col-resize;background:transparent;position:relative}
-.mk-wave-name-split::before{content:"";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
-  width:2px;height:28px;background:var(--border-color);border-radius:2px}
-.mk-wave-name-split:hover::before{background:var(--accent)}
-.mk-wave-tracks{flex:1 1 auto;min-width:0;overflow:auto;position:relative;background:var(--canvas-bg)}
-.mk-wave-tracks-inner{position:relative;width:1040px}
-.mk-track-row{height:var(--mk-row-h);border-bottom:1px solid #eef3ee;position:relative}
-.mk-track-row.alt{background:#fbfdfb}
-.mk-track-row.sel{background:var(--accent-soft)}
-.mk-track-row svg{display:block;width:1040px;height:var(--mk-row-h)}
-.mk-track-row .mk-bus-label{position:absolute;top:50%;transform:translate(-50%,-50%);
-  font-family:Consolas,monospace;font-size:11px;color:#1f4d22;pointer-events:none}
-.mk-grid{position:absolute;inset:0;pointer-events:none}
-.mk-taxis{flex:0 0 auto;height:26px;display:flex;background:var(--timeaxis-bg);
-  border-top:1px solid var(--border-color);overflow:hidden}
-.mk-taxis .mk-taxis-pad{flex:0 0 auto;width:var(--mk-name-w);border-right:1px solid var(--border-color);
-  font-size:10px;color:var(--text-muted);display:flex;align-items:center;padding:0 8px}
-.mk-taxis .mk-taxis-scroll{flex:1 1 auto;min-width:0;overflow:hidden;position:relative}
-.mk-taxis-inner{position:relative;width:1040px;height:100%}
-.mk-wave-tick{position:absolute;top:0;bottom:0;border-left:1px solid var(--timeaxis-tick);opacity:.45}
-.mk-wave-tick span{position:absolute;left:3px;top:4px;font-size:10px;color:var(--timeaxis-text);opacity:.9}
-.mk-cursor{position:absolute;top:0;bottom:0;width:1px;background:var(--arrow-color);z-index:5;cursor:ew-resize}
-.mk-cursor::before{content:attr(data-t);position:absolute;top:-1px;left:2px;font-size:10px;
-  background:var(--arrow-color);color:#fff;padding:0 4px;border-radius:3px;white-space:nowrap}
+/* 状态栏里的两个下拉菜单（向上展开） */
+.mk-menu { position: relative; padding: 3px 8px; border-radius: var(--radius-sm); cursor: default; user-select: none; }
+.mk-menu:hover { background: var(--hover-bg); }
+.mk-menu.open { background: var(--active-bg); color: #123f16; }
+.mk-sub {
+    display: none; position: absolute; left: 0; min-width: 216px; padding: 4px;
+    background: var(--menu-bg); border: 1px solid var(--border-color); border-radius: var(--radius-md);
+    box-shadow: var(--shadow-soft); z-index: 600;
+}
+.mk-menu.mk-up > .mk-sub { bottom: 100%; margin-bottom: 4px; }
+.mk-menu.mk-down > .mk-sub { top: 100%; margin-top: 4px; }
+.mk-menu.open > .mk-sub { display: block; }
+.mk-mi {
+    display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: var(--radius-sm);
+    font-size: 12.5px; white-space: nowrap; cursor: default;
+}
+.mk-mi:hover { background: var(--hover-bg); }
+.mk-mi .mk-key { margin-left: auto; opacity: .5; font-size: 11px; }
+.mk-mi .mk-tick { width: 14px; text-align: center; color: var(--accent); font-weight: 700; }
+.mk-sep { height: 1px; background: var(--section-border); margin: 4px 6px; }
 
-/* 源码窗 */
-.mk-code{flex:1 1 auto;min-height:0;display:flex;overflow:auto;background:#fbfdfb;
-  font-family:Consolas,"Courier New",monospace;font-size:12px;line-height:18px}
-.mk-gutter{flex:0 0 auto;padding:8px 8px 8px 10px;text-align:right;color:#9bb09b;white-space:pre;
-  background:var(--side-bg);border-right:1px solid var(--section-border);user-select:none}
-.mk-code-body{flex:1 1 auto;min-width:0;padding:8px 10px;white-space:pre;position:relative}
-.mk-kw{color:#0b6ea8;font-weight:600}
-.mk-num{color:#a1500f}
-.mk-cmt{color:#7b8f7b;font-style:italic}
-.mk-str{color:#8a2f8a}
-.mk-id{color:#1f4d22;padding:0 1px;border-radius:3px;cursor:text}
-.mk-id.hot{background:#d9edd9;box-shadow:0 0 0 1px var(--accent)}
-.mk-anno{position:absolute;padding:3px 8px;font-size:11px;font-family:"Segoe UI",sans-serif;
-  background:#2c3e2c;color:#eaf6ea;border-radius:6px;box-shadow:var(--shadow-soft);white-space:nowrap}
-.mk-anno::after{content:"";position:absolute;left:-5px;top:50%;transform:translateY(-50%);
-  border:5px solid transparent;border-right-color:#2c3e2c}
+/* ══ 5. 原型假数据面板（控制台 / 源文件 / 端口；真机没有这三块）══════════ */
+.mk-mockrow {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px;
+    font-size: 11px; color: var(--text-muted); background: var(--header-bg);
+    border-bottom: 1px solid var(--section-border);
+}
+.mk-mockrow em { font-style: normal; color: #a1500f; }
+.mk-console {
+    flex: 1 1 auto; min-height: 0; overflow: auto; padding: 6px 8px; background: #1f241f; color: #d5e6d5;
+    font-family: Consolas, "Courier New", monospace; font-size: 12px; line-height: 17px; white-space: pre-wrap;
+}
+.mk-console .c-dim { color: #8fa48f; }
+.mk-console .c-ok { color: #7fd67f; }
+.mk-console .c-warn { color: #e8c46a; }
+.mk-console .c-cmd { color: #8ec7ff; }
+.mk-filelist {
+    flex: 0 0 auto; display: flex; gap: 6px; flex-wrap: wrap; padding: 6px 8px;
+    border-bottom: 1px solid var(--section-border); background: var(--side-bg);
+}
+.mk-file { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 3px 8px; border-radius: 999px;
+    background: var(--input-bg); border: 1px solid var(--input-border); }
+.mk-file.active { border-color: var(--accent); background: var(--accent-soft); }
+.mk-file .x { opacity: .45; cursor: pointer; }
+.mk-table { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 4px 8px; font-size: 12px; }
+.mk-table table { width: 100%; border-collapse: collapse; font-family: Consolas, monospace; }
+.mk-table th, .mk-table td { text-align: left; padding: 3px 6px; border-bottom: 1px solid #eef3ee; }
+.mk-table th { color: var(--text-muted); font-weight: 600; font-size: 11px; font-family: inherit; }
+.mk-dir { font-size: 10px; padding: 0 5px; border-radius: 4px; border: 1px solid; }
+.mk-dir.in { color: #0b6ea8; border-color: #a9cde3; background: #eaf4fb; }
+.mk-dir.out { color: #a1500f; border-color: #e6cba6; background: #fdf3e6; }
 
-/* 树（RTL / VCD 共用观感） */
-.mk-tree{flex:1 1 auto;min-height:0;overflow:auto;padding:6px 4px;font-size:12px;
-  font-family:Consolas,"Microsoft YaHei",monospace}
-.mk-node-row{display:flex;align-items:center;gap:5px;padding:3px 6px;border-radius:5px;
-  white-space:nowrap;cursor:default}
-.mk-node-row:hover{background:var(--hover-bg)}
-.mk-node-row.inst{color:#1f4d22}
-.mk-node-row.sig{color:#2b3d2b}
-.mk-node-row.sig.hot{background:var(--accent-soft);box-shadow:inset 2px 0 0 var(--accent)}
-.mk-tw{width:12px;text-align:center;color:var(--text-muted);font-size:9px}
-.mk-node-row .mk-scope{color:#0b6ea8}
-.mk-node-row .mk-w{margin-left:auto;font-size:10px;color:var(--text-muted)}
-.mk-node-row .mk-path{margin-left:auto;font-size:10px;color:#9bb09b}
-.mk-ind{color:#cfdccf}
-
-/* 控制台 */
-.mk-console{flex:1 1 auto;min-height:0;overflow:auto;padding:6px 8px;background:#1f241f;color:#d5e6d5;
-  font-family:Consolas,"Courier New",monospace;font-size:12px;line-height:17px;white-space:pre-wrap}
-.mk-console .c-dim{color:#8fa48f}
-.mk-console .c-ok{color:#7fd67f}
-.mk-console .c-warn{color:#e8c46a}
-.mk-console .c-err{color:#ff8a80}
-.mk-console .c-cmd{color:#8ec7ff}
-
-/* Testbench */
-.mk-pre{flex:1 1 auto;min-height:0;margin:0;overflow:auto;padding:8px 10px;background:#fbfdfb;
-  font-family:Consolas,"Courier New",monospace;font-size:12px;line-height:17px;white-space:pre}
-
-/* 文件列表 / 端口表 */
-.mk-filelist{flex:0 0 auto;display:flex;gap:6px;flex-wrap:wrap;padding:6px 8px;
-  border-bottom:1px solid var(--section-border);background:var(--side-bg)}
-.mk-file{display:flex;align-items:center;gap:6px;font-size:12px;padding:3px 8px;border-radius:999px;
-  background:var(--input-bg);border:1px solid var(--input-border)}
-.mk-file.active{border-color:var(--accent);background:var(--accent-soft)}
-.mk-file .x{opacity:.45;cursor:pointer}
-.mk-table{flex:1 1 auto;min-height:0;overflow:auto;padding:4px 8px;font-size:12px}
-.mk-table table{width:100%;border-collapse:collapse;font-family:Consolas,monospace}
-.mk-table th,.mk-table td{text-align:left;padding:3px 6px;border-bottom:1px solid #eef3ee}
-.mk-table th{color:var(--text-muted);font-weight:600;font-size:11px;font-family:"Segoe UI",sans-serif}
-.mk-dir{font-size:10px;padding:0 5px;border-radius:4px;border:1px solid}
-.mk-dir.in{color:#0b6ea8;border-color:#a9cde3;background:#eaf4fb}
-.mk-dir.out{color:#a1500f;border-color:#e6cba6;background:#fdf3e6}
-.mk-dir.inout{color:#7a3fa8;border-color:#d8c3ea;background:#f6eefc}
-
-/* 帮助浮层 */
-#help-overlay{position:fixed;inset:0;background:rgba(20,30,20,.35);z-index:800;
-  display:flex;align-items:center;justify-content:center}
-#help-overlay.hidden{display:none}
-#help-box{width:min(720px,92vw);max-height:84vh;display:flex;flex-direction:column;
-  background:var(--menu-bg);border-radius:var(--radius-lg);box-shadow:var(--shadow-strong);overflow:hidden}
-#help-head{display:flex;align-items:center;padding:10px 14px;background:var(--header-bg);
-  border-bottom:1px solid var(--section-border)}
-#help-head button{margin-left:auto;border:none;background:transparent;font-size:14px;cursor:pointer;
-  color:var(--text-muted)}
-#help-body{padding:10px 18px 18px;overflow:auto;line-height:1.7}
-#help-body h4{margin:12px 0 4px;font-size:13px;color:#123f16}
-#help-body ul{margin:4px 0;padding-left:20px}
-#help-body code{background:var(--hover-bg);padding:0 4px;border-radius:4px}
-.mk-note{margin-top:12px;padding:8px 10px;font-size:12px;color:var(--text-muted);
-  background:var(--side-bg);border-left:3px solid var(--accent);border-radius:4px}
+/* ══ 6. 帮助浮层 ═══════════════════════════════════════════════════════ */
+#help-overlay {
+    position: fixed; inset: 0; background: rgba(20, 30, 20, .35); z-index: 800;
+    display: flex; align-items: center; justify-content: center;
+}
+#help-overlay.hidden { display: none; }
+#help-box {
+    width: min(720px, 92vw); max-height: 84vh; display: flex; flex-direction: column;
+    background: var(--menu-bg); border-radius: var(--radius-lg); box-shadow: var(--shadow-strong); overflow: hidden;
+}
+#help-head { display: flex; align-items: center; padding: 10px 14px; background: var(--header-bg);
+    border-bottom: 1px solid var(--section-border); }
+#help-head button { margin-left: auto; border: none; background: transparent; font-size: 14px; cursor: pointer; color: var(--text-muted); }
+#help-body { padding: 10px 18px 18px; overflow: auto; line-height: 1.7; font-size: 13px; }
+#help-body h4 { margin: 12px 0 4px; font-size: 13px; color: #123f16; }
+#help-body ul { margin: 4px 0; padding-left: 20px; }
+#help-body code { background: var(--hover-bg); padding: 0 4px; border-radius: 4px; }
+.mk-note { margin-top: 12px; padding: 8px 10px; font-size: 12px; color: var(--text-muted);
+    background: var(--side-bg); border-left: 3px solid var(--accent); border-radius: 4px; }
