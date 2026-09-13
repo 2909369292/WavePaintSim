@@ -354,6 +354,9 @@ function buildNode(node) {
       const h = document.createElement('div');
       h.className = 'mk-handle ' + (node.dir === 'row' ? 'v' : 'h');
       h.dataset.splitIdx = String(i - 1);
+      // ★ 第 47 轮修 Bug：分隔条必须记住「自己属于哪个 split」（见 data-split-owner）——
+      //   理由写在 startSplitDrag 的 liveHandle() 处。
+      h.dataset.splitOwner = node.id;
       h.title = '拖拽调整比例';
       h.addEventListener('pointerdown', (ev) => startSplitDrag(ev, node, i - 1, el));
       el.appendChild(h);
@@ -505,7 +508,15 @@ function startSplitDrag(ev, node, idx, splitEl) {
     node.sizes[idx + 1] = (pairPx - na) * scale;
     slotsOf(liveSplit()).forEach((el, i) => { el.style.flex = node.sizes[i] + ' 1 0'; });
   };
-  const liveHandle = () => liveSplit().querySelector('.mk-handle[data-split-idx="' + idx + '"]') || handle;
+  // ★ 第 47 轮修 Bug：必须按「本 split 的 id」限定，不能用裸的
+  //   querySelector('.mk-handle[data-split-idx="N"]') —— querySelector 搜的是**子树**，
+  //   而嵌套 split 的分隔条序号会与父 split 撞号（默认布局里 root 的 col-split 与
+  //   它第一个 slot 内的 row-split 都有一条 idx=0 的 handle），doc order 上子 split 的
+  //   handle 更靠前，会被先命中：于是拖「上下分界横条」时 .active 贴给了左中右之间
+  //   那条**竖条**（用户报：无论调节哪个都是竖条高亮、正在拖的那条不亮）。
+  //   data-split-owner 在 buildNode 里逐条写入 = node.id，天然唯一。
+  const liveHandle = () => liveSplit().querySelector(
+    '.mk-handle[data-split-owner="' + node.id + '"][data-split-idx="' + idx + '"]') || handle;
   liveHandle().classList.add('active');
   const move = (e) => {
     const cur = horizontal ? e.clientX : e.clientY;

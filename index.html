@@ -1159,6 +1159,10 @@
          跨端口发现 → 服务真死时用 wavepaint: 协议重拉 exe。必须是普通 script
          且早于 ui-bridge.js（ESM，defer 语义，晚于普通 script 执行）。 -->
     <script src="js/core/service-guard.js"></script>
+    <!-- 全局右键守卫（第 47 轮）：整个软件都不再弹 Edge/Chromium 的原生右键菜单；
+         有自定义右键功能的位置照旧（本模块只 preventDefault，不吞事件）。
+         必须是普通 script 且尽量早挂（捕获阶段监听 document）。 -->
+    <script src="js/core/ctx-guard.js"></script>
     <!-- v0.3.0：值输入编辑（Bit/Vector 弹窗 + 整步子步粒度 + Ctrl 框选）。
          必须加载在 editor/draw.js 之前，其 document 捕获监听才能先于绘制模块判定接管。 -->
     <script src="js/editor/value-input.js"></script>

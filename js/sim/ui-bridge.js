@@ -441,10 +441,21 @@ function initRefs() {
   refs.tbCmHost = el("tb-cm-host");
 }
 
+// TB 缺省内容（第 47 轮，用户要求）：还没生成过 TB 时，代码框里显示一行注释提示，
+// 让空面板自己说清楚下一步该点哪里。⚠ 它只是**显示缺省**，不是真 TB：
+//   state.lastTestbench 保持为空串（copyTb 等「有没有 TB」的判定必须看它，
+//   否则会把这句提示当 TB 复制出去）。要改文案只改这一处。
+const TB_PLACEHOLDER = "// 点击「运行仿真」生成 TB";
+
+// 面板上「应该显示什么」= 真 TB，没有则显示缺省提示。
+function tbDisplayText() {
+  return state.lastTestbench || TB_PLACEHOLDER;
+}
+
 // TB 文本的唯一写入口：textarea（数据镜像）与 CM 只读代码框**同时**更新。
 // ⚠ 两处都要写：textarea.value 是旧读路径与 e2e 契约的取值口，CM 视图才是用户看到的。
 function updateTbViewer() {
-  const text = state.lastTestbench || "";
+  const text = tbDisplayText();
   if (tbCodeView?.active) tbCodeView.setText(text);
   if (refs.tbSource) {
     refs.tbSource.value = text;
@@ -452,9 +463,9 @@ function updateTbViewer() {
 }
 
 function copyTb() {
-  const text = state.lastTestbench
-    || (tbCodeView?.active ? tbCodeView.getText() : "")
-    || (refs.tbSource && refs.tbSource.value) || "";
+  // ⚠ 只看 state.lastTestbench：CM 只读、textarea 是镜像，两者都可能装着缺省提示
+  // （TB_PLACEHOLDER），不能拿它们当「有 TB」的证据。
+  const text = state.lastTestbench || "";
   if (!text) {
     setStatus("没有可复制的 testbench，请先点「生成 TB」或「运行仿真」。");
     return;
@@ -492,12 +503,18 @@ function initTbCodeView() {
   tbCodeView = installCodeEditor({
     host: refs.tbCmHost,
     textarea: refs.tbSource,
-    doc: state.lastTestbench || "",
+    doc: tbDisplayText(),
     readonly: true
   });
   const usingCm = !!tbCodeView.active;
   refs.tbCmHost.style.display = usingCm ? "block" : "none";
   refs.tbSource.style.display = usingCm ? "none" : "";
+  // ⚠ 装完必须再走一次唯一写入口：installCodeEditor 只把 doc 交给 CM，
+  // 不会回写 textarea 镜像（它只在「用户改动 / setText」时写）。不补这一刀，
+  // 首屏会出现「代码框里是缺省提示、#tb-source.value 还是空串」的镜像不一致，
+  // 违反 e2e 契约（镜像 == 面板显示）。setText 在文本未变时只写镜像、不重建视图，
+  // 所以这里是一次廉价的无害调用。
+  updateTbViewer();
 }
 
 function initSourceCodeView() {
