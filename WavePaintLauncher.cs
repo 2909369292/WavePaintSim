@@ -499,6 +499,8 @@ namespace WaveWorkbench
 
             var compileBatches = BuildCompileBatches(names);
             string compileError = null;
+            // 第 39 轮（E2）：成功那一批编译的 stdout+stderr（含 warning）留着回传给前端。
+            string compileLog = "";
             bool compiled = false;
             foreach (var batch in compileBatches)
             {
@@ -511,6 +513,7 @@ namespace WaveWorkbench
                 if (e1 == 0)
                 {
                     compiled = true;
+                    compileLog = err1;
                     break;
                 }
                 compileError = string.IsNullOrWhiteSpace(err1) ? "iverilog failed." : err1;
@@ -539,7 +542,13 @@ namespace WaveWorkbench
             string vcd = File.ReadAllText(vcdPath);
             Log("RUN vcd " + vcd.Length + Environment.NewLine);
             try { Directory.Delete(work, true); } catch { }
-            return vcd;
+            // 第 39 轮（E2）：成功路径同样把 iverilog / vvp 的 stdout+stderr 文本回传，
+            // 前端按 @@LOG: / @@VCD: 分段 → 日志行进「仿真状态」日志流（$display 输出、
+            // 编译 warning 都能看见）。不带 @@LOG: 时前端按旧格式整体当 VCD（向后兼容）。
+            string simLog = (compileLog + err2).Trim();
+            return simLog.Length > 0
+                ? "@@LOG:\n" + simLog + "\n@@VCD:\n" + vcd
+                : vcd;
         }
 
         static List<Tuple<string, List<string>>> BuildCompileBatches(List<string> names)

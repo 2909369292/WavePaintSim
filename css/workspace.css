@@ -8,10 +8,11 @@
  *   于是「真机 = 原型」共用同一份外壳样式，不再各养一份拷贝。
  *
  * 三条铁律：
- *   1) 作用域：除 :root 布局常量、以及 §0.5 那条工具带换行规则（唯一显式例外，
- *      两种挂载方式下都要生效）外，**所有**规则都挂在 body.wp-dock 之下。
- *      带 ?dock=off（逃生口，见 js/sim/dock/workspace.js 的 dockDisabled）
- *      时 body 上没有 wp-dock 类 → 本文件对旧侧栏 UI 零影响，旧 UI 照常工作。
+ *   1) 作用域：除 :root 布局常量、§0.5 工具带换行规则、§5「仿真状态」日志皮肤
+ *      （#sim-console-log —— 第 39 轮起它是全应用唯一的状态输出口，逃生口下也
+ *      必须看得见）这三处显式例外（两种挂载方式下都要生效）外，**所有**规则都挂在
+ *      body.wp-dock 之下。带 ?dock=off（逃生口，见 js/sim/dock/workspace.js 的
+ *      dockDisabled）时 body 上没有 wp-dock 类 → 本文件对旧侧栏 UI 近乎零影响。
  *   2) 不重绘真机：菜单栏 / 工具带 / 波形画布 / 源码卡片 / 结构树的**外观**一律
  *      沿用 css/wavepaint.e7b903ef.css + index.html 内联 <style>（本文件在那里
  *      之后加载，天然压过同名同权规则）。这里只覆盖那些「只在整页全屏时成立」的
@@ -295,24 +296,26 @@ body.wp-dock #wp-status-bar .mk-version { font-size: 11px; color: var(--text-mut
 /* ══ 5. 「仿真状态」面板（console）═══════════════════════════════════════
    真机的 #sim-status（进度文字）与 #sim-recover（服务自愈按钮）在 index.html 里
    就排在 #sim-console 内，引擎只负责把整个 #sim-console 搬进面板。
-   面板本体 = 日志区（#sim-console-log，深色，可回溯）+ 状态行 + 自愈按钮。 */
-body.wp-dock .mk-host > #sim-console { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-body.wp-dock #sim-console-log {
-    flex: 1 1 auto; min-height: 0; overflow: auto;
+   面板本体 = 日志流（#sim-console-log，深色，可回溯）+ 状态行 + 自愈按钮。
+
+   ⚠ 日志流是**全应用唯一的状态输出口**（第 39 轮用户裁决）：
+     仿真完成摘要 / 编译报错 / $display 输出 / 解析结果 / 自愈进度 / 布局动作
+     一律以「一行一条」纯文本追加进来；行首时间戳，kind 决定配色，
+     行类名 `.mk-cline` 保留（dock-probe 按它计行），附加 mk-ok/mk-warn/mk-err。
+   皮肤规则刻意写在 body.wp-dock **之外**：带 ?dock=off 的旧侧栏也必须看得到输出
+   （原先这里对旧侧栏 display:none，输出会全部丢失）。本文件「非 wp-dock 例外」
+   共两处：§0.5 工具带窄屏换行 + 本条日志皮肤。 */
+#sim-console-log {
     background: #1f241f; color: #d5e6d5; padding: 6px 8px;
     font-family: Consolas, "Courier New", monospace; font-size: 12px; line-height: 17px;
     white-space: pre-wrap; word-break: break-all;
 }
-body.wp-dock #sim-console-log .mk-cline { color: #d5e6d5; }
-/* 仿真提示框（#sim-console-notes）：原来挂在源码卡片底部的 .helper-box，
-   第 37 轮用户裁决「运行完仿真后底下的提示框直接放到仿真状态的 log 框里」，
-   于是整块（含 #port-preview / #module-preview 两个真机 .helper 节点）搬到
-   #sim-console 内：日志区之下、状态行之上。两个 .helper 都为空时整块收起。 */
-body.wp-dock #sim-console > #sim-console-notes {
-    flex: 0 1 auto; min-height: 0; max-height: 40%; overflow: auto;
-    margin: 6px 8px 0;
-}
-body.wp-dock #sim-console > #sim-console-notes:not(:has(.helper:not(:empty))) { display: none; }
+#sim-console-log .mk-cline { color: #d5e6d5; }
+#sim-console-log .mk-cline.mk-ok { color: #8fd48f; }
+#sim-console-log .mk-cline.mk-warn { color: #e6c86e; }
+#sim-console-log .mk-cline.mk-err { color: #ff9b8a; }
+body.wp-dock .mk-host > #sim-console { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+body.wp-dock #sim-console-log { flex: 1 1 auto; min-height: 0; overflow: auto; }
 body.wp-dock #sim-console > #sim-status {
     flex: 0 0 auto; margin: 0; padding: 5px 8px; min-height: 24px;
     background: var(--toolbar-bg, #f8faf8); border-top: 1px solid var(--section-border, #e0e8e0);
@@ -330,13 +333,17 @@ body.wp-dock #sim-console > #sim-recover {
 }
 
 /* ══ 6. ?dock=off 逃生口：旧侧栏 UI 的兼容垫片 ═══════════════════════════
-   本文件对旧 UI 是「零影响」的（所有规则都在 body.wp-dock 之下），唯一例外是
-   #sim-console 这个新增容器把 #sim-status / #sim-recover 包了一层，于是真机
-   index.html 里 `.sim-panel-body > #sim-status` 这类「直接子元素」规则不再命中。
-   这里补回等价观感，让逃生口下的侧栏与改动前完全一致（回归脚本按此口径断言）。 */
+   本文件对旧 UI 是「零影响」的（所有规则都在 body.wp-dock 之下），例外只有三处：
+     · §0.5 工具带窄屏换行；
+     · §5 日志皮肤（#sim-console-log，旧侧栏也必须看得到状态输出）；
+     · 本节的兼容垫片 —— #sim-console 这个容器把 #sim-status / #sim-recover
+       包了一层，于是真机 index.html 里 `.sim-panel-body > #sim-status` 这类
+       「直接子元素」规则不再命中，这里补回等价观感。
+   除日志流外，逃生口下的侧栏与改动前保持一致（回归脚本按此口径断言）。 */
 body:not(.wp-dock) #sim-console { flex: 0 0 auto; display: flex; flex-direction: column; }
-body:not(.wp-dock) #sim-console-log { display: none; }
-body:not(.wp-dock) #sim-console > #sim-console-notes { flex: 0 0 auto; max-height: 40%; overflow: auto; }
+/* 逃生口下日志流同样要看得见（第 39 轮起它是唯一的状态输出口）：给个矮一点的
+   上限，别把旧侧栏挤变形。 */
+body:not(.wp-dock) #sim-console-log { flex: 0 1 auto; min-height: 64px; max-height: 38vh; overflow: auto; }
 body:not(.wp-dock) #sim-console > #sim-status {
     flex: 0 0 auto; position: sticky; bottom: 0; z-index: 2;
     background: var(--toolbar-bg, #f8faf8);

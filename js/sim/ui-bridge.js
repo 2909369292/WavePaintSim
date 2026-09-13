@@ -421,8 +421,8 @@ function initRefs() {
   refs.cmHost = el("verilog-cm-host");
   refs.rtlTree = el("rtl-tree");
   refs.vcdTree = el("vcd-tree");
-  refs.portPreview = el("port-preview");
-  refs.modulePreview = el("module-preview");
+  // #port-preview / #module-preview 已于第 39 轮退役：.helper-box 删除，
+  // 全部状态文本统一走「仿真状态」日志流（见下方 consoleOut）。
   refs.status = el("sim-status");
   refs.recoverBtn = el("sim-recover"); // 服务彻底死亡时的手动自愈入口（index.html 默认隐藏）
   refs.addFile = el("sim-addfile");
@@ -1158,21 +1158,21 @@ function parseDesign() {
   const design = parseVerilogDesign(sourceText());
   state.design = design;
   if (!design.modules || !design.modules.length) {
-    refs.portPreview.textContent = "⚠ 未识别到任何 module。请检查 RTL 语法：module/endmodule 是否匹配、模块名是否合法。";
-    refs.modulePreview.textContent = "解析失败：未找到 module。";
+    consoleOut("解析失败：未找到 module。请检查 RTL 语法：module/endmodule 是否匹配、模块名是否合法。", "error");
     setStatus("解析失败：未找到 module。");
     refreshStructureTrees();
     render();
     return;
   }
   const topPorts = design.topModule?.ports || [];
-  refs.portPreview.textContent = topPorts.length
+  consoleOut(topPorts.length
     ? `${design.topName}: ${topPorts.map((port) => `${port.direction} ${port.name}[${port.width}]`).join(", ")}`
-    : `⚠ ${design.topName} 未解析到端口。请检查端口声明写法（ANSI 或非 ANSI 均可）。`;
-  refs.modulePreview.textContent = [
+    : `⚠ ${design.topName} 未解析到端口。请检查端口声明写法（ANSI 或非 ANSI 均可）。`,
+    topPorts.length ? "info" : "warn");
+  consoleOut([
     `模块数：${design.moduleCount}`,
     ...design.modules.map((moduleInfo) => `${moduleInfo.name}：端口 ${moduleInfo.ports.length} 个，实例 ${moduleInfo.instances.length} 个`)
-  ].join("\n");
+  ].join("\n"), "info");
   setStatus(`已解析 ${design.moduleCount} 个模块。`);
   syncTopSelector();
   refreshStructureTrees();
@@ -1188,7 +1188,7 @@ function buildTbPreview() {
   const project = readWaveDocument();
   const result = buildAutoTestbench(design, project);
   if (!result.ok) {
-    refs.modulePreview.textContent = result.error;
+    consoleOut(result.error, "error");
     setStatus("TB 生成失败：" + result.error);
     state.lastTestbench = "";
     updateTbViewer();
@@ -1198,11 +1198,11 @@ function buildTbPreview() {
   state.lastBindings = result.bindings;
   updateTbViewer();
   const notes = diagnoseSimulation([], result.bindings);
-  refs.modulePreview.textContent = [
+  consoleOut([
     `端口绑定 ${result.bindings.length} 条：`,
     ...result.bindings.map((binding) => `${binding.port.name} → ${binding.signal ? binding.signal.name : "（未绑定）"} [${binding.strategy}]`),
     ...(notes.length ? ["", ...notes] : [])
-  ].join("\n");
+  ].join("\n"), "info");
   setStatus(notes.length
     ? `已为 ${design.topName} 生成 TB，有 ${notes.length} 条提醒，请查看详情。`
     : `已为 ${design.topName} 生成 TB。`);
@@ -1269,7 +1269,7 @@ function showRecoverHint() {
     + "  1. 点下方「启动本地仿真服务」再试（首次浏览器会问是否允许打开 wavepaint:，请选择允许）\n"
     + "  2. 仍失败时：手动双击应用目录下的 WavePaintClean.exe 重新打开\n"
     + "  3. 排查日志：%TEMP%\\WavePaintClean_sim.log";
-  refs.modulePreview.textContent = message;
+  consoleOut(message, "error");
   setStatus("本地仿真服务无响应，请点下方按钮重试或重启应用。");
   if (refs.recoverBtn) refs.recoverBtn.style.display = "block";
 }
@@ -1277,8 +1277,8 @@ function showRecoverHint() {
 // 自动恢复进行中：先把手动入口亮出来（用户可立即点，不必干等），但文案**不说**
 // 「失败」——旧实现先弹「自动恢复失败」再继续尝试自动拉起，字样一闪而过很误导。
 function showRecoverPending() {
-  refs.modulePreview.textContent = "本地仿真服务无响应，正在自动恢复（重连 / 重新拉起服务）...\n"
-    + "  也可以立即点下方「启动本地仿真服务」手动拉起。";
+  consoleOut("本地仿真服务无响应，正在自动恢复（重连 / 重新拉起服务）...\n"
+    + "  也可以立即点下方「启动本地仿真服务」手动拉起。", "warn");
   setStatus("本地仿真服务无响应，正在自动恢复...");
   if (refs.recoverBtn) refs.recoverBtn.style.display = "block";
 }
@@ -1305,14 +1305,14 @@ async function runSimulation() {
     tbResult = buildAutoTestbench(design, project);
   } catch (error) {
     const detail = String(error && error.stack ? error.stack : error);
-    refs.modulePreview.textContent = "TB 生成失败：" + detail.slice(0, 500);
+    consoleOut("TB 生成失败：" + detail.slice(0, 500), "error");
     setStatus("TB 生成失败：" + String(error).slice(0, 200));
     state.lastTestbench = "";
     updateTbViewer();
     return;
   }
   if (!tbResult.ok) {
-    refs.modulePreview.textContent = tbResult.error;
+    consoleOut(tbResult.error, "error");
     setStatus(tbResult.error);
     state.lastTestbench = "";
     updateTbViewer();
@@ -1322,7 +1322,7 @@ async function runSimulation() {
   updateTbViewer();
 
   setStatus(`正在为 ${design.topName} 运行仿真...`);
-  refs.modulePreview.textContent = "正在运行真实仿真（iverilog）...";
+  consoleOut("正在运行真实仿真（iverilog）...", "info");
   const payload = buildSimulationPayload(state.files, tbResult.source);
 
   const simAbort = (typeof AbortController !== "undefined") ? new AbortController() : null;
@@ -1342,16 +1342,31 @@ async function runSimulation() {
       throw new Error(`本地仿真服务返回 HTTP ${response.status}`);
     }
     const text = await response.text();
+    // 第 39 轮（E2）：后端成功路径可能回传 "@@LOG:...@@VCD:..." 分段（iverilog warning /
+    // vvp $display 输出 + VCD）。不带 @@LOG: 前缀的旧格式（纯 VCD 文本）与错误前缀格式
+    // 都按原逻辑解析 —— 新 exe / 旧 exe / dev-server 三种响应都能吃。
+    let vcdText = text;
+    let simLogText = "";
+    if (text.startsWith("@@LOG:")) {
+      const cut = text.indexOf("@@VCD:");
+      simLogText = (cut >= 0 ? text.slice(0, cut) : text).replace(/^@@LOG:\r?\n?/, "");
+      vcdText = cut >= 0 ? text.slice(cut + "@@VCD:".length).replace(/^\r?\n/, "") : "";
+    }
+    for (const logLine of simLogText.split(/\r?\n/)) {
+      const line = logLine.replace(/\r/g, ""); // iverilog/vvp 在 Windows 上是 CRLF
+      if (!line.trim()) continue; // 编译 / 仿真器输出 → 日志流（error/warning 自动着色）
+      consoleOut(line, /error/i.test(line) ? "error" : (/warning/i.test(line) ? "warn" : "info"));
+    }
     if (/^(IVERILOG-ERROR|VVP-ERROR|SIM-ERROR):/.test(text)) {
       const error = text.replace(/^(IVERILOG-ERROR|VVP-ERROR|SIM-ERROR):\s*/, "").trim();
-      refs.modulePreview.textContent = error || "仿真失败。";
+      consoleOut(error || "仿真失败。", "error");
       state.outputs = [];
       render();
       setStatus(error || "仿真失败。");
       return;
     }
 
-    const { parsed, outputs } = vcdToProjectOutputs(text, project);
+    const { parsed, outputs } = vcdToProjectOutputs(vcdText, project);
     state.outputs = outputs;
     state.vcd = parsed;
     // #76 B4：输出不再整批灌进画布；只按 VCD 路径重建用户已加入的观察行。
@@ -1362,13 +1377,13 @@ async function runSimulation() {
     // 结果诊断：输出全 0 / 全 x 或存在未绑定端口时，直接给出可操作的提示，
     // 避免用户面对「静默的全 0」无从下手。
     const notes = diagnoseSimulation(outputs, tbResult.bindings);
-    refs.modulePreview.textContent = [
+    consoleOut([
       `仿真完成：${outputs.length} 个输出信号，时长 tmax ${parsed.tmax}`,
       "加信号：在左侧代码里双击变量名（或选中后按 Ctrl+Alt+W / 右键）即可加入波形；"
         + "按 Ctrl+Alt+4 可把光标所在模块/实例的全部接口批量加入。",
       `末值：${summarizeOutputs(outputs)}`,
       ...(notes.length ? ["", ...notes] : [])
-    ].join("\n");
+    ].join("\n"), notes.length ? "warn" : "ok");
     render();
     refreshStructureTrees();
     if (refs.recoverBtn) refs.recoverBtn.style.display = "none"; // 仿真成功 → 收起自愈入口
@@ -1390,7 +1405,7 @@ async function runSimulation() {
       const alive = await probeServerAlive();
       if (alive && !simAutoRetried && !isTimeout) {
         simAutoRetried = true;
-        refs.modulePreview.textContent = "检测到仿真服务瞬时不可达，正在自动重试（1/1）...";
+        consoleOut("检测到仿真服务瞬时不可达，正在自动重试（1/1）...", "warn");
         setStatus("本地服务短暂重启中，自动重试一次...");
         setTimeout(runSimulation, 600);
         return;
@@ -1403,8 +1418,8 @@ async function runSimulation() {
             : "  1. 请求被丢弃（服务可能正在重启，或上一次仿真尚未结束）\n")
           + "  2. 可再点一次「运行仿真」重试\n"
           + "若反复失败请查看日志：%TEMP%\\WavePaintClean_sim.log";
-        refs.modulePreview.textContent = friendly;
-        setStatus(friendly);
+        consoleOut(friendly, "error");
+        setStatus(firstLine(friendly));
         return;
       }
       // 服务不在线（进程已退出 / 换端口 / 端口被占）→ 主动自愈，而不是只提示重启：
@@ -1412,19 +1427,19 @@ async function runSimulation() {
       //   ② 进程真的没了 → 立刻亮出「启动本地仿真服务」按钮（用户可马上手动救），
       //      同时后台尽力用 wavepaint: 协议自动重拉（本次点击带来的用户手势可能仍有效）；
       //      重拉成功 → 自动重试仿真；失败 → 保留按钮 + 手动指引。
-      refs.modulePreview.textContent = "本地仿真服务无响应，正在自动恢复（重新连接 / 拉起服务）...";
+      consoleOut("本地仿真服务无响应，正在自动恢复（重新连接 / 拉起服务）...", "warn");
       setStatus("本地仿真服务无响应，正在自动恢复...");
       const located = await recoverService({ allowRelaunch: false });
       if (located.state === "alive" || located.state === "elsewhere") {
         simApiBase = located.state === "elsewhere" ? located.origin : "";
         if (!simAutoRetried) {
           simAutoRetried = true;
-          refs.modulePreview.textContent = "已重新连接本地仿真服务，正在自动重试（1/1）...";
+          consoleOut("已重新连接本地仿真服务，正在自动重试（1/1）...", "warn");
           setStatus("已重新连接本地仿真服务，自动重试一次...");
           setTimeout(runSimulation, 600);
           return;
         }
-        refs.modulePreview.textContent = "本地仿真服务已重连，请再点一次「运行仿真」。";
+        consoleOut("本地仿真服务已重连，请再点一次「运行仿真」。", "warn");
         setStatus("本地仿真服务已重连，请再点一次「运行仿真」。");
         return;
       }
@@ -1436,20 +1451,20 @@ async function runSimulation() {
         if (refs.recoverBtn) refs.recoverBtn.style.display = "none";
         if (!simAutoRetried) {
           simAutoRetried = true;
-          refs.modulePreview.textContent = "已重新启动本地仿真服务，正在自动重试（1/1）...";
+          consoleOut("已重新启动本地仿真服务，正在自动重试（1/1）...", "warn");
           setStatus("已重新启动本地仿真服务，自动重试一次...");
           setTimeout(runSimulation, 600);
           return;
         }
-        refs.modulePreview.textContent = "本地仿真服务已重启，请再点一次「运行仿真」。";
+        consoleOut("本地仿真服务已重启，请再点一次「运行仿真」。", "warn");
         setStatus("本地仿真服务已重启，请再点一次「运行仿真」。");
         return;
       }
       showRecoverHint();
       return;
     }
-    refs.modulePreview.textContent = raw || String(error);
-    setStatus(raw || String(error));
+    consoleOut(raw || String(error), "error");
+    setStatus(firstLine(raw || String(error)));
   } finally {
     if (simTimeoutId) clearTimeout(simTimeoutId);
   }
@@ -1548,6 +1563,23 @@ function render() {
 
 function setStatus(text) {
   if (refs.status) refs.status.textContent = String(text || "");
+}
+
+// 第 39 轮：全应用唯一状态 / 日志出口 —— 「仿真状态」面板的 #sim-console-log。
+// 实现在 js/sim/dock/workspace.js（普通 <script>，早于本 ESM 加载）里，挂到
+// window.wpConsoleAppend(text, kind)；kind ∈ info | ok | warn | error。
+// 旧的 #port-preview / #module-preview（.helper-box）已退役：编译报错、仿真摘要、
+// 服务自愈提示等一律以纯文本行进日志流，不再有「框套框」。
+function consoleOut(text, kind) {
+  const body = text == null ? "" : String(text);
+  if (!body) return;
+  const emit = (typeof window !== "undefined") ? window.wpConsoleAppend : null;
+  if (typeof emit === "function") emit(body, kind || "info");
+}
+
+// 单行容器 #sim-status 的写入兜底：多行文本只取首行（完整文本走日志流）。
+function firstLine(text) {
+  return String(text == null ? "" : text).split("\n")[0].trim();
 }
 
 function renderFileTabs() {
@@ -1951,9 +1983,10 @@ function bindEvents() {
     state.selectedTop = refs.topSelect.value || null;
     const design = effectiveDesign();
     const ports = design?.topModule?.ports || [];
-    refs.portPreview.textContent = ports.length
+    consoleOut(ports.length
       ? `${design.topName}: ${ports.map((port) => `${port.direction} ${port.name}[${port.width}]`).join(", ")}`
-      : `⚠ ${design.topName} 未解析到端口。`;
+      : `⚠ ${design.topName} 未解析到端口。`,
+      ports.length ? "info" : "warn");
     setStatus(`顶层模块已切换为 ${design.topName}，点「自动加信号」或「生成 TB」生效。`);
   });
   refs.addSignals?.addEventListener("click", addPortSignalsToCanvas);
@@ -1969,7 +2002,7 @@ function bindEvents() {
   refs.recoverBtn?.addEventListener("click", async () => {
     refs.recoverBtn.disabled = true;
     refs.recoverBtn.style.display = "none";
-    refs.modulePreview.textContent = "正在拉起本地仿真服务（首次会询问是否允许打开 wavepaint:，请选择允许）...";
+    consoleOut("正在拉起本地仿真服务（首次会询问是否允许打开 wavepaint:，请选择允许）...", "info");
     setStatus("正在启动本地仿真服务...");
     const recovery = await recoverService({ allowRelaunch: true, waitMs: 20000 });
     refs.recoverBtn.disabled = false;

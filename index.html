@@ -211,8 +211,7 @@
             align-content: start;
         }
         /* 卡片内「不参与伸缩」的固定块 */
-        .sim-card-body > .source-toolbar,
-        .sim-card-body > .helper-box { flex: 0 0 auto; }
+        .sim-card-body > .source-toolbar { flex: 0 0 auto; }
         /* 卡片内「吃满剩余高度」的内容区（原先把 180 / 240 / 160px 写死，改为自适应） */
         .sim-card-body > #verilog-cm-host,
         .sim-card-body > #verilog-source { flex: 1 1 auto; min-height: 64px; height: auto; resize: none; }
@@ -397,20 +396,9 @@
             resize: vertical;
         }
         #tb-source { height: 160px; }
-        .helper-box { display: grid; gap: 6px; }
-        .helper {
-            min-height: 28px;
-            padding: 6px 8px;
-            border: 1px solid var(--section-border, #e0e8e0);
-            background: var(--input-bg, #fff);
-            color: var(--text-color, #1a1f1a);
-            border-radius: var(--radius-sm, 6px);
-            font-size: 12px;
-            font-family: Consolas, monospace;
-            line-height: 1.5;
-            word-break: break-all;
-            white-space: pre-wrap;
-        }
+        /* ⚠ 第 39 轮：原来的 .helper-box / .helper 提示框样式已随
+           #sim-console-notes / #port-preview / #module-preview 一并退役 ——
+           这些文本现在直接进「仿真状态」的日志流（css/workspace.css §5）。 */
         .signal-list { display: grid; gap: 6px; }
         .signal-chip {
             border: 1px solid var(--border-color, #d0dcd0);
@@ -508,9 +496,8 @@
         .sponsors-panel { display: none !important; }
         #main-area { margin-right: 0 !important; }
 
-        /* ── Bug B：无内容的 helper 框不再占位（此前是两个常驻空白框） ──────── */
-        .helper:empty, #port-preview:empty, #module-preview:empty { display: none; }
-
+        /* ── Bug B（历史）：无内容的 helper 框不再占位。第 39 轮起 helper 框
+              整体退役（内容进「仿真状态」日志流），此规则随之删除。 ────────── */
         /* ── Bug A：侧边栏收起后必须有可点的「展开」入口 ─────────────────────
            原 #sim-toggle-btn 定位 top:4px、z-index:110，正落在 #menu-bar
            （高 ~40px、z-index:6000）下方被完全盖住，收起后点不到 → 无法再展开。
@@ -1038,24 +1025,24 @@
                 </div>
             </section>
             <!-- ── #sim-console = 「仿真状态」面板的宿主（停靠引擎的面板之一）────
+                 这是**全应用唯一的状态输出口**（第 39 轮用户裁决）：
+                   · #sim-console-log —— 纯文本日志流，唯一出口。仿真完成摘要、
+                     编译报错、$display 输出、解析结果、自愈进度、布局动作……
+                     一律由 workspace.js 的 consoleAppend(text, kind) 追加成
+                     「一行一条」；行首带时间戳，kind ∈ info/ok/warn/error 决定配色。
+                   · #sim-status  —— 单行「当前状态」（始终显示最新一句，不替代日志）。
+                   · #sim-recover —— 服务彻底死亡时的手动自愈按钮。
                  固定顺序：日志区 → 状态行 → 自愈按钮。workspace.js 的
                  mountStatusNodes() 会按这个顺序校准，顺序被改乱也能自愈。
                  ⚠ 后两个节点是**真机原生节点**：#sim-status 的进度文字与
                  #sim-recover 的显隐仍由 js/sim/ui-bridge.js 照常驱动，停靠时整个
                  #sim-console 被搬进面板；带 ?dock=off 时它们原地留在侧栏底部，
-                 旧 UI 行为不变。 -->
+                 旧 UI 行为不变。
+                 ⚠ 第 39 轮**退役**了原来套在这里的 .helper-box（#sim-console-notes
+                 / #port-preview / #module-preview）：「框套框」被用户否决，框里的
+                 内容改为**纯文本行**直接进日志流（见 06-PITFALLS P50 / 07 D37）。 -->
             <div id="sim-console" class="sim-console">
                 <div id="sim-console-log" class="sim-console-log" role="log" aria-live="polite"></div>
-                <!-- ── 仿真提示框（原挂在源码卡片底部，第 37 轮用户裁决：搬到「仿真状态」面板）──
-                     两个 .helper 节点是**真机原生节点、只换父节点**（id / class 不动），
-                     ui-bridge 的 refs.portPreview / refs.modulePreview 照常写入：
-                       · #port-preview   —— 解析结果：顶层模块 + 端口清单
-                       · #module-preview —— 仿真提示框：完成摘要 / 结果诊断 / 失败原因 / 自愈进度
-                     `.helper:empty{display:none}` ⇒ 无内容时整块不占高度。 -->
-                <div class="helper-box" id="sim-console-notes">
-                    <div id="port-preview" class="helper"></div>
-                    <div id="module-preview" class="helper"></div>
-                </div>
                 <div id="sim-status" class="sim-status"></div>
                 <!-- 服务彻底死亡时的手动自愈入口（默认隐藏，ui-bridge 在自动恢复失败时显示）。
                      点击后用 wavepaint: 协议拉起 exe；首次浏览器会弹一次「是否允许打开

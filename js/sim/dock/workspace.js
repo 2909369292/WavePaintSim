@@ -1004,6 +1004,9 @@ function openPanelMenu(anchor) {
  *     所有布局动作都在面板页签上完成（拖动 = 停靠，双击 / 中键 = 浮出，✕ = 隐藏）；
  *   · 状态变化不再用一次性 toast，而是按时间顺序追加到「仿真状态」面板的
  *     日志区（#sim-console-log）里，可回溯。
+ *   · 第 39 轮起，这条日志流同时是**仿真链路的状态出口**（ui-bridge 的
+ *     consoleOut → window.wpConsoleAppend）：仿真完成摘要 / 编译报错 /
+ *     $display 输出都变成纯文本行进这里，不再用「框套框」的提示框。
  */
 
 // 真机 #sim-status / #sim-recover 从侧栏（.sim-panel-body）搬进「仿真状态」面板
@@ -1027,20 +1030,46 @@ function mountStatusNodes() {
   }
 }
 
-// 状态时间线（原 flash）：切预设 / 显隐 / 浮出 / 停靠都追加一行，最多留 CONSOLE_MAX 行。
+/* ── 10.1 统一状态输出流 consoleAppend(text, kind) ───────────────────────
+ * 「仿真状态」面板的 #sim-console-log 是**全应用唯一的状态 / 日志出口**（第 39 轮）：
+ *   · 本文件内部的布局动作（切预设 / 显隐 / 浮出 / 停靠）走 flash(msg)；
+ *   · js/sim/ui-bridge.js（ESM）通过 window.wpConsoleAppend(text, kind) 写仿真链路的
+ *     完成摘要 / 编译报错 / $display 输出 —— 对应 ui-bridge 的 consoleOut()。
+ * 口径：
+ *   · 一行一条；多行文本按换行拆行，**首行带时间戳**，续行缩进对齐（11 字符 =
+ *     「[hh:mm:ss] 」的宽度），这样「编译报错原文」这类多行块仍是一整块可读文本；
+ *   · kind ∈ info（默认）| ok | warn | error → 行类名 mk-cline[ mk-ok|mk-warn|mk-err]；
+ *     `.mk-cline` 必须保留（tools/dock-probe.mjs 按它计行）；
+ *   · 只留最近 CONSOLE_MAX 行（防长跑把 DOM 撑爆），追加后自动滚到底部。
+ */
 const CONSOLE_MAX = 300;
-function flash(msg) {
+const CONSOLE_KIND_CLASS = { info: '', ok: ' mk-ok', warn: ' mk-warn', error: ' mk-err' };
+
+function consoleAppend(text, kind) {
   const log = document.getElementById('sim-console-log');
   if (!log) return;
-  const line = document.createElement('div');
-  line.className = 'mk-cline';
+  const body = text == null ? '' : String(text);
+  if (!body) return;
+  const lines = body.split('\n');
+  while (lines.length > 1 && lines[lines.length - 1] === '') lines.pop();
   const t = new Date();
   const p = (n) => (n < 10 ? '0' + n : '' + n);
-  line.textContent = '[' + p(t.getHours()) + ':' + p(t.getMinutes()) + ':' + p(t.getSeconds()) + '] ' + msg;
-  log.appendChild(line);
+  const stamp = '[' + p(t.getHours()) + ':' + p(t.getMinutes()) + ':' + p(t.getSeconds()) + '] ';
+  const cls = 'mk-cline' + (CONSOLE_KIND_CLASS[kind] || '');
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = document.createElement('div');
+    line.className = cls;
+    line.textContent = i === 0 ? stamp + lines[i] : '           ' + lines[i];
+    log.appendChild(line);
+  }
   while (log.childElementCount > CONSOLE_MAX) log.removeChild(log.firstElementChild);
   log.scrollTop = log.scrollHeight;
 }
+
+// 对外暴露（ESM 的 ui-bridge 与 e2e 探针都靠它写日志流）。
+window.wpConsoleAppend = consoleAppend;
+
+function flash(msg) { consoleAppend(msg, 'info'); }
 
 function applyPreset(name, hard) {
   if (!PRESETS[name]) return;

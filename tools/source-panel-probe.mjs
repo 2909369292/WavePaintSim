@@ -1,9 +1,9 @@
-// 源码面板 / 文件标签条 探针（第 37 轮）：真实 Edge + dev-server + CDP
+// 源码面板 / 文件标签条 / 通用状态出口 探针（第 37 + 39 轮）：真实 Edge + dev-server + CDP
 // 覆盖用户本轮点名的四件事：
 //   ① 右侧源码面板不再有「第二层标题栏」（停靠模式下 .sim-card-head 必须隐藏）；
 //   ② 该面板只剩「文件标签条 + 代码框」两件东西（其余控件移出 / 隐去 / 不可见）；
-//   ③ 仿真提示框（#module-preview / #port-preview）落在「仿真状态」面板里，
-//      位置在日志区之下、状态行之上；
+//   ③ 「仿真状态」面板 = 全应用唯一状态出口：只剩 #sim-console-log 日志流 + #sim-status
+//      状态行（.helper-box / #port-preview / #module-preview / #sim-console-notes 已退役）；
 //   ④ 文件的新增 / 移除 = 标签条末尾的「＋」+ 每个标签右侧的「−」。
 // 用法：node tools/source-panel-probe.mjs [端口]
 // 产物：.e2e-tmp/src-*.png 截图 + 控制台 PASS/FAIL 明细
@@ -91,7 +91,10 @@ const snap = await ev(`(() => {
   const srcBtnsOutTabs = src ? Array.from(src.querySelectorAll('button')).filter((b) => vis(b) && !b.closest('#source-tabs')).map((b) => b.id || b.className) : [];
   const con = document.getElementById('sim-console');
   const conKids = con ? Array.from(con.children).map((k) => k.id || k.className) : [];
-  const notes = document.getElementById('sim-console-notes');
+  const logEl = document.getElementById('sim-console-log');
+  // 第 39 轮：.helper-box / #port-preview / #module-preview / #sim-console-notes 已退役，
+  // 状态文本统一进 #sim-console-log 日志流 —— 这里顺手断言全文档不再有这些节点。
+  const legacyNodes = ['port-preview', 'module-preview', 'sim-console-notes'].filter((id) => document.getElementById(id));
   const tb = document.getElementById('sim-card-tb');
   return JSON.stringify({
     dock: !!window.__wpDock, bodyClass: document.body.className,
@@ -99,8 +102,9 @@ const snap = await ev(`(() => {
     srcBodyKids: bodyKids,
     srcVisibleButtonsOutsideTabs: srcBtnsOutTabs, srcVisibleButtons: srcBtns,
     consoleKids: conKids,
-    notesInConsole: !!(notes && notes.parentNode === con),
-    notesRect: R(notes), statusRect: R(document.getElementById('sim-status')), logRect: R(document.getElementById('sim-console-log')),
+    legacyNodes: legacyNodes,
+    helperBoxes: document.querySelectorAll('.helper-box').length,
+    statusRect: R(document.getElementById('sim-status')), logRect: R(logEl),
     importHidden: !vis(document.getElementById('sim-import')),
     removeFileHidden: !vis(document.getElementById('sim-removefile')),
     parseHidden: !vis(document.getElementById('sim-parse')),
@@ -134,12 +138,13 @@ check('两个按钮在编辑栏下沿之内（未被裁出工具带）',
   !!S.runRect && !!S.addSigRect && !!S.toolbarRect
     && S.runRect.y >= S.toolbarRect.y - 1 && S.runRect.y + S.runRect.h <= S.toolbarRect.y + S.toolbarRect.h + 1,
   JSON.stringify({ run: S.runRect, addSig: S.addSigRect, tb: S.toolbarRect }));
-check('仿真提示框（#sim-console-notes）在 #sim-console 内，且排在日志区之后、状态行之前',
-  S.notesInConsole === true
-    && (S.consoleKids || []).indexOf('sim-console-log') < (S.consoleKids || []).indexOf('sim-console-notes')
-    && (S.consoleKids || []).indexOf('sim-console-notes') < (S.consoleKids || []).indexOf('sim-status'),
-  JSON.stringify(S.consoleKids));
-check('提示框无内容时自动收起（不占高度）', !S.notesRect || S.notesRect.h === 0, JSON.stringify(S.notesRect));
+check('「仿真状态」面板只剩 日志流 + 状态行（+ 自愈按钮）：提示框两件套已彻底退役',
+  (S.consoleKids || []).join(',') === 'sim-console-log,sim-status,sim-recover'
+    && S.helperBoxes === 0 && (S.legacyNodes || []).length === 0,
+  JSON.stringify({ kids: S.consoleKids, boxes: S.helperBoxes, legacy: S.legacyNodes }));
+check('日志流是面板主内容（有高度、且排在状态行之上）',
+  !!S.logRect && !!S.statusRect && S.logRect.h > 0 && S.logRect.y + S.logRect.h <= S.statusRect.y + 2,
+  JSON.stringify({ log: S.logRect, status: S.statusRect }));
 await shot(shotPath('1-structure'));
 
 // ─────────────────────────────────────── 1.5 切到 TB 页签：同样只有一层标题栏
@@ -237,37 +242,36 @@ check('只剩一个文件时「−」被禁用（护栏：至少保留一个源�
   T.singleDisabled === true && T.singleClickKeeps === 1, JSON.stringify({ d: T.singleDisabled, n: T.singleClickKeeps }));
 await shot(shotPath('2-tabs'));
 
-// ─────────────────────────────────────────── 3. 仿真提示框落位（console 面板内）
-const notes = await ev(`(async () => {
+// ─────────────────────────── 3. 通用状态出口：日志流（#sim-console-log）
+const logCase = await ev(`(async () => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const R = (el) => { const r = el.getBoundingClientRect(); return { y: Math.round(r.top), h: Math.round(r.height) }; };
-  const notes = document.getElementById('sim-console-notes');
-  const mp = document.getElementById('module-preview');
-  const pp = document.getElementById('port-preview');
-  mp.textContent = '仿真完成：3 个输出信号，时长 tmax 120\\n末值：q=3';
-  pp.textContent = 'counter: input clk[1], output q[4]';
-  await sleep(300);
-  const out = {
-    notesDisplay: getComputedStyle(notes).display,
-    notesRect: R(notes), logRect: R(document.getElementById('sim-console-log')),
-    statusRect: R(document.getElementById('sim-status')),
-    text: mp.textContent.slice(0, 20),
-    insideConsole: notes.closest('#sim-console') === document.getElementById('sim-console'),
-  };
-  mp.textContent = ''; pp.textContent = '';
-  await sleep(300);
-  out.collapsedAgain = getComputedStyle(notes).display === 'none';
-  return JSON.stringify(out);
+  const log = document.getElementById('sim-console-log');
+  const before = log.childElementCount;
+  window.wpConsoleAppend('仿真完成：3 个输出信号，时长 tmax 120\\n末值：q=3', 'ok');
+  window.wpConsoleAppend('bad.v:3: syntax error', 'error');
+  await sleep(150);
+  const rows = Array.from(log.children).slice(-4).map((k) => ({ cls: k.className, text: k.textContent }));
+  return JSON.stringify({
+    api: typeof window.wpConsoleAppend,
+    grew: log.childElementCount > before,
+    rows: rows,
+    hasOk: !!log.querySelector('.mk-cline.mk-ok'),
+    hasErr: !!log.querySelector('.mk-cline.mk-err'),
+    scrolled: log.scrollTop > 0 || log.scrollHeight <= log.clientHeight,
+  });
 })()`);
-console.log('\n=== 3. 仿真提示框落位 ===');
-console.log(notes);
-let N = {};
-try { N = JSON.parse(notes); } catch (e) { console.log('解析失败', e); }
-check('提示框有内容时在「仿真状态」面板内可见', N.notesDisplay !== 'none' && N.insideConsole === true, N.notesDisplay);
-check('提示框排在日志区之下、状态行之上',
-  !!N.notesRect && !!N.logRect && !!N.statusRect && N.notesRect.y >= N.logRect.y + N.logRect.h - 1 && N.notesRect.y + N.notesRect.h <= N.statusRect.y + 2,
-  JSON.stringify({ notes: N.notesRect, log: N.logRect, status: N.statusRect }));
-check('提示框清空后自动收起', N.collapsedAgain === true);
+console.log('\n=== 3. 通用状态出口（日志流）===');
+console.log(logCase);
+let LG = {};
+try { LG = JSON.parse(logCase); } catch (e) { console.log('解析失败', e); }
+check('统一状态出口 window.wpConsoleAppend 可用（ui-bridge 的 consoleOut 走它）', LG.api === 'function', String(LG.api));
+check('多行文本逐行追加：首行带时间戳、续行缩进 11 空格', LG.grew === true
+  && (LG.rows || []).some((r) => /^\[\d\d:\d\d:\d\d\] 仿真完成/.test(r.text))
+  && (LG.rows || []).some((r) => /^ {11}末值：q=3$/.test(r.text)),
+  JSON.stringify(LG.rows));
+check('kind 着色类生效（ok → .mk-ok，error → .mk-err）', LG.hasOk === true && LG.hasErr === true,
+  JSON.stringify({ ok: LG.hasOk, err: LG.hasErr }));
+check('追加后自动滚到底部（或内容不足一屏）', LG.scrolled === true, String(LG.scrolled));
 
 console.log('\n=== 4. JS 异常 ===');
 check('页面无未捕获异常', errors.length === 0, errors.slice(0, 3).join(' | '));

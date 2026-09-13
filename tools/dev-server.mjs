@@ -6,7 +6,7 @@
 // 这类只在真实 DOM 环境复现的问题）。
 import http from 'node:http';
 import { promises as fs, existsSync, mkdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -21,7 +21,10 @@ const MIME = {
 };
 
 // ---------------------------------------------------------------------------
-// /api/sim：与 exe 内置服务同协议（成功返回 VCD 文本；失败返回 `XX-ERROR: 原因`）
+// /api/sim：与 exe 内置服务同协议。
+//   成功：`@@LOG:\n<iverilog/vvp 输出>\n@@VCD:\n<VCD 文本>`（无任何输出时退化为纯 VCD 文本）
+//   失败：`IVERILOG-ERROR: 原因` / `VVP-ERROR: 原因` / `SIM-ERROR: 原因`
+// 第 39 轮（E2）：成功路径也回传 stdout+stderr，前端把日志行灌进「仿真状态」日志流。
 // ---------------------------------------------------------------------------
 let ivlRootCache = null;
 function ivlRoot() {
@@ -64,21 +67,25 @@ function runSim(text) {
       writeFileSync(path.join(work, names[i]), files[i].content);
     }
     const compileArgs = ['-g2012', '-s', 'tb', '-o', 'sim.vvp', ...names];
-    try {
-      execFileSync(path.join(ivlRoot(), 'bin', 'iverilog.exe'), compileArgs,
-        { cwd: work, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 30000 });
-    } catch (e) {
-      return 'IVERILOG-ERROR: ' + String((e && (e.stderr || e.stdout)) || e).slice(0, 4000);
+    // 第 39 轮（E2）：改用 spawnSync —— 只有它能在**成功**路径同时拿到 stdout+stderr
+    // （iverilog 的 warning 走 stderr、vvp 的 $display 走 stdout，execFileSync 成功时丢弃）。
+    const compile = spawnSync(path.join(ivlRoot(), 'bin', 'iverilog.exe'), compileArgs,
+      { cwd: work, encoding: 'utf8', timeout: 30000 });
+    const compileOut = String(compile.stdout || '') + String(compile.stderr || '');
+    if (compile.status !== 0) {
+      return 'IVERILOG-ERROR: ' + (compileOut.trim() || 'iverilog failed.').slice(0, 4000);
     }
-    try {
-      execFileSync(path.join(ivlRoot(), 'bin', 'vvp.exe'), ['sim.vvp'],
-        { cwd: work, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 30000 });
-    } catch (e) {
-      return 'VVP-ERROR: ' + String((e && (e.stderr || e.stdout)) || e).slice(0, 4000);
+    const vvp = spawnSync(path.join(ivlRoot(), 'bin', 'vvp.exe'), ['sim.vvp'],
+      { cwd: work, encoding: 'utf8', timeout: 30000 });
+    const vvpOut = String(vvp.stdout || '') + String(vvp.stderr || '');
+    if (vvp.status !== 0) {
+      return 'VVP-ERROR: ' + (vvpOut.trim() || 'vvp failed.').slice(0, 4000);
     }
     const vcd = path.join(work, 'wave_out.vcd');
     if (!existsSync(vcd)) return 'SIM-ERROR: wave_out.vcd not generated';
-    return readFileSync(vcd, 'utf8');
+    const simLog = (compileOut + vvpOut).trim();
+    const vcdText = readFileSync(vcd, 'utf8');
+    return simLog ? '@@LOG:\n' + simLog + '\n@@VCD:\n' + vcdText : vcdText;
   } catch (e) {
     return 'SIM-ERROR: ' + String(e && e.message || e).slice(0, 4000);
   } finally {

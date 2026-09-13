@@ -256,6 +256,26 @@ if (ready === 'ready') {
   check('C2: VCD 树渲染出信号行（含作用域层级）', VCD.rows > 0 && VCD.empty === false, vcdState);
   check('C3: 信号行带完整点分路径 title', VCD.rows > 0 && /\./.test(VCD.firstTitle || ''), vcdState);
 
+  // ---- C4/C5. 通用状态出口：仿真摘要以纯文本行进 #sim-console-log（第 39 轮）----
+  const logStream = await ev(`(() => {
+    const log = document.getElementById('sim-console-log');
+    const rows = log ? Array.from(log.children) : [];
+    return JSON.stringify({
+      rows: rows.length,
+      tail: rows.slice(-4).map((k) => k.className + '|' + k.textContent.slice(0, 80)),
+      text: rows.map((k) => k.textContent).join('\\n'),
+      helperBoxes: document.querySelectorAll('#sim-console .helper-box').length,
+      legacy: ['port-preview', 'module-preview', 'sim-console-notes'].filter((id) => document.getElementById(id)),
+    });
+  })()`);
+  const LOG = JSON.parse(logStream || '{}');
+  check('C4: 仿真完成摘要以纯文本行进「仿真状态」日志流（首行带时间戳）',
+    LOG.rows > 0 && /\[\d\d:\d\d:\d\d\] 仿真完成/.test(LOG.text || '')
+      && (LOG.tail || []).length > 0 && (LOG.tail || []).every((r) => /^mk-cline/.test(r)),
+    logStream);
+  check('C5: 「仿真状态」面板内已无提示框（.helper-box 与旧两件套节点全部退役）',
+    LOG.helperBoxes === 0 && (LOG.legacy || []).length === 0, logStream);
+
   // ---- D. VCD 点信号 → 加入画布观察行（#85）----
   const watchRow = await ev(`(async () => {
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -1042,6 +1062,37 @@ if (ready === 'ready') {
     && jSorted(J.classifyBatch.existed) === jSorted(['tb.dut.clk'])
     && jSorted(J.classifyBatch.missing) === jSorted(['tb.no_such_signal_xyz'])
     && (J.afterClassify || []).indexOf('tb.en') >= 0, jState);
+
+  // ---- K. 编译报错文本化：iverilog stderr 原文直接进「仿真状态」日志流（第 39 轮）----
+  const badSim = await ev(`(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const log = document.getElementById('sim-console-log');
+    window.__wpsim.setSourceFiles([{ name: 'bad.v', content: 'module bad(input clk);\\n  wire x = ;\\nendmodule\\n' }]);
+    await sleep(200);
+    const before = log.childElementCount;
+    document.getElementById('sim-run').click();
+    let text = '';
+    for (let i = 0; i < 40; i += 1) {
+      await sleep(500);
+      text = Array.from(log.children).slice(before).map((k) => k.textContent).join('\\n');
+      if (/syntax error|IVERILOG-ERROR|not a valid|lvalue/i.test(text)) break;
+    }
+    await sleep(200);
+    const rows = Array.from(log.children).slice(before).map((k) => k.className + '|' + k.textContent.slice(0, 100));
+    return JSON.stringify({
+      rows: rows,
+      text: text.slice(0, 400),
+      helperBoxes: document.querySelectorAll('#sim-console .helper-box').length,
+      statusText: String(document.getElementById('sim-status').textContent || '').slice(0, 120),
+    });
+  })()`);
+  const BADSIM = JSON.parse(badSim || '{}');
+  check('K1: 编译失败 → iverilog 报错原文以文本行进「仿真状态」日志流（不再塞进提示框）',
+    /syntax error|IVERILOG-ERROR|not a valid|lvalue/i.test(BADSIM.text || ''), badSim);
+  check('K2: 编译报错行走 .mk-cline 计行契约（行类可被探针统计）',
+    (BADSIM.rows || []).length > 0 && (BADSIM.rows || []).every((r) => /^mk-cline/.test(r)), badSim);
+  check('K3: 编译失败时「仿真状态」面板内仍无 .helper-box（框套框已彻底消除）',
+    BADSIM.helperBoxes === 0, badSim);
 }
 
 console.log('\n资源加载失败(404等)：' + netFails);
