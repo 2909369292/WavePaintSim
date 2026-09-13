@@ -63,6 +63,43 @@
 - 禁止重做已完成的解混淆、重构、批次1~10。
 
 ---
+*最后更新：2026-09-13（第二十八轮：**给外部 UI Agent 的「提示词 + 交接文档」（纯文档，零产品代码改动）**）。
+用户原话：「写一段提示词和一段交接文档，我将交由其他 AI Agent 进行 UI 设计和前端界面的设计，要求就是之前和你说的那样，
+**组件的分布就按照 Verdi 一样分布**，之前我批准过的**可滑动组件加上最左侧、中间、最右侧和底下的布局**，
+其中**波形界面就是以前的代码，完全的照搬**，我将交由 AI Agent 单独进行 UI 设计的 AI Agent 进行 UI 代码的编写」。
+**本轮唯一交付 = 两份对外文档（零产品代码改动）**：**`docs/ui-agent/PROMPT.md`**（7,615 B / 95 行，可整段复制粘贴的**入口提示词**：
+角色定位（Verdi/ModelSim 类 EDA UI 工程师）→ 第一步必读 HANDOFF → 唯一目标 → 10 条硬性要求 → 黑名单 →
+三件套交付物（`prototype/` 源码 + `WavePaintMockup.exe` + 改动说明）→ 4 条自检命令 → 回答格式）；
+**`docs/ui-agent/HANDOFF.md`**（44,174 B / 749 行 / 围栏 30，**唯一权威规格** 12 节 + 附录 A 一页纸速查 + 附录 B 完整命令序列：
+§0 TL;DR / §1 项目简介与事实卡（目录地图 + 原型四文件）/ §2 写入白名单·黑名单 / §3 环境·运行·构建 + PowerShell 5.1 五条陷阱 + 测试脚本 /
+§4 目标 UI 规格（Verdi 对照表 / 8 面板清单与宿主 id / `sim` 默认预设树 / splitter 8 条 / 拖拽停靠 7 动作 / 控件铁律 R1~R9 + G0~G8 分组 +
+刻度变量 / 状态栏三段）/ §5 **波形区·代码区 = 1:1 照搬铁律**（13 same / 1 diff、像素 diff 0.0141%、黄金基线尺寸、生成器三条机械替换）/
+§6 冻结契约面（24 id / class·dataset / 状态类 / 属性 / `#mk-park` 搬运模式）/ §7 交互红线 6 条 / §8 可复用资产 /
+§9 硬约束 C 线 + D 线 + U0-R / §10 验收口径与自检 / §11 故意不做 + 总排期 / §12 术语表）。
+**写作前只读复核（不靠记忆）**：`index.html` **24 个冻结 id 全部命中**（`main-area:838`/`sim-panel:846`/`sim-card-source:861`/
+`sim-card-rtl:898`/`sim-card-vcd:909`/`sim-card-tb:919`/`wave-view:839`/`wave-canvas:840`/`tb-source:926`/`sim-status:929`/`sim-recover:933` …）；
+`status-bar` 确认为**原型独有**（真机无）；`prototype/ui-mockup.js` 的 `PANELS`(8)/`HOME_ZONE`/`HOST_ID`(5)/3 预设/`hitTestOp`/`simulateDrop`/
+`computeDrop`/`startPanelDrag`/`localStorage['wavepaint.mock.layout.v1']`/`window.__mock` 全在；
+`mock-tail.html` 7 个原型元素（`#workbench`/`#mk-drop`/`#mk-caret`/`#mk-floats`/`#mk-park`/`#status-bar`/`#help-overlay`）全在；
+`tools/gen-mock-page.mjs` 三条机械替换确认。
+**本轮新量到的事实（已写进 HANDOFF §4.6「最容易犯的两个错」）**：原型 `#toolbar` = 真机逐字复制，含 **21 个带 `.tool-btn` 类**的元素
+（`tool-open`/`tool-save`/`tool-undo`/`tool-redo`/`tool-zoom-out|in|fit`/`add-signal-btn`/`tool-cut`/`tool-paint-color`/`tool-bit-state`/`tool-paint`/
+`tool-erase`/`tool-select`/`tool-arrow`/`tool-time-span`/`tool-marker`/`tool-time-jump`/`tool-text`/`tool-select-object`/`tool-properties`），
+且**其中没有「运行仿真」**（`#sim-run` 在面板 `source` 里）→ 防外部 Agent 把 **G0~G8 目标分组表当成现状**去重排工具带。
+**边界写死**：外部 Agent **写入白名单只有 `prototype/**`（+ `docs/ui-agent/**` 新增）**，`index.html`/`js/`/`css/`/`lib/`/`img/`/`memory/`/`tools/`/`*.cs`/`*.ps1` 一律只读；
+本阶段 = **零后端 mock 沙盘**（不触发 C1）；**接线真机 = 阶段 2，必须等用户明确授权**（D0+U2 → U3 → D1 → D2 → D3 → D4 + U4）；
+**唯一验收口径 = 用户双击 `WavePaintMockup.exe` 亲自拖一遍**（不接受链接 / 截图 / 设计稿）；
+**D26 口径**（原型继承真机工具带间距与溢出特征，R5/R6/R8 只在真机判定）与 **D27 铁律**（跨重建交互禁止缓存 DOM 引用）已一并写进文档。
+**未改任何产品代码**（`index.html`/`js/`/`css/`/`img/`/`lib/`/`prototype/`/`tools/`/`*.cs`/`*.ps1` 全未动）→ **C1 未触发**，
+真机 exe 仍 22,015,488 B / 16:52:06 / `v0.4.0 build 2026-09-13 16:52:06 83fab85`，原型 exe 仍 1,709,056 B / 18:55:12 / `b93ad07`。
+同步 `04 §4.26`、`05-LOGS` 索引、当日日志「第二十八轮」段、本页脚。
+**下一步 = 用户把两份文档交给外部 UI Agent** → 等对方产出**新版 `WavePaintMockup.exe`** → 用户 review 通过（闸门 U-1 关闭）→
+阶段 2：**D0 + U2** 合并同批（像素级零视觉变化）→ **U3**（真机工具带落地 + 修 **P-UI-02**）→ D1 → D2 → D3 → D4 + U4。
+维护者：任何接手的 AI。
+
+<details>
+<summary>上一轮记录（第二十七轮：拖拽两条真 bug 修复 + 原型「1:1 完全照搬真机」重构 + 审计口径校准 + exe 重打包）</summary>
+
 *最后更新：2026-09-13（第二十七轮：**拖拽两条真 bug 修复 + 原型「1:1 完全照搬真机」重构 + 审计口径校准 + exe 重打包**）。
 用户原话：「目前各个面板的**拖动仍然有问题，拖动的预览和最后实际的效果不一致**，且**拖动按钮在拖动时的显示也有 bug**。
 此外，代码显示区和菜单栏的显示等**并没有照搬原本的源码**，我希望**完全照搬它的源码，做出 1:1 的效果**，只是原本是全屏的，
@@ -103,6 +140,8 @@ smoke **56/56**、`r37c` 落点预览矩阵 **10/10**、`r37d` 分隔条 + 拖�
 同步 `04 §4.25` + §1/§2、`09 §3.1`（**重编号**：原 3.1~3.8 顺延为 3.2~3.9）、`06 P39`、`07 D26 + D27`、`05-LOGS` 索引、当日日志。
 **下一步 = 等用户 review 第二十七轮 `WavePaintMockup.exe`** → 通过后按 **08 §7.8**：U2 + D0 合并同批 → U3（含 P-UI-02）→ D1 → D2 → D3 → D4+U4。
 维护者：任何接手的 AI。
+
+</details>
 
 <details>
 <summary>上一轮记录（第二十六轮：原型打包为可双击运行的 exe（交付方式升级：网页链接 → 零依赖 exe））</summary>
