@@ -658,6 +658,10 @@
          「只在整页全屏时成立」的规则；同时所有规则都挂在 body.wp-dock 之下，
          对带 ?dock=off 的旧侧栏 UI 零影响（见 js/sim/dock/workspace.js）。 -->
     <link rel="stylesheet" href="css/workspace.css">
+    <!-- 顶栏「窗口 / 视图」菜单附加样式（第 48 轮）：面板状态标记、代码框字号 /
+         行号显隐、仿真状态框字号、通用对话框（设置 / 关于）。刻意不带 body.wp-dock
+         作用域 —— 逃生口 ?dock=off 下菜单与对话框同样要可用。 -->
+    <link rel="stylesheet" href="css/view-menu.css">
     <script>
         (function () {
             function removeLoader() {
@@ -735,12 +739,77 @@
                         </ul>
                     </li>
                     <li data-action="toggle-vcd-panel">VCD 信号面板</li>
+                    <li class="submenu-separator"></li>
+                    <li class="has-submenu">波形格宽
+                        <ul class="submenu submenu-right">
+                            <li data-wpv-cell="24">每格 24 px</li>
+                            <li data-wpv-cell="32">每格 32 px</li>
+                            <li data-wpv-cell="48">每格 48 px（默认）</li>
+                            <li data-wpv-cell="64">每格 64 px</li>
+                            <li data-wpv-cell="96">每格 96 px</li>
+                            <li class="submenu-separator"></li>
+                            <li data-wpv-cell-fit>适应窗口</li>
+                        </ul>
+                    </li>
+                    <li class="has-submenu">代码字号
+                        <ul class="submenu submenu-right">
+                            <li data-wpv-codefont="12">小（12 px）</li>
+                            <li data-wpv-codefont="13">中（13 px）</li>
+                            <li data-wpv-codefont="15">大（15 px）</li>
+                            <li data-wpv-codefont="17">特大（17 px）</li>
+                        </ul>
+                    </li>
+                    <li class="submenu-separator"></li>
+                    <li data-wpv-fullscreen>全屏显示</li>
+                </ul>
+            </li>
+            <!-- 「窗口」一级菜单（第 48 轮新增）：面板的增添 / 显隐 / 浮动 / 停靠 +
+                 布局预设，以及集中式「面板与视图设置…」对话框。
+                 ⚠ 这些项的 data-wpv-* 属性不是核心的 data-action 契约：核心
+                 initMenuHandlers 按 data-action 一次性绑定（handleAction 的 switch
+                 在 C9 红线文件里，不能新增 case），本菜单全部由
+                 js/editor/view-menu.js 自行绑定（见该文件头注释）。
+                 面板动作走停靠引擎公开 API window.__wpDock。 -->
+            <li class="menu-item">窗口
+                <ul class="submenu">
+                    <li data-wpv-settings>面板与视图设置…</li>
+                    <li class="submenu-separator"></li>
+                    <li class="has-submenu">面板显隐
+                        <ul class="submenu submenu-right">
+                            <li data-wpv-panel="wave">波形</li>
+                            <li data-wpv-panel="source">Verilog / SV 源码</li>
+                            <li data-wpv-panel="rtl">RTL 结构树</li>
+                            <li data-wpv-panel="vcd">VCD 信号层次</li>
+                            <li data-wpv-panel="tb">Testbench (TB)</li>
+                            <li data-wpv-panel="console">仿真状态</li>
+                        </ul>
+                    </li>
+                    <li class="has-submenu">浮动 / 停靠
+                        <ul class="submenu submenu-right">
+                            <li data-wpv-float="wave">波形</li>
+                            <li data-wpv-float="source">Verilog / SV 源码</li>
+                            <li data-wpv-float="rtl">RTL 结构树</li>
+                            <li data-wpv-float="vcd">VCD 信号层次</li>
+                            <li data-wpv-float="tb">Testbench (TB)</li>
+                            <li data-wpv-float="console">仿真状态</li>
+                        </ul>
+                    </li>
+                    <li class="submenu-separator"></li>
+                    <li class="has-submenu">布局预设
+                        <ul class="submenu submenu-right">
+                            <li data-wpv-preset="sim">仿真预设</li>
+                            <li data-wpv-preset="edit">编辑预设</li>
+                            <li data-wpv-preset="review">审阅预设</li>
+                        </ul>
+                    </li>
+                    <li data-wpv-layout-reset>恢复默认布局</li>
                 </ul>
             </li>
             <li class="menu-item">帮助
                 <ul class="submenu">
-                    <li data-action="tutorial">教程</li>
-                    <li data-action="contact">联系</li>
+                    <!-- 第 48 轮：删除「教程」（隐形教程入口，无可见回报）；
+                         「联系」改为极简「关于」页，后续补充版权 / 制作人信息。 -->
+                    <li data-wpv-about>关于 WavePaint</li>
                 </ul>
             </li>
         </ul>
@@ -1177,6 +1246,11 @@
          New/Open/Save As 等，汉化后五个文件菜单项全部失效（死菜单）；
          本模块按中文文本重绑并复用核心 .wp 工程存取（openFile/saveToFile）。 -->
     <script src="js/editor/file-menu.js"></script>
+    <!-- 顶栏「窗口」一级菜单 + 「视图」显示类设置 + 「面板与视图设置…」对话框
+         第 48 轮新增。核心 initMenuHandlers 按 data-action 一次性绑定且
+         handleAction 不可扩展（C9 红线），故本模块自建 data-wpv-* 绑定 +
+         自己的对话框样式（css/view-menu.css）。 -->
+    <script src="js/editor/view-menu.js"></script>
     <!-- #75 P0：CodeMirror 6 离线 bundle（IIFE，普通 script 先于 ESM 模块执行；
          挂到 globalThis.WPCm，供 js/sim/rtl-panel.js 创建代码视图）。 -->
     <script src="lib/codemirror.bundle.js"></script>

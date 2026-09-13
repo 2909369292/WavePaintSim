@@ -37,7 +37,10 @@
  *
  * 布局模型：
  *   split 节点 {kind:'split', dir:'row'|'col', sizes:[..], children:[..]}
- *   tabs  节点 {kind:'tabs',  id:'z-xxx', panels:['wave',...], active:'wave'}
+ *   tabs  节点 {kind:'tabs',  id:'z-xxx', panels:['wave',...], active:'wave',
+ *               zone:'left'|'center'|'right'|'bottom'|null}
+ *     zone 只是**语义标签**（预设建区时盖上，用户拖出来的新区没有），用于
+ *     「隐藏后重新显示」时把面板放回它该在的那一类位置；它不是 id，不参与查找。
  *   sizes 为归一化比例（和为 1）；拖分隔条时按像素换算，最小尺寸保护。
  * ========================================================================== */
 'use strict';
@@ -52,8 +55,9 @@ const PANELS = {
   console: { title: '仿真状态' },
 };
 const PANEL_ORDER = ['wave', 'source', 'rtl', 'vcd', 'tb', 'console'];
-const HOME_ZONE = { wave: 'z-center', source: 'z-right', rtl: 'z-left', vcd: 'z-left',
-  tb: 'z-right', console: 'z-bottom' };
+// 面板的「主位」= 它的语义归属区（见下方 tabs 节点的 zone 字段）。不是 id。
+const HOME_ZONE = { wave: 'center', source: 'right', rtl: 'left', vcd: 'left',
+  tb: 'right', console: 'bottom' };
 
 // 宿主映射：面板内容 = 真机原生节点整块搬入（id 见 index.html 的 #main-area /
 // #sim-card-* / #sim-console），不是克隆、不是仿制。
@@ -71,38 +75,39 @@ HOST_PANELS.forEach((pid) => { HOST_EL[pid] = document.getElementById(HOST_ID[pi
 
 /* ── 2. 布局树 / 预设 ───────────────────────────────────────────────── */
 let seq = 0;
-const tabs = (panels, active) => ({ kind: 'tabs', id: 'z-' + (++seq), panels: panels.slice(), active: active || panels[0] || null });
+const tabs = (panels, active, zone) => ({ kind: 'tabs', id: 'z-' + (++seq), panels: panels.slice(),
+  active: active || panels[0] || null, zone: zone || null });
 // split 节点也给稳定 id：拖分隔条时不缓存 DOM，靠 data-split-id 重新查活节点
 const split = (dir, sizes, children) => ({ kind: 'split', id: 's-' + (++seq), dir, sizes: sizes.slice(), children });
 
 function presetSim() {
   return split('col', [0.74, 0.26], [
     split('row', [0.19, 0.55, 0.26], [
-      tabs(['rtl', 'vcd'], 'rtl'),
-      tabs(['wave'], 'wave'),
-      tabs(['source', 'tb'], 'source'),
+      tabs(['rtl', 'vcd'], 'rtl', 'left'),
+      tabs(['wave'], 'wave', 'center'),
+      tabs(['source', 'tb'], 'source', 'right'),
     ]),
-    tabs(['console'], 'console'),
+    tabs(['console'], 'console', 'bottom'),
   ]);
 }
 function presetEdit() {
   return split('col', [0.76, 0.24], [
     split('row', [0.18, 0.56, 0.26], [
-      tabs(['rtl', 'vcd'], 'rtl'),
-      tabs(['source', 'wave'], 'source'),
-      tabs(['tb'], 'tb'),
+      tabs(['rtl', 'vcd'], 'rtl', 'left'),
+      tabs(['source', 'wave'], 'source', 'center'),
+      tabs(['tb'], 'tb', 'right'),
     ]),
-    tabs(['console'], 'console'),
+    tabs(['console'], 'console', 'bottom'),
   ]);
 }
 function presetReview() {
   return split('col', [0.72, 0.28], [
     split('row', [0.16, 0.58, 0.26], [
-      tabs(['rtl', 'vcd'], 'vcd'),
-      tabs(['wave', 'source'], 'wave'),
-      tabs(['tb'], 'tb'),
+      tabs(['rtl', 'vcd'], 'vcd', 'left'),
+      tabs(['wave', 'source'], 'wave', 'center'),
+      tabs(['tb'], 'tb', 'right'),
     ]),
-    tabs(['console'], 'console'),
+    tabs(['console'], 'console', 'bottom'),
   ]);
 }
 const PRESETS = { sim: presetSim, edit: presetEdit, review: presetReview };
@@ -113,6 +118,7 @@ let floats = {};                  // id -> {x,y,w,h,max}
 let hidden = [];                  // 未显示的面板 id
 let preset = 'sim';
 let lastDock = {};                // id -> {tabsId, index}
+let zoneCtx = {};                 // zoneId -> {parentId,index,size,dir,parentKids,zone}
 
 /* ── 3. 布局树工具 ──────────────────────────────────────────────────── */
 function eachTabs(node, fn) {
@@ -122,7 +128,8 @@ function eachTabs(node, fn) {
 }
 function cloneTree(node) {
   if (!node) return null;
-  if (node.kind === 'tabs') return { kind: 'tabs', id: node.id, panels: node.panels.slice(), active: node.active };
+  if (node.kind === 'tabs') return { kind: 'tabs', id: node.id, panels: node.panels.slice(),
+    active: node.active, zone: node.zone || null };
   return { kind: 'split', id: node.id, dir: node.dir, sizes: node.sizes.slice(), children: node.children.map(cloneTree) };
 }
 function allTabsIds() { const out = []; eachTabs(root, (n) => out.push(n.id)); return out; }
@@ -136,6 +143,24 @@ function findTabsOfPanel(node, panelId) {
   let hit = null;
   eachTabs(node, (n) => { if (!hit && n.panels.includes(panelId)) hit = n; });
   return hit;
+}
+// 一个区在树里的位置快照。只在「该区即将被 prune 折叠」那一刻采一次：
+// 区一消失，光看布局树就再也推不出它原先在哪、占多宽。showPanel 靠它原样重建。
+function zoneContext(tabsId) {
+  const target = findTabs(root, tabsId);
+  if (!target) return null;
+  const ctx = { parentId: null, index: -1, size: null, dir: null, parentKids: 0, zone: target.zone || null };
+  (function walk(n) {
+    if (!n || n.kind === 'tabs' || ctx.parentId) return;
+    const i = n.children.indexOf(target);
+    if (i >= 0) {
+      ctx.parentId = n.id; ctx.index = i; ctx.size = n.sizes[i];
+      ctx.dir = n.dir; ctx.parentKids = n.children.length;
+      return;
+    }
+    n.children.forEach(walk);
+  })(root);
+  return ctx;
 }
 function prune(node) {
   if (!node) return null;
@@ -162,6 +187,9 @@ function removePanel(panelId) {
   lastDock[panelId] = { tabsId: owner.id, index: idx };
   owner.panels.splice(idx, 1);
   if (owner.active === panelId) owner.active = owner.panels[Math.min(idx, owner.panels.length - 1)] || null;
+  // 摘完这一块这个区就空了 → prune 会把整个区连同它的比例一起折叠掉。
+  // 折叠前先把位置存下来（同一区里先前被摘走的面板共用这份快照）。
+  if (!owner.panels.length) zoneCtx[owner.id] = zoneContext(owner.id);
   root = prune(root);
 }
 function insertTab(tabsId, panelId, index) {
@@ -935,14 +963,73 @@ function hidePanel(id) {
   render(); persist();
   flash('隐藏面板：' + (PANELS[id] ? PANELS[id].title : id));
 }
+// 找第一个带指定语义标签的区（预设建的区才有标签；用户拖出来的区没有）。
+function findTabsByZone(zone) {
+  if (!zone) return null;
+  let hit = null;
+  eachTabs(root, (n) => { if (!hit && n.zone === zone) hit = n; });
+  return hit;
+}
+// 把「折叠前记下的那个区」在树里原样重建出来（含它在父 split 里的序号与比例）。
+// 父 split 也一起没了（例如底部区是 root 的第二个孩子，摘掉后 prune 让 root 变成
+// 上面那一半）时，只要当时是「两个孩子」的结构，就把当前 root 重新包一层还原。
+function restoreZone(zoneId, panelId) {
+  const ctx = zoneCtx[zoneId];
+  if (!ctx) return false;
+  // 重建出来的区**沿用原来的 id**：该 id 此刻不在树里（区已被折叠），复用它不会
+  // 撞号，却能让 lastDock / zoneCtx / 已落盘的布局继续指着同一个区 —— 否则同一个
+  // 区里的第二个面板再被加回来时，会照着旧 id 重建出第二个并排的区（本该是一个
+  // 区里的两个页签）。
+  const make = () => { const node = tabs([panelId], panelId, ctx.zone); node.id = zoneId; return node; };
+  if (ctx.parentId) {
+    const parent = (function find(n) {
+      if (!n || n.kind === 'tabs') return null;
+      if (n.id === ctx.parentId) return n;
+      for (const c of n.children) { const r = find(c); if (r) return r; }
+      return null;
+    })(root);
+    if (parent && parent.children.length < ctx.parentKids) {
+      const add = Math.max(0.05, Math.min(0.9, ctx.size == null ? 0.3 : ctx.size));
+      const i = Math.max(0, Math.min(ctx.index, parent.children.length));
+      parent.children.splice(i, 0, make());
+      // 原有各份额等比缩到 1-add，再插入新份额：整体比例不失真。
+      parent.sizes = parent.sizes.map((s) => s * (1 - add));
+      parent.sizes.splice(i, 0, add);
+      return true;
+    }
+  }
+  // 父节点也没了：只有当原结构是「父 + 这一个区」两个孩子时才可能精确还原。
+  if (ctx.dir && ctx.parentKids === 2) {
+    const add = Math.max(0.05, Math.min(0.9, ctx.size == null ? 0.3 : ctx.size));
+    const node = make();
+    root = ctx.index === 0
+      ? split(ctx.dir, [add, 1 - add], [node, root])
+      : split(ctx.dir, [1 - add, add], [root, node]);
+    return true;
+  }
+  return false;
+}
 function showPanel(id) {
   if (hidden.indexOf(id) >= 0) hidden.splice(hidden.indexOf(id), 1);
-  const host = HOME_ZONE[id];
-  if (!insertTab(host, id, null)) {
-    const ids = allTabsIds();
-    if (ids.length) insertTab(ids[0], id, null);
-    else root = tabs([id], id);
+  // 归位优先级：① 它原来那个区还在 → 按原序号插回去（与被并成页签的兄弟并列）；
+  // ② 那个区已被折叠，但位置有记录 → 原地重建；③ 有同语义标签的区 → 插进那一类；
+  // ④ 兜底：第一组 / 空树就单开一组。旧版只有 ③④，而 ③ 找的又是永远不存在的
+  //    'z-…' 字符串，于是实测「隐藏波形再显示」把波形塞进左栏 —— 这是本轮修的根因。
+  const rec = lastDock[id];
+  let placed = false;
+  if (rec && rec.tabsId) {
+    placed = insertTab(rec.tabsId, id, rec.index);
+    if (!placed) placed = restoreZone(rec.tabsId, id);
   }
+  if (!placed) {
+    const home = findTabsByZone(HOME_ZONE[id]);
+    if (home) placed = insertTab(home.id, id, null);
+  }
+  if (!placed) {
+    const ids = allTabsIds();
+    if (ids.length) placed = insertTab(ids[0], id, null);
+  }
+  if (!placed) root = tabs([id], id);
   render(); persist();
   flash('显示面板：' + (PANELS[id] ? PANELS[id].title : id));
 }
@@ -1087,6 +1174,9 @@ function applyPreset(name, hard) {
   preset = name;
   cascade = 0;
   focusedTabsId = null;
+  // 预设会把整棵树换成新 id 的节点：上一棵树的「原位 / 折叠前位置」记忆全部失效，
+  // 留着只会在 showPanel 里多绕两步（虽然结果仍被兜底修正）。清掉更省心。
+  lastDock = {}; zoneCtx = {};
   render(); persist();
   flash('切换布局：' + (PRESET_NAME[name] || name) + '预设');
 }

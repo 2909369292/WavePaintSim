@@ -1,0 +1,113 @@
+/* ============================================================================
+   WavePaintClean css/view-menu.css —— 顶栏「窗口 / 视图」菜单附加样式（第 48 轮）
+   ----------------------------------------------------------------------------
+   本文件只服务 js/editor/view-menu.js，覆盖四件事：
+     1. 菜单状态标记：面板 ✓/＋、浮动 ◱/▣、当前项高亮（.wpv-off / .wpv-active）；
+     2. 代码框观感：字号（CSS 变量）+ 行号显隐；
+     3. 仿真状态框观感：字号；
+     4. 通用对话框：面板与视图设置 / 关于（.wpv-mask 一族）。
+
+   ⚠ 为什么代码框设置走 CSS 而不是改 CodeMirror：
+     CM6 的主题（字号 / 行号槽 / 配色）是 lib/codemirror.bundle.js 里的 JS 扩展，
+     改它必须重跑 esbuild 重建 bundle。字号、行号这类纯观感项用 CSS 覆盖即可 ——
+     author 的 !important 规则胜过 CM 写在元素上的普通内联样式，lib 一个字节不动。
+     （行号槽隐藏后仍可通过「面板与视图设置…」一键恢复：见 view-menu.js 的
+      body.wpv-no-gutter 开关。）
+
+   ⚠ 为什么要写到 body.wp-dock 作用域之外：
+     css/workspace.css 的铁律是规则挂在 body.wp-dock 之下；但菜单栏与这些设置
+     对话框在 ?dock=off 逃生口（旧侧栏装配方式）下同样必须可用，所以本文件
+     一律不加 wp-dock 前缀 —— 它只影响自己新增的节点与两条观感覆盖。
+   ========================================================================== */
+
+/* ── 1. 菜单状态标记 ─────────────────────────────────────────────────── */
+#menu-bar .submenu li.wpv-off { opacity: .55; }
+#menu-bar .submenu li.wpv-active { color: var(--accent, #4CAF50); font-weight: 600; }
+
+/* ── 2. 代码框（SV 源码 / TB）──────────────────────────────────────────── */
+#verilog-cm-host .cm-scroller,
+#tb-cm-host .cm-scroller {
+    font-size: var(--wpv-code-font, 13px) !important;
+}
+body.wpv-no-gutter #verilog-cm-host .cm-gutters,
+body.wpv-no-gutter #tb-cm-host .cm-gutters {
+    display: none !important;
+}
+
+/* ── 3. 仿真状态框（#sim-console-log）──────────────────────────────────── */
+/* 基础字号 / 行高在 css/workspace.css §5 定义（12px / 17px）；这里用同一选择器
+   在其后加载覆盖，行高随字号等比放大，保证多行日志的缩进对齐不跑偏。 */
+#sim-console-log {
+    font-size: var(--wpv-console-font, 12px);
+    line-height: calc(var(--wpv-console-font, 12px) * 1.42);
+}
+
+/* ── 4. 通用对话框（面板与视图设置 / 关于）──────────────────────────────── */
+.wpv-mask {
+    position: fixed; inset: 0; z-index: 9000;
+    background: rgba(15, 20, 15, .34);
+    display: flex; align-items: center; justify-content: center;
+}
+.wpv-dlg {
+    width: min(580px, calc(100vw - 40px));
+    max-height: min(80vh, 660px);
+    display: flex; flex-direction: column;
+    background: var(--menu-bg, #fff); color: var(--text-color, #1a1f1a);
+    border: 1px solid var(--border-color, #d0dcd0);
+    border-radius: var(--radius-md, 10px);
+    box-shadow: var(--shadow-strong, 0 12px 40px rgba(0, 0, 0, .18));
+    overflow: hidden;
+}
+.wpv-dlg-head {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
+    padding: 8px 8px 8px 14px;
+    background: var(--header-bg, #f0f4f0);
+    border-bottom: 1px solid var(--section-border, #e0e8e0);
+}
+.wpv-dlg-title { flex: 1 1 auto; font-size: 13px; font-weight: 600; }
+.wpv-dlg-x {
+    width: 22px; height: 22px; padding: 0; border: none; border-radius: 4px;
+    background: transparent; color: var(--text-muted, #5a6a5a);
+    font: inherit; font-size: 12px; line-height: 1; cursor: pointer;
+}
+.wpv-dlg-x:hover { background: var(--active-bg, #d0e0d0); color: var(--text-color, #1a1f1a); }
+.wpv-dlg-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 6px 14px 10px; }
+.wpv-dlg-foot {
+    flex: 0 0 auto; display: flex; justify-content: flex-end; gap: 8px;
+    padding: 8px 14px; border-top: 1px solid var(--section-border, #e0e8e0);
+}
+.wpv-sec {
+    font-size: 11px; font-weight: 600; color: var(--text-muted, #5a6a5a);
+    margin: 14px 0 4px; padding-bottom: 3px;
+    border-bottom: 1px solid var(--section-border, #e0e8e0);
+}
+.wpv-sec:first-child { margin-top: 8px; }
+.wpv-row { display: flex; align-items: center; gap: 10px; padding: 3px 0; font-size: 12px; }
+.wpv-row > .wpv-label { flex: 0 0 auto; min-width: 92px; }
+.wpv-inline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wpv-grid2 {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
+    gap: 2px 14px;
+}
+.wpv-chk { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; }
+.wpv-chk input { margin: 0; cursor: pointer; }
+.wpv-btn {
+    font: inherit; font-size: 12px; padding: 5px 10px; cursor: pointer;
+    border-radius: var(--radius-sm, 6px);
+    border: 1px solid var(--border-color, #d0dcd0);
+    background: var(--input-bg, #fff); color: var(--text-color, #1a1f1a);
+}
+.wpv-btn:hover { background: var(--hover-bg, #e8f0e8); }
+.wpv-btn.primary { background: var(--accent, #4CAF50); border-color: var(--accent, #4CAF50); color: #fff; }
+.wpv-btn.primary:hover { background: var(--accent-hover, #3d9141); }
+.wpv-num, .wpv-select {
+    font: inherit; font-size: 12px; padding: 4px 6px; border-radius: 4px;
+    border: 1px solid var(--border-color, #d0dcd0);
+    background: var(--input-bg, #fff); color: var(--text-color, #1a1f1a);
+}
+.wpv-num { width: 72px; }
+.wpv-hint { font-size: 11px; color: var(--text-muted, #5a6a5a); line-height: 1.7; }
+.wpv-about-name { font-size: 15px; font-weight: 600; margin-bottom: 2px; }
+.wpv-about-sub { font-size: 12px; color: var(--text-muted, #5a6a5a); margin-bottom: 10px; }
+.wpv-about-line { font-size: 12px; line-height: 1.9; }
+.wpv-swatches { display: flex; gap: 6px; }

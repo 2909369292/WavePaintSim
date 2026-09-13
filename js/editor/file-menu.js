@@ -152,23 +152,9 @@
       });
     });
 
-    // 「教程」菜单（data-action=tutorial）：核心处理器会 removeItem 教程完成标记并
-    // 重跑隐形教程 —— 教程 UI 已被汉化版整体隐藏，重跑只会重新挂上
-    // .wp-tutorial-highlight 并在 document 拦截 Enter/Space/方向键（无任何可见回报）。
-    // 这里在捕获阶段拦下并改为一句中文提示，杜绝隐形教程重启。
-    document.addEventListener('click', function (e) {
-      const li = e.target && e.target.closest
-        ? e.target.closest('#menu-bar li[data-action="tutorial"]')
-        : null;
-      if (!li) return;
-      e.preventDefault();
-      e.stopPropagation();
-      collapseMenus();
-      Promise.resolve().then(function () {
-        return window.wpAlert('引导教程已在本版本隐藏，可直接上手绘制。\n\n想快速上手？试试「文件 → 载入示例」，或阅读底部仿真面板内的提示。', '教程');
-      }).catch(function (err) {
-        console.error('[file-menu] tutorial', err);
-      });
-    }, true);
+    // （历史）「教程」拦截块已在第 48 轮删除：index.html 的「帮助 → 教程」菜单项
+    // 被移除后，核心 data-action="tutorial" 的隐形教程入口再也点不到，这里的
+    // 捕获拦截成为死代码。核心里的 handleAction('tutorial') case 属于 C9 红线
+    // 内的死代码，保留不动、也无害。
   }, 'editor/file-menu');
 })();
