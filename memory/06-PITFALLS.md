@@ -783,5 +783,22 @@
   `getComputedStyle(handle, '::before')` 的 `transform` 矩阵 —— 竖向条 `ty≈0`、横向条 `tx≈0`，
   且长轴长度 ≈ 容器长 - 12px。另注意 `prototype/ui-mockup.css:77-90` 有**同构**样式（原型冻结、本轮未动）。
 
+### P53 嵌套 split 撞号 → 拖横条却高亮竖条（`querySelector` 是**子树**搜索）
+
+- **现象**：拖「上下分界那条横条」调「仿真状态」栏高矮时，变绿高亮的是**竖向**分隔条；拖竖条也亮竖条 ——「无论拖哪条，亮的都是竖条」。
+- **根因**：`js/sim/dock/workspace.js` 的 `startSplitDrag()` 用
+  `liveSplit().querySelector('.mk-handle[data-split-idx="' + idx + '"]')` 找「拖动态要贴 active 的那条 handle」。
+  `querySelector` 是**子树深度优先**搜索，而 `data-split-idx` 只在一个 split 内部唯一：
+  **root 的列 split（idx=0）与其首个 slot 里的行 split（也是 idx=0）撞号**，文档序上子 split 的 handle 更靠前，
+  于是拖横条时 `.active` 被贴给了竖条（视觉上「横条不亮、竖条亮」）。
+- **修法**：给每条 handle 打归属标识 `h.dataset.splitOwner = node.id`（`buildNode()` 内），
+  拖动时按 `owner + idx` 双条件取：
+  `.mk-handle[data-split-owner="<node.id>"][data-split-idx="<idx>"]`。
+  （第 47 轮修；回归判据：`.e2e-tmp/probe47.mjs` 断言「按下横条时 active 恰 1 条且是横条本人、竖条 `::before` 非强调色」。）
+- **预防**：**任何用 `querySelector` 在一个可嵌套结构里按「局部序号」定位元素的写法都是坑**——
+  嵌套同构 DOM 的序号只在「同一个父容器」内唯一。要先按容器归属过滤，再按序号取；
+  或直接用元素引用（`handle` 变量）而非重新查询。读 active 态时注意 `::before` 的 `background` 有 `.12s` 过渡，
+  断言前需 `sleep(>=260ms)`，否则读到 `rgb(84,178,88)` 这类过渡中间色。
+
 ---
-> 以上为截至**第四十六轮（2026-09-14）**的坑位清单，共 **P1~P52**。每条格式：现象 → 根因 → 修法 → 预防；带 `#NN` 的对应 `03-REQUIREMENTS.md` 需求号。
+> 以上为截至**第四十七轮（2026-09-14）**的坑位清单，共 **P1~P53**。每条格式：现象 → 根因 → 修法 → 预防；带 `#NN` 的对应 `03-REQUIREMENTS.md` 需求号。
