@@ -32,7 +32,7 @@
 
 | # | 约束 | 对应做法 |
 |---|---|---|
-| C1 | **改任何会被内嵌 exe 的文件**（`js/`、`index.html`、`css/`、`img/`、`lib/`、`WavePaintLauncher.cs`、`build.ps1`）→ **必须重建 exe** | ① `taskkill /F /IM WavePaintClean.exe`（用户已授权直接杀）② `powershell -NoProfile -Command "Set-Location -LiteralPath 'D:\Files\Code\波形'; .\build.ps1"` ③ 确认 `csc exit: 0` + 产物时间戳刷新 |
+| C1 | **改任何会被内嵌 exe 的文件**（`js/`、`index.html`、`css/`、`img/`、`lib/`、`WavePaintLauncher.cs`、`build.ps1`）→ **必须重建 exe** | ① `taskkill /F /IM WavePaintClean.exe`（用户已授权直接杀）② `powershell -NoProfile -Command "Set-Location -LiteralPath 'D:\Files\Code\波形'; .\build.ps1"` ③ 确认 `csc exit: 0` + 产物时间戳刷新 | **原型构建（`build-prototype.ps1` → `WavePaintMockup.exe`）不走 C1**：`prototype/`、`tools/`、`memory/`、`MockupLauncher.cs`、`build-prototype.ps1` 均**不进** `resources.txt`，改它们只需重跑 `.\build-prototype.ps1`，**不杀真机进程、不碰真机 exe**（口径见 07 D25）
 | C2 | 任何改动 → `git commit` + `git push main` | 每个逻辑批次独立 commit；message 写清动机 + 改法 + 验证结果；不 push = 下个 AI 看不到 |
 | C3 | 提交前全量验证（见 §3） | 跳过验证的提交是项目事故 |
 | C4 | 交付 exe 后必须提醒用户 | 给出唯一绝对路径 + “重启应用、必须从该路径启动” + 让用户对照面板版本号自查 |
@@ -67,6 +67,7 @@
 | `node .e2e-tmp/verify-recovery2.mjs` | 服务自愈：判活 / 重连 / 重拉 / 自动重试（17 项） | 17/17 | `service-guard` / `ui-bridge` / `launcher` / `index.html` 改动 |
 | `node tools/exe-smoke.mjs` | 真实 exe 冒烟 | 通过 | exe 重建后 |
 | `node tools/mock-probe.mjs` | UI 原型（`prototype/`）渲染 + 交互 + 布局体检（**34 项**） | 34/34 | `prototype/**` 改动 |
+| `node tools/mockup-exe-smoke.mjs` | 原型 exe 无浏览器冒烟（ping 身份 / 静态资源字节数比对 / 构建戳 / 404 / 路径穿越；**41 项**） | 41/41 | 原型 exe 重新打包后 |
 | `node tools/ui-audit.mjs --all --check` | 控件/工具栏规范化体检（真机 + 原型 × 1920/1680/1440/1280；口径 R3 主按钮唯一 / R5 间距只 4·12 / R6 无折行无溢出 / R8 无 offscreen / R9 长文本不进带） | 违规 **0**（原型已达标；**真机 U3 前仍有违规**，基线见 08 §7.1） | `index.html` / `css/**` / `prototype/**` 改动（U2~U4 起提交前必跑） |
 | 浏览器人工验收 | UI 视觉/交互 | 用户确认 | AI 无法完整实测的 UI 改动，必须明确告知用户 |
 
@@ -198,4 +199,9 @@ node tools/dev-server.mjs 8947
 
 # 检查 exe 特征
 rg -a -c "rangeResolvable" WavePaintClean.exe
+
+# 原型 exe 构建 / 冒烟 / 对 exe 跑探针
+.\build-prototype.ps1
+node tools/mockup-exe-smoke.mjs
+node tools/mock-probe.mjs http://127.0.0.1:17820
 ```
