@@ -62,7 +62,7 @@
 | `node tools/regression.mjs` | 逻辑/快照回归 | 全过（当前 **79 项**；口径以 04 §1「测试基线」为准） | 任何 JS 改动 |
 | `node tools/e2e-sim.mjs` | 真跑 iverilog 全链路 | 失败 0 项 | `sim/engine` / `ui-bridge` / `launcher` 改动 |
 | `node tools/probe-param.mjs` | 参数化设计真 iverilog 端到端 | 全过 | `engine` 参数 / TB 生成改动 |
-| `node tools/e2e-ui.mjs` | 真实 Edge 交互（**86 项**） | 86/86 | `editor` / `core` / `index.html` 改动 |
+| `node tools/e2e-ui.mjs` | 真实 Edge 交互（**88 项**，含第二十五轮 I4c 指针拖拽与 splitter 基线模型口径） | 88/88 | `editor` / `core` / `index.html` / `js/sim/panel-layout.js` 改动 |
 | `node tools/e2e-rtl.mjs` | #75/#85/#86/#76-B1 冒烟：CM6 / RTL Tree / VCD 树 / 观察行 / 实例跳定义 / 符号→VCD 映射 / 反向高亮 / 观察行存档 / 全接口入波形（**61 项**，B~J 段） | 61/61 | `rtl-nav` / `vcd-index` / `rtl-panel` / `ui-bridge` / `index.html` 改动 |
 | `node .e2e-tmp/verify-recovery2.mjs` | 服务自愈：判活 / 重连 / 重拉 / 自动重试（17 项） | 17/17 | `service-guard` / `ui-bridge` / `launcher` / `index.html` 改动 |
 | `node tools/exe-smoke.mjs` | 真实 exe 冒烟 | 通过 | exe 重建后 |

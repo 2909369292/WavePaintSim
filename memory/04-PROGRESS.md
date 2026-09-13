@@ -5,7 +5,7 @@
 
 ---
 
-## 1. 当前状态快照（2026-09-13，第二十四轮后）
+## 1. 当前状态快照（2026-09-13，第二十五轮后）
 
 | 项 | 状态 |
 |---|---|
@@ -18,13 +18,14 @@
 | 最近一轮（第二十一轮，2026-09-11） | **侧栏「可拖拽多面板」落地（用户拍板后首轮 UI 实施，详见 §4.19）**。用户三条裁决：① 面板形态 = **可拖拽多面板**（splitter）；② 侧栏**保持右侧**、`#main-area` 骨架不动；③ 层次树**暂不左置**；实施步骤授权 AI 自定 → **当轮一次落地（原 P2 核心，不再远期）**。① `index.html`：`#main-area` padding-right 与 `#sim-panel` width 改读 `var(--sim-panel-w,328px)`；新增 `.sim-panel-body`（纵向 flex + `overflow-y:auto`）/`.sim-card*`（卡片+折叠头）/`.sim-split`（10px 纵向拖拽条 + `.disabled`）/`#sim-resize-x`（左缘 7px 宽度条）/`body.sim-resizing`；**`#sim-status` 加 `position:sticky;bottom:0`**；DOM 重排为 4 个 `<section class="sim-card" data-sim-card>` + 3 个 `<div class="sim-split" data-sim-split>`，新增 `#sim-panel-body`/`#sim-resize-x`，**所有既有 id/class 一个未改**；`#sim-tb-copy` 移进 TB 卡片头；`#sim-addsignals` 的 `title` 降级说明。② `js/sim/panel-layout.js`（新增约 520 行）：`installSimPanelLayout({panel,body,handle,storageKey,onLayout})` —— 折叠（标题行内 button/a/input/select/textarea/label 点击不折叠，保护 `#sim-tb-copy`）、像素权重高度（`flex-grow=权重/总权重*100`+`flex-basis:0`，默认 `{source:300,rtl:245,vcd:245,tb:190}`）、**`measureMinHeight`/`applyMinHeights`**（固定块按实测高、弹性块按自身 min-height，`min-height=min(实测, 面板可视高*0.8)`）、splitter 拖拽（`resizePair` 重分配 + `body.sim-resizing` + 折叠则 `.disabled`）、`setWidth` clamp 280~min(760,视口*60%) + rAF 节流派发 `window resize`、**仅 `sessionStorage`**（`wavepaint.sim-panel-layout.v1`，`{v,w,c,width}`，220ms 防抖）、键盘可达（splitter `ArrowUp/Down` ±16px、`#sim-resize-x` `ArrowLeft/Right`）、导出 `{getState,setWidth,reset,destroy}`。③ `js/sim/ui-bridge.js`：接入 `installSimPanelLayout` + `initPanelLayout()`（`bindEvents()` 后）、`refs.panelBody`/`refs.resizeHandle`、**删死引用 `el("sim-collapse")`**、`__wpsim` 增 `panelLayout`/`setPanelWidth`/`resetPanelLayout` 探针。④ `js/sim/rtl-panel.js`：`installCodeEditor` 返回值加 `remeasure()`（CM6 ResizeObserver <75ms 跳过保护会导致拖 splitter 漏重排）。⑤ `tools/e2e-ui.mjs` +**I0~I8（13 条）→ 86/86**。**本轮真 bug 修复**：headless Edge 视口 750×485 下源码卡只剩 80px、其 `.source-toolbar` 实测 170px → 工具栏被裁 → `#sim-run` 坐标点击落到 VCD 卡、仿真不触发（= 用户反复报的「点仿真无响应」又一根因）；`verify-recovery2` D1/D1b 首跑即复现，修复后 17/17。exe 重建（22,012,416 B / 2026-09-11 00:15:01）。**未改 `wavepaint.clean.js` 与 `sim/engine.js` 一行**（C9） |
 | 更早（第二十二轮，2026-09-13，**纯规划 / 零产品代码改动**） | **面板系统重构方案成文 + 后端能力盘点**（用户要求「确认现在完成的功能 + 汇报后端支持如何 + 做出详细项目安排」）。落盘 **08 §6**：§6.1 后端能力表（传输/仿真/解析/激励/回显/存档/快照/可用性，全部带文件行号证据）/ §6.2 后端缺口 **G1~G8**（G1 TB 只读=最大缺口、G2 无日志与进度、G3 编译选项不可配、G4 无取消、G5 VCD 全量文本、G6 `/api/snapshot` 未接线、G7 单顶层、G8 解析器是 SV 子集）/ §6.3 前端面板现状 / §6.4 差距表 / §6.5 选型（**自研 dock 引擎为主**，Lumino/golden-layout 备选，React 系与 iframe 多窗否决）/ §6.6 目标架构（PanelRegistry + LayoutTree + DockDnD 三层，左/中/右/下四区 + 页内浮动层）/ §6.7 契约面与 e2e 影响面 / §6.8 分期 **#94 D0~D4 + #95 E1~E5 + #96 W1~W3** / §6.9 验收与回滚 / §6.10 四条待拍板 / §6.11 与远期关系。**本轮不重建 exe**（C1 未触发）。详见 04 §4.20、03 表 K、07 D22、日志 2026-09-13。**下一步 = 用户对 08 §6.10 四条拍板后才开工（D20「先方案后实施」）** |
 | 上一轮（第二十三轮，2026-09-13） | **用户四条拍板（全部通过）+ 交付零后端纯前端 UI 原型**（详见 §4.21）。拍板：① 面板形态 = **页内浮动面板**（不做真独立 OS 窗口）；② **解除**「侧栏保持右侧」；③ **解除**「层次树暂不左置」；④ 布局**暂不写 `.wp`**。另令：**G1~G8 全部暂不实现**（#95 整线后延）、**布局/预设/手感可先不做**，先只交付「假界面」给用户 review。产出：新增 `prototype/`（`ui-mockup.html` 9,625 B + `ui-mockup.css` 19,279 B + `ui-mockup.js` 45,656 B ≈960 行）= **完整轻量停靠引擎原型**（`split`/`tabs` 布局树、8 面板、3 预设、四向停靠 + Tab 合并 + 最外环新建区、浮出/最大化/收回、分隔条像素→比例、`Ctrl+Alt+1/2/3/0`、`localStorage['wavepaint.mock.layout.v1']` 400ms 防抖、`window.__mock` 探针）；主题变量逐条抄自真机 `:root`、类名统一 `mk-` 前缀、**与真前端零命名冲突**。验收：新增 `tools/mock-probe.mjs`（真实 Edge headless + CDP + dev-server）**34/34 全通过**，含真实鼠标拖拽、浮窗拖动、布局体检 F1~F10（无裁切/无溢出/图片全加载）。**原型内修掉 4 个真缺陷**（忽略 `opts.x/y` / `applyPreset` 忽略预设名 / 浮窗拖动无落点提示 / `pointerup` 无坐标）。**C1 未触发、未重建 exe**，`prototype/` 与 `tools/` 均不进 `resources.txt` |
-| 最新一轮（第二十四轮，2026-09-13） | **控件与工具栏规范化 U 线：方案定稿（08 §7）+ 可复算审计工具转正 + 原型 U0 重排完成（全绿，等用户拍板）**（详见 §4.22）。用户原话：「UI 排布在大体上基本正确，**小的按钮上的排布以及控制栏的排布还需要斟酌，现在似乎有一些混乱**，大体上可以按照此方案进行改动，**请给出之后的工作方案**」→ 判定 = **形态层已通过（第二十三轮四区 dock / 页内浮窗 / 多 Tab / 3 预设），本轮只做控件层**，编号 **U0~U4**。产出三件：① **`08 §7` 方案全文**（§7.1~§7.10，含实测问题清单 **P-UI-01~09** + 铁律 **R1~R9** + 目标分层 **L0~L4** + 主方案 **D-UI-A**（14 个波形类控件从全局带下沉到波形面板上下文带，全局带 **34→14 个顶层元素**）/ 备选 D-UI-B + 刻度规范 + 溢出降级 + U0~U4 分期 + 与 §6 D 线合并总排期 ≈8~9 工作日 + 四条待拍板）；② **`tools/ui-audit.mjs` 转正**（真实 Edge headless + CDP 测量工具，`--mock`/`--real`/`--all`/`--check`/`--widths=`，`violationsOf()` 与 R3/R5/R6/R8/R9 一一对应）；③ **原型 U0 重排**（`prototype/ui-mockup.{html,css,js}`：`#toolbar` 重写为 L1 11 项 + `⋯`、波形/源码/树/文件/属性面板带全部改 `.mk-tbg` 分组 + `⋯`、新增 `setupBands()` 按 `data-ovp` 收组 / `setupFlyouts()` / `setupCtlFeedback()` 假交互、:`:root` 加 6 个刻度变量、删 `.mk-hintbar`（R9）与全部散落 margin（R5）、状态栏三段化 + `#st-ctx`）。**实测**（全部实跑）：`tools/mock-probe.mjs` **34/34**、`tools/ui-audit.mjs` mock **1680 与 1280 两档违规 0**（此前 3 / 6）；真机基线（未改，**待 U3 修**）= 1920 违规 1 / 1440 溢 32px / 1280 溢 192px。**C1 未触发（只改 `prototype/` + 新增 `tools/`，均不进 `resources.txt`）→ 未重建 exe** |
-| 当前阻塞 | 无（**门禁 = 用户对控件终稿的 U1 拍板**：第二十三轮**形态层已 review 通过**（用户原话「UI 排布在大体上基本正确」），D-1 闸门**只余控件层**待确认（§4.22 + 08 §7.9 四条），通过后才进 D0/D1 真接线） |
-| 下一步主线 | **① 等用户 U1 拍板控件终稿**（看截图/原型 + 定 08 §7.9 四条：是否走 D-UI-A / `#sim-run` 留全局带 / `⋯` 溢出 vs 折行 / 刻度值 28·24·4·12）。**② U1 通过后按 08 §7.8 总排期推进**（U 线与 D 线合并）：**U2 工具带数据驱动化**（新增 `js/sim/ui/toolbar-spec.js`，24 个冻结 id 不改名，触发 C1 重建 exe）与 **D0 面板注册表 + 宿主容器抽象**（像素级零视觉变化）**合并同批** → **U3 真机工具带落地 + P-UI-02 真 bug 修复**（真机 1440/1280 不再越界）→ **D1 停靠引擎**（把原型的 `split`/`tabs` 模型 + `hitTest` + 落点框搬进 `js/sim/dock/*.js`）→ **D2** 页内浮动 + 最大化 + 键盘 → **D3** 持久化（sessionStorage + localStorage + 3 预设 + reset，**不写 `.wp`**）→ **D4 + U4** 打磨 + 闸门工具化。**#95（G1~G8）已由用户明确暂不实现**，方案保留在 08 §6.2，恢复前须重新确认意图。**08 §2.6 的三项剩余（VCD 树移入波形区 / TB 控制带收敛 / 层次树左置）直接并入 #94 D1**，不再单独排期。**#84 波形查看增强 / #77 Active Annotation / #78 仍为远期**（08 §3）；RTL 树仍只做代码层级浏览；服务自愈（§4.11）是独立专项（C19 不变量） |
-| 测试基线 | regression **79/79**；e2e-rtl **61/61**；**e2e-ui 86/86**（第二十一轮新增 **I0~I8 共 13 条**：可拖拽多面板装配 / flex-grow 归一 / 折叠展开 / splitter 键盘调高 / 宽度 clamp / sessionStorage 落盘 / reset / 矮窗口 `#sim-run` 命中）；e2e-sim 0 失败；probe-param 全过；**2026-09-11 第二十一轮实测复跑（全部实测）：regression 79/79、e2e-ui 86/86、e2e-rtl 61/61、e2e-sim 0 失败、probe-param 全过、真 exe 冒烟通过、`verify-recovery2` 17/17**（B4 起「仿真后不全量灌信号」的 e2e-sim 断言仍在守） |
-| 原型 / 控件测试基线（第二十四轮新增，**全部实跑**） | **`node tools/mock-probe.mjs` → 34/34**（原型渲染 + 交互 + 布局体检 F1~F10）；**`node tools/ui-audit.mjs` → 原型 mock 1680 / 1280 两档违规 0 ✅**（验收口径 = R3 主按钮唯一 / R5 间距只 4·12 / R6 无折行无溢出 / R8 无控件 offscreen / R9 长文本不进带；产物 `.e2e-tmp/ui-audit-mock.json`）；**同一工具的真机基线（未修，U3 目标）= 1920 违规 1 / 1680 违规 1 / 1440 违规 3（`#toolbar` 溢 32px）/ 1280 违规 3（溢 192px）**；多宽度特写截图 `.e2e-tmp/ctl-{1920,1680,1440,1280}-toolbar.png`、`ctl-*-waveband.png`、`ctl-1280-ovf-open.png`（1280 下 `⋯` 把 L2 的 T5 对象组收走） |
-| UI 基线 | e2e-rtl **61/61**（含 #85 D1~D6 + 第十二轮 B3 RTL 树纯层级浏览 + 第十四轮 E1~E6 + 第十五轮 F1~F9 + 第十六轮 G1~G7 + 第十七轮 H1/H2/H3/H4/H4b/H5/H6 + 第十八轮 I1~I6 + 第十九轮 J0~J7）；**e2e-ui 86/86**（真实 Edge；第二十一轮新增 **I0~I8：4 卡 + 3 splitter 装配 / `flex-grow` 归一化 100 且 `flex-basis:0px` / 折叠 `.collapsed`+`display:none`+相邻 splitter disabled+aria / 展开还原 / `ArrowDown` `source=原高+16`·`rtl=原高-16` / 宽度 420·下限 280·上限 760 / sessionStorage v1 落盘 / reset 回 328+展开+300-245-245-190 / 矮窗口 750×485 下 `#sim-run` 命中自身**）；probe-tutorial / probe-addbtn / probe-simfail 全过；真 exe 冒烟通过（端口 17817、core/wpf/doc/canvas/汉化全在、无异常）；第十三轮自愈专测 `verify-recovery2.mjs` 17/17 + 真实 Edge 协议探针 `probe-protocol.mjs` |
-| 交付提醒 | 重启应用、从唯一路径启动、面板版本号自查（应显示 `v0.4.0 build 2026-09-11 00:15:01 69b84d0`；⚠ `69b84d0` = **构建时 HEAD**（第二十轮方案 commit），承载第二十一轮多面板代码的 commit 是它的**下一个** —— **别误判 exe 落后**，口径见 05/09 第十六轮补记）；本次 exe 内置第二十一轮 **可拖拽多面板（卡片折叠 + 纵向 splitter + 侧栏宽度 + session 级持久化 + 矮窗口工具栏裁剪修复）**、第十九轮 #87②（`Ctrl+Alt+4`）、第十八轮 #76 B5、第十七轮 #76 B3、第十六轮 #76 B4（+ 不再仿真后全量灌信号）、第十五轮 #76 B1、第十四轮 #86 A1~A4、第十三轮服务自愈（端口 17817 + `WPServiceGuard` + `#sim-recover` 按钮）、第十二轮 RTL 树瘦身、#85 与第六轮收官 clean.js。**首次**自愈时浏览器会弹一次「是否允许打开 wavepaint:」，勾选「始终允许」后无感（浏览器安全策略，无法绕过） |
+| 上一轮（第二十四轮，2026-09-13） | **控件与工具栏规范化 U 线：方案定稿（08 §7）+ 可复算审计工具转正 + 原型 U0 重排完成（全绿，等用户拍板）**（详见 §4.22）。用户原话：「UI 排布在大体上基本正确，**小的按钮上的排布以及控制栏的排布还需要斟酌，现在似乎有一些混乱**，大体上可以按照此方案进行改动，**请给出之后的工作方案**」→ 判定 = **形态层已通过（第二十三轮四区 dock / 页内浮窗 / 多 Tab / 3 预设），本轮只做控件层**，编号 **U0~U4**。产出三件：① **`08 §7` 方案全文**（§7.1~§7.10，含实测问题清单 **P-UI-01~09** + 铁律 **R1~R9** + 目标分层 **L0~L4** + 主方案 **D-UI-A**（14 个波形类控件从全局带下沉到波形面板上下文带，全局带 **34→14 个顶层元素**）/ 备选 D-UI-B + 刻度规范 + 溢出降级 + U0~U4 分期 + 与 §6 D 线合并总排期 ≈8~9 工作日 + 四条待拍板）；② **`tools/ui-audit.mjs` 转正**（真实 Edge headless + CDP 测量工具，`--mock`/`--real`/`--all`/`--check`/`--widths=`，`violationsOf()` 与 R3/R5/R6/R8/R9 一一对应）；③ **原型 U0 重排**（`prototype/ui-mockup.{html,css,js}`：`#toolbar` 重写为 L1 11 项 + `⋯`、波形/源码/树/文件/属性面板带全部改 `.mk-tbg` 分组 + `⋯`、新增 `setupBands()` 按 `data-ovp` 收组 / `setupFlyouts()` / `setupCtlFeedback()` 假交互、:`:root` 加 6 个刻度变量、删 `.mk-hintbar`（R9）与全部散落 margin（R5）、状态栏三段化 + `#st-ctx`）。**实测**（全部实跑）：`tools/mock-probe.mjs` **34/34**、`tools/ui-audit.mjs` mock **1680 与 1280 两档违规 0**（此前 3 / 6）；真机基线（未改，**待 U3 修**）= 1920 违规 1 / 1440 溢 32px / 1280 溢 192px。**C1 未触发（只改 `prototype/` + 新增 `tools/`，均不进 `resources.txt`）→ 未重建 exe** |
+| 最新一轮（第二十五轮，2026-09-13） | **U0-R 顶栏统一（撤销 D-UI-A）+ 真机面板 splitter 高度模型根本重写 + 三条真 bug 修复 + 混淆残留清零**（详见 §4.23）。用户原话：「**波形的时间标 1234 等错误地放在了源码区**」「**波形区的子波形区现在不添加功能栏，功能栏仍旧放在统一的顶栏**」「现在各个窗口的**大小拖拽有 bug，似乎和鼠标坐标对不上**」「**已有绘图 UI 尽量不做改动**」「编辑栏先不做修改」。**① 原型 U0-R（`prototype/ui-mockup.{html,css,js}`）**：把第二十四轮 D-UI-A 下沉到波形面板带的控件**全部收回统一顶栏** `#toolbar`（5 组 18 个绘图/编辑控件，带 `data-ovp`），**整条 `.mk-toolrow` 从波形面板删除**（波形区零子功能栏），帮助浮层 §5 与 `mk-version` 同步（→ `mock-3（顶栏统一 U0-R）`）。**② 真机 `js/sim/panel-layout.js` 重写 splitter 高度模型**（旧实现三处叠加缺陷：`onMove` 把累计位移当增量反复叠加 → 越拖越飞；`weights` 被当像素值但 `applyWeights()` 归一化成占比；`flex-basis:0` + 占比模型触到 `min-height` 后 px↔权重无恒定系数）→ 新模型 `cardBaseline`/`pairSlackPx`/`resizePairTo`/`resizePair`：`applyWeights` 改 `flexBasis = 基线 px + flexGrow = 占比*100 + flexShrink 0`；`applyMinHeights` **同时写 `minHeight` 与 `flexBasis`（同源）**。**③ 三条真 bug**：a) **「时间标跑进源码区」真正根因 = 原型 `.mk-gutter` 未 `white-space:pre`** → 行号换行吃掉宽度（实测 `gutW 369→32`、`bodyW 59→396`；修复后源码区 `ticksInSource 0`）；b) 原型波形刻度类名与菜单勾选冲突 `.mk-tick` → 改 **`.mk-wave-tick`**；c) 原型信号名列宽拖拽完全无效（`closest` → `querySelector`）+ 时间轴与波形轨横滚同步。**实测（全部实跑）**：`e2e-ui` **88/88**（I1 改口径 + 新增 **I4c 指针拖拽**）、`regression` 79/79、`e2e-rtl` 61/61、`e2e-sim` 0 失败、`mock-probe` 34/34、`ui-audit --mock` 1680/1280 两档违规 0。**④ 混淆复查**：`js/wavepaint.clean.js` 无混淆残留，**另清除 9 个残留 `_0x_` 前缀局部变量**（`_0x_wpf*` → `wpf*`，正文 `_0x` 归零）→ **触发 C1，exe 已重建**（`v0.4.0 build 2026-09-13 16:52:06 83fab85`，C8 特征串核验通过） |
+| 当前阻塞 | 无（**U1 闸门已实质拍板**：用户在第二十五轮直接裁决「**波形区不再有子功能栏，功能栏统一放顶栏**」→ **否决 D-UI-A、采纳顶栏统一（U0-R）**，原型已重排并全绿；`08 §7.9-③④`（`⋯` vs 折行 / 刻度 28·24·4·12）用户未提异议，按默认执行。当前待办 = **等用户 review 第二十五轮原型**，然后进 D0+U2） |
+| 下一步主线 | **① 等用户 review 第二十五轮原型（U0-R 顶栏统一）**（实物 = `node tools/dev-server.mjs 8951` → `http://127.0.0.1:8951/prototype/ui-mockup.html`，**必须 http**）。**② 未提异议即按 08 §7.8 总排期推进**（U 线与 D 线合并；**D-UI-A 已作废**：真机 21 个图标按钮**不下沉**、全部留在 `#toolbar`，U3 只做分组 / 刻度 / 尺寸 / 溢出）：**U2 工具带数据驱动化**（新增 `js/sim/ui/toolbar-spec.js`，24 个冻结 id 不改名，触发 C1 重建 exe）与 **D0 面板注册表 + 宿主容器抽象**（像素级零视觉变化）**合并同批** → **U3 真机工具带落地 + P-UI-02 真 bug 修复**（真机 1440/1280 不再越界）→ **D1 停靠引擎**（把原型的 `split`/`tabs` 模型 + `hitTest` + 落点框搬进 `js/sim/dock/*.js`）→ **D2** 页内浮动 + 最大化 + 键盘 → **D3** 持久化（sessionStorage + localStorage + 3 预设 + reset，**不写 `.wp`**）→ **D4 + U4** 打磨 + 闸门工具化。**#95（G1~G8）已由用户明确暂不实现**，方案保留在 08 §6.2，恢复前须重新确认意图。**08 §2.6 的三项剩余（VCD 树移入波形区 / TB 控制带收敛 / 层次树左置）直接并入 #94 D1**，不再单独排期。**#84 波形查看增强 / #77 Active Annotation / #78 仍为远期**（08 §3）；RTL 树仍只做代码层级浏览；服务自愈（§4.11）是独立专项（C19 不变量） |
+| 测试基线 | regression **79/79**；e2e-rtl **61/61**；**e2e-ui 88/88**（第二十一轮 I0~I8；**第二十五轮 I1 改口径**〔基线模型：`flex-basis` = 卡片基线 px + `flexGrow` 占比 + `flexShrink 0`〕**+ 新增 I4c 指针拖拽**〔拖 DY → 上下卡各 ±DY 且总高守恒、同手势拖回高度可逆〕）；e2e-sim 0 失败；probe-param 全过；**2026-09-13 第二十五轮实测复跑（全部实测）：regression 79/79、e2e-ui 88/88、e2e-rtl 61/61、e2e-sim 0 失败、mock-probe 34/34、probe-param 全过、真 exe 冒烟通过、`verify-recovery2` 17/17**（B4 起「仿真后不全量灌信号」的 e2e-sim 断言仍在守） |
+| 原型 / 控件测试基线（第二十五轮更新，**全部实跑**） | **`node tools/mock-probe.mjs` → 34/34**（原型渲染 + 交互 + 布局体检 F1~F10）；**`node tools/ui-audit.mjs` → 原型 mock 1680 / 1280 两档违规 0 ✅**（验收口径 = R3 主按钮唯一 / R5 间距只 4·12 / R6 无折行无溢出 / R8 无控件 offscreen / R9 长文本不进带；产物 `.e2e-tmp/ui-audit-mock.json`）；**同一工具的真机基线（未修，U3 目标）= 1920 违规 1 / 1680 违规 1 / 1440 违规 3（`#toolbar` 溢 32px）/ 1280 违规 3（溢 192px）**；多宽度特写截图 `.e2e-tmp/ctl-{1920,1680,1440,1280}-toolbar.png`、`ctl-*-waveband.png`、`ctl-1280-ovf-open.png`（1280 下 `⋯` 把 L2 的 T5 对象组收走）；**第二十五轮 U0-R 只动原型，真机未动 → 真机四档数字不变** |
+| UI 基线 | e2e-rtl **61/61**（含 #85 D1~D6 + 第十二轮 B3 RTL 树纯层级浏览 + 第十四轮 E1~E6 + 第十五轮 F1~F9 + 第十六轮 G1~G7 + 第十七轮 H1/H2/H3/H4/H4b/H5/H6 + 第十八轮 I1~I6 + 第十九轮 J0~J7）；**e2e-ui 88/88**（真实 Edge；第二十一轮 I0~I8：4 卡 + 3 splitter 装配 / `flex-grow` 归一化 100 且 `flex-basis:0px` / 折叠 `.collapsed`+`display:none`+相邻 splitter disabled+aria / 展开还原 / `ArrowDown` `source=原高+16`·`rtl=原高-16` / 宽度 420·下限 280·上限 760 / sessionStorage v1 落盘 / reset 回 328+展开+300-245-245-190 / 矮窗口 750×485 下 `#sim-run` 命中自身**）；probe-tutorial / probe-addbtn / probe-simfail 全过；真 exe 冒烟通过（端口 17817、core/wpf/doc/canvas/汉化全在、无异常）；**第二十五轮 `js/sim/panel-layout.js` splitter 高度模型根本重写**（`cardBaseline` / `pairSlackPx` / `resizePairTo` + `applyMinHeights` 同源写 `flexBasis`）→ e2e-ui **88/88**（I1 改口径 + 新增 I4c 指针拖拽，用户报的「拖拽和鼠标坐标对不上」根因即旧 `onMove` 累计位移反复叠加）；第十三轮自愈专测 `verify-recovery2.mjs` 17/17 + 真实 Edge 协议探针 `probe-protocol.mjs` |
+| 交付提醒 | 重启应用、从唯一路径启动、面板版本号自查（应显示 **`v0.4.0 build 2026-09-13 16:52:06 83fab85`**；⚠ `83fab85` = **构建时 HEAD**（第二十四轮 commit），承载第二十五轮代码的 commit 是它的**下一个** —— **别误判 exe 落后**，口径见 05/09 第十六轮补记）；本次 exe 内置 **第二十五轮 `js/sim/panel-layout.js` splitter 基线模型重写 + 混淆残留清零**、第二十四轮 U 线原型、第二十一轮可拖拽多面板（卡片折叠 + 纵向 splitter + 侧栏宽度 + session 级持久化 + 矮窗口工具栏裁剪修复）、第十九轮 #87②（`Ctrl+Alt+4`）、第十八轮 #76 B5、第十七轮 #76 B3、第十六轮 #76 B4（+ 不再仿真后全量灌信号）、第十五轮 #76 B1、第十四轮 #86 A1~A4、第十三轮服务自愈（端口 17817 + `WPServiceGuard` + `#sim-recover` 按钮）、第十二轮 RTL 树瘦身、#85 与第六轮收官 clean.js。**首次**自愈时浏览器会弹一次「是否允许打开 wavepaint:」，勾选「始终允许」后无感（浏览器安全策略，无法绕过） |
 
 ---
 
@@ -62,6 +63,7 @@
 | 2026-09-13 | 第二十二轮：**面板系统重构方案成文 + 后端能力盘点（纯规划文档，零产品代码改动）** | 用户要求「确认现在完成的功能 + 汇报后端支持如何 + 做出详细项目安排」，并给出终局目标 = **Verdi 式波形/代码/代码树等窗口的 Word 式自由排列组合与自由拖拽**。本轮交付 **08 §6**（§6.1 后端能力表 / §6.2 缺口 G1~G8 / §6.3 前端现状 / §6.4 差距表 / §6.5 选型 / §6.6 目标架构 / §6.7 契约面与 e2e 影响面 / §6.8 分期 #94 D0~D4 + #95 E1~E5 + #96 W1~W3 / §6.9 验收与回滚 / §6.10 四条待拍板 / §6.11 与远期关系）。**关键实测结论**：① 后端闭环已通（画布→自动 TB→iverilog→VCD→观察行），但只覆盖「单顶层 + 画布即激励」；关键常量 `ProcessTimeoutMs=30000`、`MaxBodyBytes=8 MiB`、`MaxSnapshots=20`；② **最大缺口 G1 = TB 只读**（`#tb-source` readonly，`ui-bridge.js:1305` 只能自动生成），其次 G2 无日志/进度、G3 无编译选项、G4 无取消、G5 VCD 全量文本、G6 `/api/snapshot` 未接线、G7 单顶层、G8 解析器为 SV 子集；③ 选型建议**自研轻量 dock 引擎**（`js/sim/dock/*.js`，契约面可控 + 复用 D21 `remeasure()` 经验），Lumino/golden-layout 备选，React 系与 iframe 多窗否决（后者重踩 #82 老坑）；④ 架构三层 = `PanelRegistry`（复用现有 DOM 节点、只搬父容器 → id 天然不变）+ `LayoutTree` + `DockDnD`，四区 + 页内浮动层；⑤ 分期 **D0 零视觉变化是关键闸门**（回滚=1 commit）；**#95 E1+E2 与 #94 正交、建议并行优先**；⑥ 门禁 = 用户对 §6.10 四条拍板（解除「侧栏保持右侧」/解除「层次树暂不左置」/浮出=页内浮动 vs 真独立窗口/布局是否进 `.wp`）。本轮不触发 C1、不重建 exe；见 04 §4.20、03 表 K、07 D22、日志 2026-09-13 |
 | 2026-09-13 | 第二十三轮：**四条拍板 + 零后端纯前端 UI 原型交付（D-1 闸门）** | 用户拍板 §6.10 四条**全部通过**（页内浮动面板 / 解除「侧栏保持右侧」/ 解除「层次树暂不左置」/ 布局暂不写 `.wp`），并下令 **G1~G8 全部暂不实现**、**布局与预设可先不做**，要求先做**不连后端、无功能的假界面**供 review。本轮交付 `prototype/ui-mockup.{html,css,js}`（≈960 行轻量停靠引擎：`split`/`tabs` 布局树 + 8 面板 + 3 预设 + 四向停靠/Tab 合并/最外环新建区 + 浮出/最大化/收回 + 分隔条像素↔比例 + `Ctrl+Alt+1/2/3/0` + `localStorage` 400ms 防抖 + `window.__mock` 探针；主题变量抄自真机 `:root`，类名 `mk-` 前缀零冲突）。验收：`tools/mock-probe.mjs`（真实 Edge headless + CDP + dev-server）**34/34 全通过**（含真实鼠标拖拽 B0~B3、浮窗拖动 C 组、布局体检 F1~F10）。原型内修 4 个真缺陷。**C1 未触发、未重建 exe**（`prototype/`、`tools/` 均不进 `resources.txt`）。**下一步 = 等用户 review 原型形态**，通过后进 D0/D1 真接线。详见 §4.21 / 07 D22 / 08 §6.10 / 日志 2026-09-13 |
 | 2026-09-13 | 第二十四轮：**控件与工具栏规范化 U 线 —— 方案定稿（08 §7）+ 审计工具转正 + 原型 U0 重排（等用户 U1 拍板）** | 用户 review 第二十三轮原型后判定「**UI 排布在大体上基本正确**，小的按钮上的排布以及控制栏的排布还需要斟酌，现在似乎有一些混乱」，授权「大体上可以按照此方案进行改动」并要求「**给出之后的工作方案**」→ **形态层通过、只做控件层**（编号 **U0~U4**）。交付三件：① **`08 §7` 全文**（§7.2 **P-UI-01~09** 实测问题清单〔含 **P-UI-02 = 真机 `#toolbar` 1440 溢 32px / 1280 溢 192px 的真 bug**〕/ §7.3 **R1~R9 铁律** / §7.4 **L0~L4 分层 + 主方案 D-UI-A**（真机 21 个图标按钮中 **14 个波形类控件下沉到波形面板上下文带**，全局带 **34 → 14 个顶层元素**）/ 备选 D-UI-B / §7.5 刻度规范 / §7.6 `⋯` 溢出降级 / §7.7 **U0~U4 分期** / §7.8 **之后的工作方案（与 §6 D 线合并总排期 ≈8~9 工作日）** / §7.9 **四条待拍板**）；② **`tools/ui-audit.mjs` 由临时脚本转正入库**（真实 Edge headless + CDP 量测，`--mock` / `--real` / `--all` / `--check` / `--widths=`，`violationsOf()` 与 R3/R5/R6/R8/R9 一一对应）；③ **原型 U0 重排**（`prototype/ui-mockup.{html,css,js}`：`#toolbar` 重写为 L1 11 项 + `⋯`、各面板带改 `.mk-tbg` 分组 + `⋯`、`:root` 加 6 个刻度变量、删 `.mk-hintbar`、状态栏三段化 + `#st-ctx`、新增 `setupBands()` / `setupFlyouts()` / `setupCtlFeedback()`）。**实测**：`tools/mock-probe.mjs` **34/34**；`tools/ui-audit.mjs` 原型 mock **1680/1280 两档违规 0**（改动前 3/6）；**真机基线未修 = 1440 溢 32px / 1280 溢 192px（P-UI-02，待 U3）**。**C1 未触发、未重建 exe** |
+| 2026-09-13 | 第二十五轮：**U0-R 顶栏统一（撤销 D-UI-A）+ 真机 splitter 高度模型重写 + 三条真 bug 修复 + 混淆残留清零** | 用户四条原话：① 「**波形的时间标 1234 等错误地放在了源码区**」；② 「**编辑栏先不做修改**……保存图标、撤回图标、放大缩小图标等**还放到此位置**（统一顶栏），**波形区的子波形区现在不添加功能栏**，功能栏仍旧放在统一的顶栏那里」；③ 「现在各个窗口的**大小拖拽有 bug，似乎和鼠标坐标对不上**，而且检查显示等其他 bug」；④ 「**已有绘图 UI 尽量不做改动**……如果是很混淆过的，请查明问题之前做过的所有代码的解混淆和剔除工作」。**① 原型 U0-R**：`prototype/ui-mockup.{html,css,js}` —— 撤销第二十四轮 D-UI-A，把下沉到波形面板带的控件**全部收回 `#toolbar`**（5 组 18 项，`data-ovp`），**删除波形面板整条 `.mk-toolrow`**（波形区零子功能栏），帮助浮层 §5 + `mk-version`（→ `mock-3（顶栏统一 U0-R）`）同步。**② 真机 `js/sim/panel-layout.js` 根因重写**：`cardBaseline` / `pairSlackPx` / `resizePairTo` / `resizePair`；`applyWeights` = `flexBasis: 基线px` + `flexGrow: 占比*100` + `flexShrink: 0`；`applyMinHeights` **同源同时写 `minHeight` 与 `flexBasis`**（此前窗口 resize 只重算 min-height → flex-basis 留在旧值 = 拖拽错位根因之一）。**③ 三条真 bug**：a) **时间标跑进源码区根因 = 原型 `.mk-gutter` 缺 `white-space:pre`** → 行号换行吃掉宽度（`gutW 369→32`、`bodyW 59→396`，修复后 `ticksInSource 0`）；b) 原型 `.mk-tick` 与菜单勾选类名冲突 → 波形刻度改 **`.mk-wave-tick`**；c) 原型信号名列宽拖拽全失效（`closest` → `querySelector`）+ 时间轴与波形轨横滚同步（`tracks.scrollLeft` → `axisScroll.scrollLeft`）。**④ 混淆复查**：`js/wavepaint.clean.js` 无混淆残留（`_0x55bf` / `\xNN` 等均在注释或为 ✕ 字符 / 产品功能），**另清除 9 个残留 `_0x_` 前缀局部变量**（`_0x_wpf*` → `wpf*`）→ 正文 `_0x` 归零。**实测（全部实跑）**：e2e-ui **88/88**（I1 改口径 + 新增 I4c）、regression 79/79、e2e-rtl 61/61、e2e-sim 0 失败、mock-probe 34/34、ui-audit --mock 1680/1280 违规 0；真机四档数字不变（U3 修）。**C1 触发（改了 `js/`）→ exe 已重建**（22,015,488 B / 2026-09-13 16:52:06 / `v0.4.0 build 2026-09-13 16:52:06 83fab85`，C8 特征串核验通过） |
 
 ---
 
@@ -1428,6 +1430,94 @@ node tools/dev-server.mjs 8951
 - **不重做 #88~#92**（编辑模式点 bus 误入框选 / 信号名标位宽 / 步进 ▲▼ ±1 / 步长变化 clock 填充 / 框选后点其它处自动提交）：五项**已于第九轮全部 ✅**，本轮实测未见回归。
 - **未重建 exe**：`prototype/**`、`tools/**` 均不进 `resources.txt`。
 - `#95（G1~G8）` 仍为用户明确暂缓；`#84 / #77 / #78` 仍为远期。
+
+### 4.23 ✅ 已完成（原型 U0-R + 真机 splitter 重写 + 三条真 bug + 混淆残留清零）：第二十五轮 2026-09-13
+
+> **一句话**：用户对第二十四轮 U 线原型给出四条修改指令 → 本轮**撤销 D-UI-A（顶栏统一 U0-R）**、
+> **重写真机面板 splitter 高度模型**（用户报「拖拽和鼠标坐标对不上」）、修掉**三条真 bug**（其中
+> 「时间标跑进源码区」的真根因是原型行号槽缺 `white-space:pre`），并**复查混淆残留**（顺手清零 9 个
+> `_0x_wpf*` 局部名）→ **触发 C1，exe 已重建**。
+
+**用户四条原话（逐条对账）**
+
+| # | 用户原话 | 判定与落点 |
+|---|---------|-----------|
+| 1 | 「波形的时间标 **1234** 等错误地放在了源码区」 | **真 bug**：原型 `.mk-gutter` 缺 `white-space:pre` → 行号槽被换行撑成 369px、源码区被挤到 59px，波形刻度视觉上「跑进」源码区。改 CSS 一字（+ 波形刻度类名去冲突）→ `ticksInSource 0`（§下「真 bug 清单」a/b） |
+| 2 | 「编辑栏先不做修改……**保存 / 撤回 / 放大缩小**等还放到此位置（统一顶栏）；**波形区的子波形区不加功能栏**」 | **推翻第二十四轮 D-UI-A**（把波形类控件下沉到波形面板上下文带）→ 改为 **U0-R 顶栏统一**：原型 `#toolbar` 收回 5 组 18 项，波形面板 `.mk-toolrow` **整条删除**。真机本就未动（真机 `#toolbar` 一直含保存/撤销/缩放），无需改 |
+| 3 | 「各个窗口的**大小拖拽有 bug，和鼠标坐标对不上**，而且检查显示等其他 bug」 | **真机 `js/sim/panel-layout.js` 根因重写**（旧 `onMove` 把累计位移当增量反复叠加 → 越拖越飞）+ 原型三处拖拽/滚动 bug（§下「真 bug 清单」c） |
+| 4 | 「**已有绘图 UI 尽量不改动**……如果是很混淆过的，请查明之前的解混淆与剔除工作」 | 绘图 UI（`wavepaint.clean.js` 的画布/绘制）**一行未改**；混淆复查结论 = **无残留混淆**（详见下） |
+
+**① 原型 U0-R（`prototype/ui-mockup.{html,css,js}`）—— 撤销 D-UI-A**
+
+- `prototype/ui-mockup.html` `#toolbar`（L90 起）新增 **5 组 18 个绘图 / 编辑控件**（带 `data-ovp` 表达溢出优先级）：
+  打开/保存组 = 5、撤销组 = 4、视图 = 1、绘制 = 3、编辑状态 = 2、标注 = 2、对象 = 1。
+- `panelWave()` 里**整条 `.mk-toolrow` 删除** → 波形区**零子功能栏**（对齐用户「功能栏统一放顶栏」）。
+- 帮助浮层 §5、`mk-version` → `v0.4.0 · 原型 mock-3（顶栏统一 U0-R）`。
+- 其余面板（源码 / RTL / VCD / TB / 文件 / 属性）的 `.mk-toolrow` **保留**（那是**面板专属**动作，不是波形的功能栏）。
+
+**② 真机 `js/sim/panel-layout.js` splitter 高度模型根本重写**
+
+旧实现**三处缺陷叠加**（这就是「鼠标坐标对不上」的真根因）：
+
+1. **`onMove` 把累计位移当增量反复叠加** → 每次 pointermove 都在上一次结果上再加，越拖越飞。
+2. **`weights` 被当像素值用**，但 `applyWeights()` 会把它归一化成占比 → 量纲不一致。
+3. **`flex-basis:0` + 权重占比模型**：一旦卡片触到 `min-height`，px ↔ 权重之间**没有恒定换算系数** → 拖拽目标算不准。
+
+新模型（`cardBaseline` L157 / `pairSlackPx` L161 / `applyWeights` ~L170 / `applyMinHeights` ~L233 / `resizePairTo` L344 / `resizePair` L372）：
+
+- `cardBaseline(card)` = 该卡 `el.style.minHeight`（像素基线）；`pairSlackPx()` = 可见卡「渲染高 − 基线」之和。
+- `resizePairTo(pair, targetAPx)`：把 A 卡的**渲染高度**设到绝对目标 `clamp(targetAPx, baseA, total − baseB)`；再按 `k = free / wSum` 反解**本对**权重 `nextWA = (nextA − baseA) / k`，B = 本对权重和 − nextWA。
+- `applyWeights()`：`flexBasis = cardBaseline(card) + 'px'` + `flexGrow = 占比 * 100` + `flexShrink = '0'`。
+- **`applyMinHeights()` 现在同时写 `minHeight` 与 `flexBasis`（同源）** ← 最后修掉的关键 bug：窗口 resize 只重算 min-height 会让 `flex-basis` 留在旧值。
+- `resizePair(pair, deltaPx)` 保留键盘增量语义（薄包装 `resizePairTo(..., offsetHeight + deltaPx)`）。
+- `onPointerDown` 守卫改用 `cardBaseline` 之和，记录 `startHeightA`；`onMove` 走 `resizePairTo(split.pair, startHeightA + delta)`。
+- `#sim-resize-x` 侧栏宽度分支（`startWidth + delta` 绝对量）本来就对，**未改**。
+- **24 个冻结 id / class / dataset 一个未改**（契约面全保）。
+
+**③ 真 bug 清单（本轮三条 + 混淆一项）**
+
+| 编号 | 现象 | 真根因 | 修复 |
+|---|---|---|---|
+| a | **时间标「1234」跑进源码区** | 原型 `.mk-gutter` 未设 `white-space:pre` → 行号被折行，行号槽实测 `gutW 369`（应 32）、源码区被压到 `bodyW 59` | `.mk-gutter{white-space:pre}` → `gutW 32` / `bodyW 396` / `ticksInSource 0` |
+| b | 波形刻度与菜单勾选视觉冲突 | 同用 `.mk-tick` 类名 | 波形刻度改 **`.mk-wave-tick`**（`ui-mockup.js:262`；菜单勾选 `.mk-mi .mk-tick` 保留） |
+| c | 原型：信号名列宽拖拽完全无效 + 时间轴不随波形轨横滚 + 游标拖拽偏移 | ① `scope.closest('.mk-wave')` 取到了错节点 → 改 `scope.querySelector('.mk-wave')`；② 游标拖拽未以 `tracks` 视口为基准、未补 `tracks.scrollLeft`；③ 缺 `tracks.scroll → axisScroll.scrollLeft` 同步 | 三处修复；实测横滚 200→200、拖 60 → `dA 60 / dB −60` |
+| d | **混淆残留** | 无混淆代码；仅 9 个解混淆后残留 `_0x_` 前缀的局部变量（`_0x_wpfQuickCleanup` / `_0x_wpfSuppressBlur` / `_0x_wpfMarkSuppress` / `_0x_wpfClearError` / `_0x_wpfOnBlur` / `_0x_wpfText` / `_0x_wpfOnInput` / `_0x_wpfOpts`，共 32 处） | 去掉前缀 → `wpf*`（函数内局部作用域，改名零行为变化）；**正文 `_0x` 归零**，仅剩 3 处为文件头注释里的历史说明（保留） |
+
+> ⚠ **注意**：`_0x55bf`（字符串解码器名）等只出现在 `js/wavepaint.clean.js` **头部注释**里，是「当年解混淆做了什么」的档案；
+> `\xD7` 是产品功能字符「✕」；`atob` / `fromCharCode` 是 WaveDrom 导入导出功能。**都不是混淆代码**。
+> 第三方压缩库 `lib/codemirror.bundle.js`、`lib/wavedrom.min.js` 属**正常压缩**（非混淆），保留。
+
+**④ 实测（全部实跑）**
+
+| 套件 | 结果 |
+|---|---|
+| `node tools/e2e-ui.mjs` | **88/88 ✅**（本轮改 I1 口径 + 新增 **I4c 指针拖拽**） |
+| `node tools/regression.mjs` | **79/79 ✅** |
+| `node tools/e2e-rtl.mjs` | **61/61 ✅** |
+| `node tools/e2e-sim.mjs` | **失败 0 项 / 已知缺陷 0 项 ✅** |
+| `node tools/mock-probe.mjs` | **34/34 ✅**（首跑曾因残留 Edge / 端口占用的**环境态**报「页面未找到」，清理后连跑 3 次均 34/34 —— **非本轮代码引入**） |
+| `node tools/ui-audit.mjs --mock` | **1680 / 1280 两档违规 0 ✅** |
+| `node tools/ui-audit.mjs --real` | 1920 违规 1 / 1680 违规 1 / 1440 违规 3 / 1280 违规 3 ⚠ **历史遗留（U3 范围），本轮未修** |
+
+**e2e-ui 本轮三条断言改动（重要，勿回退）**
+
+- **I1**：旧断言 `flex-basis=0` 已作废 → 新断言 `bases[i] === mins[i] && /px$/`、`growSum≈100`、`shrinks` 全 `'0'`。
+- **I4**（键盘 ArrowDown 16px）：口径改「**渲染高**」—— `hA +16 / hB −16` 且两卡总高守恒。
+- **I4c**（新增，指针拖拽）：动态算 `room = hB − batteryBase`、`DY = clamp(floor(room) − 2, 8, 24)`；断言「拖 DY → `dA ≈ DY`、`dB ≈ DY`、总高守恒」+「**同一手势拖回原点 → 高度可逆回出发值**」。
+
+**⑤ exe 重建 + C8 核验**
+
+- `powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1` → `csc exit: 0`，`WavePaintClean.exe` = **22,015,488 B** / 2026-09-13 16:52:06。
+- `version.txt` = **`v0.4.0 build 2026-09-13 16:52:06 83fab85`**（`83fab85` = **构建时 HEAD**；承载本轮代码的 commit 是它的**下一个**）。
+- `resources.txt` = 52 项。
+- C8 特征串：`cardBaseline` = 7、`pairSlackPx` = 3、`resizePairTo` = 3、`applyMinHeights` = 7、`sim-resize-x` = 12、`wpfQuickCleanup` = 5，`_0x_wpf` = **0** ✅；`mk-wave-tick` 命中 0 正确（只在 `prototype/`）。
+
+**⑥ 不做的事（红线）**
+
+- **不碰绘图 UI**：`js/wavepaint.clean.js` 的绘制/画布逻辑一行未改（只改 9 个局部变量名），`js/sim/engine.js` 一行未改（C9）。
+- **不重做 #88~#92**（已于第九轮全部 ✅）。
+- **不动 24 个冻结 id**；`#sim-status` 常驻可见、`#sim-run` 始终可点。
+- **不加波形子功能栏**（用户本轮明确要求）；`D-UI-A` 作废，见 `07 D24` / `08 §7.4`（已改写）。
 
 ---
 
