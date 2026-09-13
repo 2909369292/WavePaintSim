@@ -715,4 +715,45 @@
 
 ---
 
-> 以上为截至**第三十五轮（2026-09-13）**的坑位清单，共 **P1~P46**。每条格式：现象 → 根因 → 修法 → 预防；带 `#NN` 的对应 `03-REQUIREMENTS.md` 需求号。
+## P47 · 作者样式 `.source-actions{display:grid}` 盖掉 UA 的 `[hidden]` → 只加 `hidden` 属性按钮不消失
+
+- **症状**：要「隐掉」源码面板的「导入源码 / 移除文件 / 解析 RTL / 生成 TB」四个按钮，给容器 `.source-actions` 加了 `hidden` 属性，**界面上按钮仍然在**、位置照旧占位。
+- **根因**：`hidden` 属性靠 **UA 样式表**的 `[hidden] { display: none }` 生效，特异性 (0,1,0) 极低；而 `index.html` 内联样式里的作者规则 `.source-actions { display: grid; }` 特异性同为 (0,1,0)，但**来源优先级更高**（作者 > UA）→ 直接盖掉 → 仍是 `display:grid`。
+- **实证**：第三十六~三十七轮（2026-09-13）改完 `index.html` 后真机 / headless 下四个按钮依旧可见，`tools/source-panel-probe.mjs` §1 首跑即可复现。
+- **修法**：补一条作者规则 `.source-actions[hidden] { display: none !important; }`（写在 `index.html` 的 `<style>` 内、紧邻 `.source-actions` 原规则，并加注释说明原因）。
+- **预防**：**任何靠 `hidden` 属性隐藏的元素，只要它（或它的祖先容器）身上有作者 `display` 规则，就必须显式补 `[hidden]{display:none!important}`**。这是「用 CSS 隐藏而不删节点」的通用前提 —— 保契约面（id 仍在）与视觉裁剪（看不见）必须同时成立。
+
+---
+
+## P48 · `#toolbar` 窄屏溢出：末端控件被推出视口 → 坐标点击 / `elementFromPoint` 落到空处（「点运行仿真没反应」的真凶）；修法禁用 `overflow-x:auto`
+
+- **症状**：窄窗口（`tools/e2e-ui.mjs` I8 用 750×485）下按坐标点 `#sim-run`，`hitIsRun:false`；用户侧长期表现为「**点运行仿真没有任何反应**」（历史 `P-UI-02` 的相邻现象）。
+- **根因（两层）**：① `#toolbar` 是 `flex-wrap: nowrap` + `overflow: visible`，内容总宽 ≈**1470px** → 窄窗口下末端按钮被**推出视口之外**（`getBoundingClientRect()` 计算出的中心点已不在视口内）→ `elementFromPoint` 返回 `null`，任何坐标点击都落空；② 改成 `flex-wrap: wrap` 让按钮回到视口内（y=113）后，**又**被 `#sim-panel`（`position:fixed`，`top:92px` **硬编码**）盖住（`stack[0]` = `#sim-panel-header`）—— 因为换行后工具带实测高变成 **110px**（底 150px）> 92px。
+- **实证**：临时探针 `.e2e-tmp/i8dbg.mjs` 逐步打印 `elementFromPoint` 命中栈（首诊 `hitTag:null` → 换行后 `stack[0]=#sim-panel-header`）；`tools/e2e-ui.mjs` I8 首跑即 FAIL。
+- **修法**：a) `css/workspace.css` 加 `#toolbar { flex-wrap: wrap; }`；b) `js/sim/ui-bridge.js` 新增 `syncToolbarHeight()` 把实测高写进 `--wp-toolbar-h`（立即 + `resize` + `DOMContentLoaded` + `ResizeObserver` 四时机刷新）；c) `#sim-panel` 的 `top` 改 `calc(40px + var(--wp-toolbar-h, 46px) + 6px)`。验证：`stack[0] = BUTTON#sim-run`、I8 PASS、`ui-audit real` 1280/1440 溢出 **192px / 32px → 0px**。
+- **⚠ 禁止用 `overflow-x: auto` 修**：按 CSS 规范，`overflow-x: auto` 会让 `overflow-y` 的 `visible` **计算为 `auto`** → 工具带会**裁掉** `.dropdown-content` / `.submenu-content` 这类绝对定位的弹出菜单（它们必须溢出工具带才能显示）→ 换来「点得动」但「菜单被裁」。**换行是唯一安全解**（08 §7.9 第 3 条的 `⋯` 溢出菜单属 U3 增强，不冲突）。
+- **预防**：**任何「常驻工具带 + 一排定宽控件」的布局，都必须显式定义窄屏降级行为（换行 / 溢出菜单），并且顶距一律用 CSS 变量而非硬编码像素**；断言这类「可见却点不到」的 bug 要用**真实坐标点击 + `elementFromPoint` 命中栈**，不能只断言 `getBoundingClientRect()` 存在。
+
+---
+
+## P49 · 【脚本改 C# 源码】`"@@LOG:\n"` 里的 `\n` 被写成**真实换行** → 字符串字面量跨行，`csc` 直接编译失败（CS1010 / CS1646）
+
+- **症状**：用脚本给 `WavePaintLauncher.cs` 注入 `"@@LOG:\n"` 这类转义串之后，`.\build.ps1` 报编译错误（`CS1010: 常量中有换行符` / `CS1646: 关键字、标识符或字符串应有 …`），构建**直接失败**，exe 无法产出。
+- **根因**：本项目所有文本改动都走「Node 脚本 + 字符串替换」。在 JS 里写 `'… "@@LOG:\n" …'` 时，`\n` 是 **JS 自己的转义**，会被求值成一个**真实换行符**写进文件 → C# 源码里的字符串字面量**断成两行** → 编译不过。同一脚本重复跑还会**重复插入**（因为匹配串也被改掉了）。
+- **实证**：第三十八~三十九轮给 `RunSimulationCore()` 加 `@@LOG:` / `@@VCD:` 协议时命中。**正确落盘形态**必须是（`\n` = 反斜杠 + `n` 两个字符）：
+  `?: "@@LOG:\n" + simLog + "\n@@VCD:\n" + vcd`
+- **修法**：脚本里一律写 **`\\n`**（JS 层多转义一层）；改完**必须回读文件原文核对** —— `rg -n '@@LOG' WavePaintLauncher.cs` 看到的应是单行内 8 个字符 `"@@LOG:\n"`，而**不是**跨行的两个字面量。排错顺序：`node tools\gen-resources.mjs` → 手跑 `csc` 看**第一手**报错行号。
+- **预防**：**凡是用脚本向「自带转义语法的语言」（C#、C、JSON、正则、shell）注入文本，都必须多转义一层，并在写完回读校验**。验收 = `rg` 特征串命中 + 构建 `csc exit: 0` + **C8 特征串计数 ≥1**（见 02 §C8）。
+
+---
+
+## P50 · `#sim-status` 是**单行**元素：多行文本塞进去会挤成一坨；`.mk-cline` 是**计行契约**不可改名
+
+- **症状**：把仿真完成的**多行**摘要（端口表 + 波形统计）整段写进 `#sim-status`，界面上所有行**挤成一坨**（没换行、没滚动），用户看不出内容；日志流的行数统计也会对不上。
+- **根因**：`#sim-status` 历史上只承载**一行**状态文本（定高 / 不换行），**不是多行容器**；第 39 轮确立的「唯一文本状态出口」是 `#sim-console-log`，它才是**按行**渲染的容器（一行 = 一个 `div.mk-cline`）。
+- **修法**：① **单行口径** —— 任何要写 `#sim-status` 的文本先经 `firstLine()` 截**首行**（`js/sim/ui-bridge.js`），**多行内容只走日志流**；② **日志流契约** —— 一行一条 `div.mk-cline`、首行带 `[HH:MM:SS] ` 时间戳、续行缩进 **11 空格**、环形上限 `CONSOLE_MAX = 300`、追加后自动滚底。
+- **预防**：**「单行状态位」与「多行日志流」是两种不同控件，禁止互相代填**（想加提示 = 加一行日志，不是往状态位里塞一段文本）。另：**`.mk-cline` 类名是计行契约** —— `tools/dock-probe.mjs:128` 按它统计日志行数，**改名会静默打断停靠回归**，改名前必须先全局搜索引用点。见 07 D36。
+
+---
+
+> 以上为截至**第三十九轮（2026-09-14）**的坑位清单，共 **P1~P50**。每条格式：现象 → 根因 → 修法 → 预防；带 `#NN` 的对应 `03-REQUIREMENTS.md` 需求号。

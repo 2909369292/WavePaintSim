@@ -583,7 +583,7 @@
 **关联**：#94（面板系统重构）/ #95（仿真后端能力增强 E1~E5，**已由用户暂缓**）/ #96（工作区与持久化
 W1~W3，其中 **W3 已拍板不做**）见 `03-REQUIREMENTS.md` 表 K；后端缺口 G1~G8 见 08 §6.2；
 08 §6.8 分期表**新增 D-1 行** + §6.10 四条结论（§6.10.1 保留原始选项追溯）；
-记录见 **04 §4.20（第二十二轮）+ §4.21（第二十三轮成品）**、日志 2026-09-13（两轮同日追加）、09 §3.1。
+记录见 **04 §4.20（第二十二轮）+ §4.21（第二十三轮成品）**、日志 2026-09-13（两轮同日追加）、09 §3.3。
 
 ---
 
@@ -624,7 +624,7 @@ W1~W3，其中 **W3 已拍板不做**）见 `03-REQUIREMENTS.md` 表 K；后端�
 
 **关联**：#94（面板系统重构，`08 §6`）/ `03-REQUIREMENTS.md` 表 K **#97**（本线）；
 已落地部分 = 原型 U0（`prototype/ui-mockup.*`）+ 审计工具（`tools/ui-audit.mjs`）；
-记录见 **04 §4.22**、日志 `2026-09-13.md`（第二十四轮）、**09 §3.1**。
+记录见 **04 §4.22**、日志 `2026-09-13.md`（第二十四轮）、**09 §3.3**。
 
 ---
 
@@ -674,7 +674,7 @@ W1~W3，其中 **W3 已拍板不做**）见 `03-REQUIREMENTS.md` 表 K；后端�
 （22,015,488 B / `v0.4.0 build 2026-09-13 16:52:06 83fab85`，C8 特征串核验通过）。
 
 **关联**：`08 §7.4`（D-UI-A 已标作废）/ `§7.9-①`（已拍板）/ `§7.7 U3`（口径调整）/ `03 #97` / `04 §4.23` /
-日志 `2026-09-13.md`（第二十五轮）/ `09 §3.2`。
+日志 `2026-09-13.md`（第二十五轮）/ `09 §3.4`。
 
 ---
 
@@ -713,7 +713,7 @@ W1~W3，其中 **W3 已拍板不做**）见 `03-REQUIREMENTS.md` 表 K；后端�
 **④ 为什么不做「复用真机启动器」**：真机启动器的端口 / ping 身份 / 单实例文件 / 构建脚本写盘行为都属于 **C19 服务在线性不变量**，
 复用会污染真机资源清单、并可能让真机自愈链路误判 → **宁可多写一个启动器，也不动真机一行**。
 
-**关联**：`04 §4.24` / `09 §3.1` / `06 P38` / `02 §3`（C1 例外说明）+ `02 §8`（命令速查）/ `prototype/` / 日志 `2026-09-13.md`（第二十六轮）。
+**关联**：`04 §4.24` / `09 §3.3` / `06 P38` / `02 §3`（C1 例外说明）+ `02 §8`（命令速查）/ `prototype/` / 日志 `2026-09-13.md`（第二十六轮）。
 
 ---
 
@@ -730,7 +730,7 @@ W1~W3，其中 **W3 已拍板不做**）见 `03-REQUIREMENTS.md` 表 K；后端�
 
 **影响**：`tools/ui-audit.mjs --mock` → 1680/1280 **两档违规 0**（此前 4 条违规全部是上述真机原生特征被误判）；真机口径数值不变。
 
-**关联**：`04 §4.25` / `09 §3.2` / `tools/gen-mock-page.mjs` / `tools/ui-audit.mjs` / `prototype/ui-mockup.html` / 日志 `2026-09-13.md`（第二十七轮）。
+**关联**：`04 §4.25` / `09 §3.4` / `tools/gen-mock-page.mjs` / `tools/ui-audit.mjs` / `prototype/ui-mockup.html` / 日志 `2026-09-13.md`（第二十七轮）。
 
 ---
 
@@ -748,7 +748,7 @@ W1~W3，其中 **W3 已拍板不做**）见 `03-REQUIREMENTS.md` 表 K；后端�
 
 **看门狗**：`tools/mock-probe.mjs` **I1~I5 五条回归**（重建后仍在拖动 / 重建后松手位置==拖动中最后位置 / 松手清理状态 / 分隔条重建后仍跟随指针且只改相邻两格 / 拖动中==松手后逐像素相等）长期看守。
 
-**关联**：`06 P39` / `04 §4.25` / `09 §3.2` / `prototype/ui-mockup.js` / `prototype/ui-mockup.css` / `tools/mock-probe.mjs`。
+**关联**：`06 P39` / `04 §4.25` / `09 §3.4` / `prototype/ui-mockup.js` / `prototype/ui-mockup.css` / `tools/mock-probe.mjs`。
 
 ---
 
@@ -760,11 +760,11 @@ W1~W3，其中 **W3 已拍板不做**）见 `03-REQUIREMENTS.md` 表 K；后端�
 1. **外部 Agent 路线作废**：`docs/ui-agent/` 两份文档降级为**历史存档**（保留可追溯，不再作为实施依据）；`prototype/**` 与 `WavePaintMockup.exe` 降级为**参考原型**，**不接线真机**。
 2. **回归真机基线**：全部 UI 改动直接落在**受版本控制的产品文件**上 —— `index.html`（外壳 + 容器）、`css/workspace.css`（自带样式，20 KB）、`js/sim/dock/workspace.js`（**自研停靠引擎，1,169 行，普通 `<script>` 早于 ESM 加载**）。**不引入 React / Vue / 打包器 / 第三方 dock 库**（零构建约束，07 D22 不变）。
 3. **稳定性的实现方式 = 自研引擎 + 严格断言护栏**：既然不能引第三方套件，稳定性靠 ① **宿主节点整块搬家（绝不克隆、绝不 `remove()`**）；② **预览 == 落位同一数据源**（`computeDrop()` 在布局树副本上真跑 `applyOp()` → `layoutRects()` 反算矩形，`showIndicator()` 只消费 `d.rect`，`placePanel()` 执行同一操作）；③ **拖拽韧性三件套**（D30）；④ **无死局护栏**（D33）；⑤ **`tools/dock-probe.mjs` 46 条真实 Edge 断言**长期看守。
-4. **面板宿主映射固定**（`HOST_ID`，见 04 §4.27 与 09 §3.0）：`wave→#main-area`（**波形显示区原样搬运，不重绘、不复制，1:1**）、`source→#sim-card-source`、`rtl→#sim-card-rtl`、`vcd→#sim-card-vcd`、`tb→#sim-card-tb`、`console→#sim-console`。
+4. **面板宿主映射固定**（`HOST_ID`，见 04 §4.27 与 09 §3.2）：`wave→#main-area`（**波形显示区原样搬运，不重绘、不复制，1:1**）、`source→#sim-card-source`、`rtl→#sim-card-rtl`、`vcd→#sim-card-vcd`、`tb→#sim-card-tb`、`console→#sim-console`。
 
 **后果**：真机 `index.html` 自带 `#workbench` / `#wp-status-bar` 外壳；**旧的右侧栏 `#sim-panel` 在停靠模式下被 CSS 隐藏（DOM 原地保留，`ui-bridge.initRefs()` 仍能拿到非空引用）**；所有既有冻结 id / class 一个未改。
 
-**关联**：`06 P40~P46` / `04 §4.27` / `09 §3.0` / `08 §2.2·§2.6·§6.10` / `js/sim/dock/workspace.js` / `css/workspace.css` / `tools/dock-probe.mjs`。
+**关联**：`06 P40~P46` / `04 §4.27` / `09 §3.2` / `08 §2.2·§2.6·§6.10` / `js/sim/dock/workspace.js` / `css/workspace.css` / `tools/dock-probe.mjs`。
 
 ---
 
@@ -776,7 +776,7 @@ W1~W3，其中 **W3 已拍板不做**）见 `03-REQUIREMENTS.md` 表 K；后端�
 
 **③ 逃生口 `?dock=off`**：URL 带 `?dock=off` 或 `<html data-dock="off">` 时，引擎**只设 `window.__wpDockOff = true`，不定义 `window.__wpDock`** → 页面退回旧右侧栏布局（`css/workspace.css` §6 兼容垫片）。用途：① 老 `e2e-ui.mjs` 88 项断言（口径 = 右侧栏卡片 splitter）仍可原样跑；② 万一停靠引擎出问题，用户可用该参数立刻回到旧界面（**故障逃生开关**）。
 
-**关联**：`06 P40` / `04 §4.27` / `09 §3.0` / `tools/e2e-ui.mjs`（改走 `?dock=off`）。
+**关联**：`06 P40` / `04 §4.27` / `09 §3.2` / `tools/e2e-ui.mjs`（改走 `?dock=off`）。
 
 ---
 
@@ -791,7 +791,7 @@ W1~W3，其中 **W3 已拍板不做**）见 `03-REQUIREMENTS.md` 表 K；后端�
 
 **看门狗**：`tools/dock-probe.mjs` §2.5（阈值 / Esc / 失焦）+ §7（浮窗拖动 16 项，含「拖拽期间组右上角 ⧉▣✕ 被强制隐藏」= 历史 bug「拖动时按钮乱闪」的回归）。
 
-**关联**：`06 P42` / `07 D27`（原型侧同源铁律） / `04 §4.27` / `09 §3.0`。
+**关联**：`06 P42` / `07 D27`（原型侧同源铁律） / `04 §4.27` / `09 §3.2`。
 
 ---
 
@@ -805,7 +805,7 @@ W1~W3，其中 **W3 已拍板不做**）见 `03-REQUIREMENTS.md` 表 K；后端�
 
 **看门狗**：`tools/dock-probe.mjs` §6a~§6e（含「顶边最外 8px = 新建整行窄环带，页签条中下部才是并入」逐条断言）。
 
-**关联**：`06 P43` / `04 §4.27` / `09 §3.0`。
+**关联**：`06 P43` / `04 §4.27` / `09 §3.2`。
 
 ---
 
@@ -817,7 +817,7 @@ W1~W3，其中 **W3 已拍板不做**）见 `03-REQUIREMENTS.md` 表 K；后端�
 
 **看门狗**：`tools/dock-probe.mjs` §7（「浮窗拖到工作区外：不显示落点提示 / 松手后仍是浮窗（未被误停靠）」+「浮窗拖到波形组页签条：落点提示是『并入』且预览 == 波形组矩形（±3px）」）。
 
-**关联**：`06 P44` / `07 D28` / `04 §4.27` / `09 §3.0`。
+**关联**：`06 P44` / `07 D28` / `04 §4.27` / `09 §3.2`。
 
 ---
 
@@ -833,7 +833,7 @@ W1~W3，其中 **W3 已拍板不做**）见 `03-REQUIREMENTS.md` 表 K；后端�
 
 **看门狗**：`tools/dock-probe.mjs` §8（8 项：`＋` 入口存在 / 隐藏到只剩 1 个 / 再隐藏被拒 + 中文提示 / 菜单 10 项 / `✓` 标记不可点 / 点空白收起 / 点隐藏面板加回 / 恢复默认回四区 `{"groups":4,"vis":6,"hidden":0}`）。
 
-**关联**：`06 P45` / `04 §4.27` / `09 §3.0`。
+**关联**：`06 P45` / `04 §4.27` / `09 §3.2`。
 
 ---
 
@@ -847,4 +847,40 @@ W1~W3，其中 **W3 已拍板不做**）见 `03-REQUIREMENTS.md` 表 K；后端�
 
 **看门狗**：`tools/dock-probe.mjs` §8 末项（`{"groups":4,"vis":6,"hidden":0}`，`reset()` 前先跑「隐藏到只剩 1 个面板」制造塌树态）。
 
-**关联**：`06 P46` / `07 D27` / `04 §4.27` / `09 §3.0` / `js/sim/dock/workspace.js` 的 `render()`。
+**关联**：`06 P46` / `07 D27` / `04 §4.27` / `09 §3.2` / `js/sim/dock/workspace.js` 的 `render()`。
+
+---
+
+## D35 · 【源码面板口径】停靠模式下源码面板 = 「文件标签条 + 代码框」两件套；文件增删走标签页式「＋ / −」；「自动加信号 / 运行仿真」归编辑栏末端（2026-09-13 第三十六~三十七轮，用户五条裁决）
+
+**背景（用户原话，全文见 04 §4.28 开头）**：① 右侧 SV 源码 / testbench 面板「**块里面好像套了一个块，有双层的标题栏**」→ 去掉下面那层标题栏；② 该栏「**只放两个东西**：**文件的列表**（如 `counter.sv`）+ **代码框**」，其余按钮「精简或移到别的位置」；③ 仿真结束的**提示框搬到最底下「仿真状态」的 log 框**里；④ 「**自动加信号 + 运行仿真**」放到**编辑栏（步数那一栏）最后**、**只放这两个**，「**解析 RTL / 生成 TB 隐掉**」「**导入源码也不要**」；⑤ 文件增删改**浏览器标签页式**（每个文件名后一个小「−」；列表最后「＋」）。
+
+**决定**：
+
+1. **源码面板内容清单冻结为两件**：`#source-tabs`（= `#source-files` 文件标签条 + 末尾 `#sim-addfile`「＋」）+ 代码框。**`.sim-card-head` 在停靠模式下 `display:none`**（`body.wp-dock` 作用域，`?dock=off` 旧界面仍保留）—— 这是「去双层标题栏」的唯一实现方式：**不要用删节点实现**（`#sim-card-source` 是停靠引擎 `HOST_ID` 的宿主，删了直接打断 `initRefs()`）。
+2. **按钮处置分两类**：「导入源码 `#sim-import` / 移除文件 `#sim-removefile` / 解析 RTL `#sim-parse` / 生成 TB `#sim-tb`」**只 hidden 不删节点**（**冻结契约面**：`tools/e2e-rtl.mjs` E6 断言四个 id 存在，删节点会打断回归）；「自动加信号 `#sim-addsignals` / 运行仿真 `#sim-run`」**删节点后在 `#toolbar` 重建**（id 名不变）。
+3. **仿真按钮归属**：「自动加信号 + 运行仿真」= **编辑栏 `#toolbar` 末端**（`.step-controls` 之后、`.spacer` 之前，包在 `.sim-tool-actions` 里，前面一条 `.separator`）。判据：`#sim-run` 仍须**常驻 + 始终可点**（08 §7.10 契约硬约束），而 `#toolbar` 本身就是吸顶常驻带 → 移动后契约仍成立。
+4. **提示框归属**：端口 / 顶层模块预览（`#port-preview` / `#module-preview`）从源码面板**搬到** `#sim-console` 内的 `#sim-console-notes`（顺序：日志 → 提示 → 状态行）。**只换父节点、不换 id** → `ui-bridge` 写入逻辑零改动；空内容用 `:has()` 自动收起。
+5. **文件增删 = 标签页语义**：`.source-chip`（**纯文件名**）+ **兄弟节点** `.source-chip-close`「−」；末尾 `.source-add`「＋」。**关闭键必须是兄弟而非子节点**（`e2e-rtl` E2 断言 `#source-files .source-chip.active` 的 `textContent` 恰为文件名）。`removeFileAt(index)` **不允许删到 0 文件**（`length<=1` 直接 return）且必须做**索引收敛**。
+6. **窄屏降级 = `flex-wrap: wrap`（本轮），`⋯` 溢出菜单留 U3**：08 §7.9 第 3 条原默认是「`⋯` 溢出菜单」；但真机尚未实现溢出菜单，而「`#toolbar` 窄屏把末端控件推出视口 → 点不动」是**必须立刻修的真 bug**（06 P48）→ **本轮先用换行兜底**，并把工具带高写进 `--wp-toolbar-h` 供 `#sim-panel` 的 `top: calc()` 使用。**明令禁止**用 `overflow-x:auto` 修（会裁掉绝对定位弹出菜单）。U3 落地时再决定是否改回溢出菜单。
+
+**关联**：`06 P47·P48` / `04 §4.28` / `09 §3.0` / `08 §7.9·§7.10` / `tools/source-panel-probe.mjs` / `tools/e2e-ui.mjs`（I8）。
+
+---
+
+## D36 · 【状态输出唯一出口】「仿真状态」= **全应用唯一文本状态出口**；`.helper-box` 家族彻底退役；后端 `@@LOG:` / `@@VCD:` 分段协议（2026-09-14 第三十八~三十九轮）
+
+**背景（用户原话，全文见 04 §4.29 开头）**：用户明确**否决第 37 轮的「框套框」形态** —— 「将仿真完成的框**放到仿真状态里**，**不是让框放到另外一个框下面**，而是**直接把框里的内容就是仿真完成的日志，直接的文本直接从仿真状态中输出**就可以了；同样的，如果**代码编译不过，可以把编译的问题、编译的报错直接输入到仿真状态这个窗口中**，通过文本输出，相当于这是一个**通用的端口或者说状态的一个显示部分**。可以将**其他各种状态显示的信息汇总到这里**」。
+
+**决定**：
+
+1. **`#sim-console-log` = 全应用唯一文本状态出口**：服务自愈 / 端口绑定 / 解析摘要 / 请求失败 / 仿真完成摘要 / `iverilog`+`vvp` 的 `$display` 与 warning 原文 / 编译报错原文 —— **全部汇总成日志行进这一处**，**不再有第二个状态显示区**。`#sim-console` 子节点**恰好 3 个且顺序固定**：`#sim-console-log` → `#sim-status` → `#sim-recover`。
+2. **⚠ D35 第 4 条【作废】**：D35 第 4 条写的「端口 / 顶层模块预览（`#port-preview` / `#module-preview`）搬到 `#sim-console` 内的 `#sim-console-notes`」是**已被用户推翻的中间形态**。`#sim-console-notes` 容器 + `#port-preview` + `#module-preview`（`.helper-box` 家族）**已连 CSS 一起物理删除**，**不得复活**；想加提示 = **加一行日志**，不是加一个框。
+3. **退役 id 名单**：`sim-console-notes` / `port-preview` / `module-preview` 加入「**已退役，不得复活**」名单（08 §7.10 冻结名单已同步删除这三项）。**冻结契约面本身不变**（`sim-addsignals` / `sim-run` / `sim-parse` / `sim-tb` / `sim-import` / `sim-removefile` 等 id **只 hidden 不删**，`tools/e2e-rtl.mjs` E6 仍断言存在）。
+4. **后端协议（新增，向后兼容）**：成功路径返回 `"@@LOG:\n" + simLog + "\n@@VCD:\n" + vcd`；**`simLog` 为空时退化为纯 VCD = 旧格式**（不产生空的 `@@LOG:` 段）。前端**只有 `text.startsWith("@@LOG:")` 才分段**，否则整体当 VCD → **新 exe / 旧 exe / `dev-server` 三兼容**。失败路径前缀不变：`IVERILOG-ERROR:` / `VVP-ERROR:` / `SIM-ERROR:` / `XX-ERROR:`。`WavePaintLauncher.cs` 与 `tools/dev-server.mjs`（`execFileSync` → `spawnSync`）**必须同步实现**，否则「真机 / dev-server」两条路径行为不一致。
+5. **行渲染契约**：一行一条 `div.mk-cline`；首行 `[HH:MM:SS] ` 时间戳；续行缩进 **11 空格**；`kind ∈ info / ok / warn / error` 自动着色（`.mk-ok` / `.mk-warn` / `.mk-err`）；环形上限 `CONSOLE_MAX = 300`；追加后自动滚底。**`.mk-cline` 是计行契约不可改名**（`tools/dock-probe.mjs:128` 按它统计行数）。
+6. **`?dock=off` 逃生口下日志流也必须可见**：日志皮肤**从 `body.wp-dock` 作用域提出去变全局**，并在 `css/workspace.css` §6 加垫片 `body:not(.wp-dock) #sim-console-log { flex: 0 1 auto; min-height: 64px; max-height: 38vh; overflow: auto; }` —— **绝不能 `display:none`**。
+7. **`#sim-status` 降级为单行**：多行文本先经 `firstLine()` 截首行（见 06 P50），多行内容**只走日志流**。
+8. **Windows 换行**：`iverilog` / `vvp` 输出 **CRLF** → 切行必须 `/\r?\n/` + 逐行 `replace(/\r/g,"")`，否则行末残留 `\r`（表现为行末小方块 / 缩进错位）。
+
+**关联**：`06 P49·P50` / `07 D35（第 4 条已作废）` / `04 §4.29` / `09 §3.1` / `05-LOGS`「第三十八~三十九轮」/ `memory/logs/2026-09-14.md` / `03 #98` / `tools/source-panel-probe.mjs`（§1·§3）/ `tools/e2e-rtl.mjs`（C4·C5·K1~K3）。

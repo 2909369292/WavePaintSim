@@ -401,7 +401,7 @@
 |---|---|---|
 | `#source-files` + 7 按钮（`#sim-addfile`/`#sim-import`/`#sim-removefile`/`#sim-parse`/`#sim-addsignals`/`#sim-tb`/`#sim-run`） | 仿真控制带 | 分主次：`#sim-run` 主按钮；其余进「文件/解析」分组；`#sim-addsignals` 降级或改名 |
 | `#verilog-source` / `#verilog-cm-host` | 代码区 | **保 id**；高度由固定 180px 改为区域内自适应 |
-| `#port-preview` / `#module-preview` | 代码区底部 helper | 折叠收纳（解析后看，非持续所需） |
+| `#port-preview` / `#module-preview` | ~~代码区底部 helper~~ **已退役** | ~~折叠收纳（解析后看，非持续所需）~~ **第 38~39 轮连 CSS 物理删除，不得复活**（07 D36 / 04 §4.29） |
 | `#sim-top-row` / `#sim-top-select` | 仿真控制带 | 保持「默认 `display:none`、解析后出现」的现有逻辑 |
 | `#rtl-tree` | **层级树区** | 独立分区；保留 `.rtl-inst`/`.rtl-active`/`[data-rtl-kind]` |
 | `#vcd-tree` | **波形区** | 移入波形区；保留 `.vcd-signal-row`/`.vcd-active`/`[data-vcd-path]` 与行 `title` 全路径 |
@@ -428,11 +428,15 @@
 > 实测来源：`tools/e2e-rtl.mjs`（**28 处 CSS 选择器依赖**）、`tools/e2e-ui.mjs`
 > （`.tool-btn[data-tool="…"]` 4 处）、`tools/regression.mjs`、`tools/e2e-sim.mjs`。
 
-**id（24 个，仿真栏）**：`sim-toggle-btn`、`sim-panel`、`sim-panel-header`、`source-files`、
+**id（22 个，仿真栏；原 24 项，`port-preview` / `module-preview` 已于第三十八~三十九轮退役）**：`sim-toggle-btn`、`sim-panel`、`sim-panel-header`、`source-files`、
 `sim-addfile`、`sim-import`、`sim-removefile`、`sim-parse`、`sim-addsignals`、`sim-tb`、`sim-run`、
-`verilog-source`、`verilog-cm-host`、`port-preview`、`module-preview`、`sim-top-row`、`sim-top-select`、
+`verilog-source`、`verilog-cm-host`、`sim-top-row`、`sim-top-select`、
 `rtl-tree`、`vcd-tree`、`sim-tb-copy`、`tb-source`、`sim-status`、`sim-recover`、`app-version`
 （**全部**由 `ui-bridge.js` 以 `el(...)`（L405 定义 / L409 `initRefs()`）或 `getElementById` 抓取）。
+
+> **已退役 id（不得复活）**：`sim-console-notes`、`port-preview`、`module-preview` —— 三者均属 `.helper-box` 家族，
+> 第 38~39 轮**连 CSS 一起物理删除**（用户明确否决「框套框」，07 D36）；`tools/source-panel-probe.mjs` 会断言它们不在 DOM。
+> **想加提示 = 加一行日志**（`window.wpConsoleAppend`），不是加一个框。
 
 **class / dataset**：`.rtl-inst`、`.rtl-active`、`.vcd-signal-row`、`.vcd-active`、`[data-rtl-kind]`、
 `[data-vcd-path]`、`.tool-btn` 与 `.tool-btn[data-tool="…"]`、`.sim-symbol-picker-item`。
@@ -717,9 +721,9 @@ VCD 回传 → 解析回画布观察行」的完整闭环**，是"可画可仿"�
 ### 6.7 契约面与 e2e 影响面（重构的验收底线）
 
 **冻结面（D20/§2.5，本轮继续有效，一个不许改名/移除）**：
-- id 24 个：`sim-toggle-btn`、`sim-panel`、`sim-panel-header`、`source-files`、`sim-addfile`、
+- id 22 个（原 24，`port-preview` / `module-preview` 已退役）：`sim-toggle-btn`、`sim-panel`、`sim-panel-header`、`source-files`、`sim-addfile`、
   `sim-import`、`sim-removefile`、`sim-parse`、`sim-addsignals`、`sim-tb`、`sim-run`、
-  `verilog-source`、`verilog-cm-host`、`port-preview`、`module-preview`、`sim-top-row`、
+  `verilog-source`、`verilog-cm-host`、`sim-top-row`、
   `sim-top-select`、`rtl-tree`、`vcd-tree`、`sim-tb-copy`、`tb-source`、`sim-status`、
   `sim-recover`、`app-version`；
 - class / dataset：`.rtl-inst`、`.rtl-active`、`.vcd-signal-row`、`.vcd-active`、
@@ -805,7 +809,7 @@ VCD 回传 → 解析回画布观察行」的完整闭环**，是"可画可仿"�
 > ④ 布局只走 `localStorage['wavepaint.workspace.layout.v1']`，**不写 `.wp`**。
 > 实施者 = 真机自带外壳 `#workbench` + `#wp-status-bar` + 自研停靠引擎 `js/sim/dock/workspace.js`
 > （**D28 废弃外部 UI Agent 路线**）。默认预设 = `sim`（`presetSim()`），另备 `edit` / `review`。
-> 详见 04 §4.27 / 07 D28~D34 / 06 P40~P46 / 09 §3.0。
+> 详见 04 §4.27 / 07 D28~D34 / 06 P40~P46 / 09 §3.2。
 
 ### 6.10.1 四条待拍板原始选项与影响面（保留以便追溯）
 
@@ -1003,13 +1007,17 @@ node tools/ui-audit.mjs --all --check    # 有违规 → 退出码 1（将来接
    → **用户未提异议，按默认执行：常驻全局带**（同 U0-R 后的原型现状）。
 3. **溢出策略**：窄窗口用 `⋯` 溢出菜单（推荐）还是允许折成第二行（现状）？
    → **用户未提异议，按默认执行：`⋯` 溢出菜单**（U3 落地时实现；原型已带 `data-ovp`）。
+   **⚠【第三十六~三十七轮实测回填】真机先用 `flex-wrap: wrap` + `--wp-toolbar-h` 兜底（07 D35 / 06 P48）：**
+   窄屏溢出 1280 / 1440 = 192px / 32px → **0px**（工具带不再被裁，`elementFromPoint` 命中恢复正常）；
+   **`⋯` 溢出菜单仍留 U3 实现**，兜底不等于最终形态。
 4. **刻度值**：图标按钮 28×28 / 文本 24 高 / 组内 4 / 组间 12（推荐）？
    → **用户未提异议，按默认执行：图标 28×28 / 文本 24 高 / 组内 4 / 组间 12**。
 
 ### 7.10 红线与「不做什么」
 
 - **不碰形态层**：四区 dock / 页内浮窗 / 预设 / 持久化由 §6 D1~D3 负责，本线只在既有容器里重排控件。
-- **不动这 24 个冻结 id**（D20 / §2.5）：可移动 DOM 位置、可换父容器，**不可改名、不可移除**。
+- **不动这 22 个冻结 id**（D20 / §2.5；原 24 个，`port-preview` / `module-preview` 已退役）：可移动 DOM 位置、可换父容器，
+  **不可改名、不可移除**。**已退役 id 不得复活**：`sim-console-notes` / `port-preview` / `module-preview`。
 - **`#sim-status` 常驻可见 + `#sim-run` 始终可点**（契约硬约束）→ 决定了「运行仿真」必须留在常驻带上。
 - **不重新排期 #88~#92**（编辑模式点 bus 误入框选 / 信号名标位宽 / 步进 ▲▼ ±1 / 步长变化 clock 填充 / 框选后点其它处自动提交）：
   五项**已于第九轮全部 ✅**（03 §I，含 e2e-ui D2/F/G/H 段），第二十四轮实测未见回归 → **勿重做**。
@@ -1027,3 +1035,19 @@ node tools/ui-audit.mjs --all --check    # 有违规 → 退出码 1（将来接
 - **【第二十九~三十五轮新增】波形区 1:1 口径升级**：波形显示区 = **真机原代码整体搬入**（不是复刻），
   **C9 红线**（`js/wavepaint.clean.js` / `js/sim/engine.js` 一行不动）同样适用于停靠 UI 的全部改动。
 - **【第二十九~三十五轮新增】`body.wp-dock{height:100vh}` 不得删**（06 P40）——删掉后 `#workbench` 会塌成 19px。
+- **【第三十六~三十七轮新增】源码面板 = 「文件标签条 + 代码框」两件套**（07 D35 / 04 §4.28 / 06 P47）：停靠模式下
+  `.mk-host > .sim-card > .sim-card-head { display: none !important; }`（**只 CSS 隐藏、不删节点** —— `#sim-card-source` 是停靠引擎
+  `HOST_ID` 宿主）；`#sim-import` / `#sim-removefile` / `#sim-parse` / `#sim-tb` **只 `hidden` 不删**（**冻结契约面**，
+  `tools/e2e-rtl.mjs` E6 仍断言存在；必须配 `.source-actions[hidden]{display:none!important}`，**作者 `display:grid` 会盖掉 UA `[hidden]`**）；
+  「自动加信号 / 运行仿真」已移到 `#toolbar` 末端 `#sim-tool-actions`；文件增删 = 标签页式「＋」「−」（`removeFileAt` 不允许删到 0）。
+- **【第三十六~三十七轮新增】`#toolbar` 允许换行 + 高度变量化**（06 P48）：`flex-wrap: wrap` + `ui-bridge.syncToolbarHeight()`
+  把实测高写进 `--wp-toolbar-h` + `#sim-panel { top: calc(40px + var(--wp-toolbar-h, 46px) + 6px); }`（**不得回退硬编码 `92px`**）；
+  **禁 `overflow-x: auto`** —— 按规范会把 `overflow-y` 变成 `auto`，裁掉 `.dropdown-content` / `.submenu-content` 绝对定位弹出菜单。
+- **【第三十八~三十九轮新增】`#sim-console-log` = 全应用唯一状态 / 日志出口**（07 D36 / 06 P49·P50 / 04 §4.29）：
+  日志一律走 `window.wpConsoleAppend(text, kind)` = 一行一条 `div.mk-cline`（**计行契约，勿改名**；`tools/dock-probe.mjs:128` 按它统计行数）
+  + 首行 `[HH:MM:SS] ` 时间戳 + 续行缩进 **11 空格** + `CONSOLE_MAX = 300` 环形上限 + 自动滚底（`kind ∈ info/ok/warn/error` 着色）；
+  `#sim-console` 子节点**恰好 3 个**（`#sim-console-log` → `#sim-status` → `#sim-recover`）；`#sim-status` 只放**单行**；
+  **`.helper-box` / `#sim-console-notes` / `#port-preview` / `#module-preview` 已物理删除、不得复活**（想加提示 = 加一行日志）；
+  `?dock=off` 逃生口下日志皮肤仍生效（`css/workspace.css` §6 垫片，**绝不能 `display:none`**）；
+  后端 `/api/sim` 成功路径回 `"@@LOG:…@@VCD:…"` 分段（**无 `@@LOG:` 前缀 = 旧格式整体当 VCD**，新 exe / 旧 exe / dev-server 三兼容），
+  `WavePaintLauncher.cs` 与 `tools/dev-server.mjs`（`spawnSync`）**必须同协议**。

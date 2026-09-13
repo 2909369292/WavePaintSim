@@ -5,16 +5,16 @@
 
 ---
 
-## 1. 当前状态快照（2026-09-13，第三十五轮后）
+## 1. 当前状态快照（2026-09-14，第三十九轮后）
 
 | 项 | 状态 |
 |---|---|
 | 当前版本 | `v0.4.0 build <自动时间> <git短哈希>` |
 | 代码状态 | 主线可用，`main` 分支 |
 | 构建产物 | `D:\Files\Code\波形\WavePaintClean.exe` |
-| 最近完成（第三十五轮） | **回归真机基线「四区停靠 UI」全部落地 + 浮窗/菜单真 bug 修复 + 无死局护栏 + exe 重建**（2026-09-13，第二十九~三十五轮；见 §4.27 + 07 D28~D34 + 06 P40~P46 + 09 §3.0）—— 用户裁决「别的 Agent 写的 UI 不可靠，请还是按照原来基线原来的 UI 进行修改」后，**废弃外部 UI Agent 路线**，改由真机自带外壳 `#workbench` + 底部只读 `#wp-status-bar` + **自研停靠引擎 `js/sim/dock/workspace.js`（1,169 行）** 承担：左 `[rtl/vcd]` / 中 `[wave]` / 右 `[source/tb]` / 下 `[console]`，全部位于吸顶 `#menu-bar` + `#toolbar`（= 编辑栏）**之下**；波形区 = `#main-area` **原样搬入**且绘制代码一行未改（**1:1**）；支持拖拽停靠 / 双击页签浮出页内浮窗 / 分隔条比例 / `✕` 隐藏（有护栏）/ 页签条 `＋` 恢复面板与预设。exe 重建 **22,096,896 B** / `v0.4.0 build 2026-09-13 22:36:31 aec17e8`，真机冒烟通过 |
-| 最近完成需求 | **UI 形态最终口径已落地**：四区停靠 + 块间可相互拖拽 + Verdi 式布局 + 编辑栏位置不变 + 所有面板在编辑栏之下 + 波形区 1:1（见 §4.27）。功能侧最近收口仍为 **#87②（模块/实例全接口一键入波形，`Ctrl+Alt+4`，第十九轮）**；**#76 已收口**（B1~B5）；此前 #86 A1~A4（第十四轮）+ 服务在线性（第十三轮）、#85（第十轮）、#88~#92（第六/九轮）、第十二轮 RTL 树瘦身。**加信号主路径口径不变** = 代码内点/选中变量（「中追」式）；RTL 树仅纯代码层级浏览、**不显示接口信号、不承载加信号交互** |
-| 最近完成文档 | **第三十五轮记忆同步**（2026-09-13）：04 新增 §4.27（四区停靠 UI 全记录）；07 新增 **D28~D34**（回归真机自研 / 外壳与逃生口 / 拖拽韧性 / 落点优先级 / 浮窗 strict / ✕ 护栏 / 渲染残留铁律）；06 新增 **P40~P46**；09 新增 §3.0（本轮生效）；05 索引 + 当日日志 + INDEX 页脚 + 08（四区 dock 从「未实现」移入「已实现」）同步 |
+| 最近完成（第三十六~三十九轮） | **「仿真状态」升级为全应用唯一文本状态流（框套框彻底退役）+ 源码面板精简为「文件标签条 + 代码框」+ 仿真按钮收进编辑栏末端 + 工具带窄屏换行**（2026-09-13~14；代码 commit `8d530c2`（36~37）+ `24dab0a`（38~39）；见 §4.28 + §4.29 + 07 D35·D36 + 06 P47·P48·P49 + 09 §3.0·§3.1）—— ① **源码面板 =「文件标签条 + 代码框」两件套**（去第二层标题栏；「导入源码 / 移除文件 / 解析 RTL / 生成 TB」只 `hidden` 不删节点 = 冻结契约面；文件增删改浏览器标签页式「＋」「−」；「自动加信号 / 运行仿真」移入 `#toolbar` 末端 `#sim-tool-actions`）；② **「仿真状态」= 全应用唯一状态汇聚口** —— 第 37 轮曾把提示框搬进 `#sim-console-notes`，**第 39 轮用户否决「框套框」→ 该容器与全部 `.helper-box`（`#port-preview` / `#module-preview`）连 CSS 一起彻底删除**，改为**纯文本行**直进 `#sim-console-log`（`window.wpConsoleAppend(text, kind)`，`kind ∈ info/ok/warn/error` 自动着色，一行一条 + 首行时间戳 + 续行缩进 11 空格 + 300 行环形上限）；③ **后端协议 E2**：`/api/sim` 成功路径回传 `"@@LOG:\n<iverilog/vvp stdout+stderr>\n@@VCD:\n<vcd>"` 分段 → 编译报错原文、`$display` 输出、`VCD info: dumpfile…`、仿真摘要全部以文本行进日志流（无 `@@LOG:` 前缀的旧格式仍按纯 VCD 吃，**新 exe / 旧 exe / dev-server 三兼容**）；④ **上一轮真根因**：`#toolbar` 窄屏溢出（历史「点运行仿真没反应」的真凶）= `flex-wrap:wrap` + `--wp-toolbar-h` + `#sim-panel top:calc()`（06 P48，**禁 `overflow-x:auto`**）。exe 重建 **22,115,840 B** / `v0.4.0 build 2026-09-14 00:17:03 24dab0a`，真机冒烟 + 真机 `/api/sim` 直连 + 真机端到端三路通过 |
+| 最近完成需求 | **UI 形态最终口径已落地**：四区停靠 + 块间可相互拖拽 + Verdi 式布局 + 编辑栏位置不变 + 所有面板在编辑栏之下 + 波形区 1:1（见 §4.27）。功能侧最近收口仍为 **#87②（模块/实例全接口一键入波形，`Ctrl+Alt+4`，第十九轮）**；**#76 已收口**（B1~B5）；此前 #86 A1~A4（第十四轮）+ 服务在线性（第十三轮）、#85（第十轮）、#88~#92（第六/九轮）、第十二轮 RTL 树瘦身。**加信号主路径口径不变** = 代码内点/选中变量（「中追」式）；RTL 树仅纯代码层级浏览、**不显示接口信号、不承载加信号交互** |。**第三十六~三十九轮口径补充**：① 源码面板 = 「文件标签条 + 代码框」两件套，「自动加信号 / 运行仿真」常驻**编辑栏末端**（`#sim-tool-actions`），详见 §4.28；② **「仿真状态」= 全应用唯一状态 / 日志出口** —— 没有提示框、没有任何 `.helper-box`，编译报错 / `$display` 输出 / 仿真摘要一律**纯文本行进 `#sim-console-log`**（`window.wpConsoleAppend`），详见 §4.29。
+| 最近完成文档 | **第三十六~三十九轮记忆同步**（2026-09-14）：04 新增 **§4.28**（源码面板两件套 + 按钮归位 + 窄屏换行真根因）+ **§4.29**（通用状态输出：退役 `.helper-box` + `@@LOG:`/`@@VCD:` 协议 + 日志流契约）+ §1 快照切第三十九轮 + §2 里程碑补行 + §6 防遗忘三条；07 新增 **D35·D36**；06 新增 **P47·P48·P49**；09 新增 **§3.0**（第三十六~三十七轮）与 **§3.1**（第三十八~三十九轮）并**顺延**旧 §3.x 与后置章节；05 索引 + 当日日志「第三十六~三十九轮」段；INDEX 页脚；03 表 K 登记 **#98**；08 §7.9/§7.10 增补 + 冻结 id 名单更新（退役 `port-preview` / `module-preview` / `sim-console-notes`） |
 | 更早（第二十一轮，2026-09-11） | **侧栏「可拖拽多面板」落地（用户拍板后首轮 UI 实施，详见 §4.19）**。用户三条裁决：① 面板形态 = **可拖拽多面板**（splitter）；② 侧栏**保持右侧**、`#main-area` 骨架不动；③ 层次树**暂不左置**；实施步骤授权 AI 自定 → **当轮一次落地（原 P2 核心，不再远期）**。① `index.html`：`#main-area` padding-right 与 `#sim-panel` width 改读 `var(--sim-panel-w,328px)`；新增 `.sim-panel-body`（纵向 flex + `overflow-y:auto`）/`.sim-card*`（卡片+折叠头）/`.sim-split`（10px 纵向拖拽条 + `.disabled`）/`#sim-resize-x`（左缘 7px 宽度条）/`body.sim-resizing`；**`#sim-status` 加 `position:sticky;bottom:0`**；DOM 重排为 4 个 `<section class="sim-card" data-sim-card>` + 3 个 `<div class="sim-split" data-sim-split>`，新增 `#sim-panel-body`/`#sim-resize-x`，**所有既有 id/class 一个未改**；`#sim-tb-copy` 移进 TB 卡片头；`#sim-addsignals` 的 `title` 降级说明。② `js/sim/panel-layout.js`（新增约 520 行）：`installSimPanelLayout({panel,body,handle,storageKey,onLayout})` —— 折叠（标题行内 button/a/input/select/textarea/label 点击不折叠，保护 `#sim-tb-copy`）、像素权重高度（`flex-grow=权重/总权重*100`+`flex-basis:0`，默认 `{source:300,rtl:245,vcd:245,tb:190}`）、**`measureMinHeight`/`applyMinHeights`**（固定块按实测高、弹性块按自身 min-height，`min-height=min(实测, 面板可视高*0.8)`）、splitter 拖拽（`resizePair` 重分配 + `body.sim-resizing` + 折叠则 `.disabled`）、`setWidth` clamp 280~min(760,视口*60%) + rAF 节流派发 `window resize`、**仅 `sessionStorage`**（`wavepaint.sim-panel-layout.v1`，`{v,w,c,width}`，220ms 防抖）、键盘可达（splitter `ArrowUp/Down` ±16px、`#sim-resize-x` `ArrowLeft/Right`）、导出 `{getState,setWidth,reset,destroy}`。③ `js/sim/ui-bridge.js`：接入 `installSimPanelLayout` + `initPanelLayout()`（`bindEvents()` 后）、`refs.panelBody`/`refs.resizeHandle`、**删死引用 `el("sim-collapse")`**、`__wpsim` 增 `panelLayout`/`setPanelWidth`/`resetPanelLayout` 探针。④ `js/sim/rtl-panel.js`：`installCodeEditor` 返回值加 `remeasure()`（CM6 ResizeObserver <75ms 跳过保护会导致拖 splitter 漏重排）。⑤ `tools/e2e-ui.mjs` +**I0~I8（13 条）→ 86/86**。**本轮真 bug 修复**：headless Edge 视口 750×485 下源码卡只剩 80px、其 `.source-toolbar` 实测 170px → 工具栏被裁 → `#sim-run` 坐标点击落到 VCD 卡、仿真不触发（= 用户反复报的「点仿真无响应」又一根因）；`verify-recovery2` D1/D1b 首跑即复现，修复后 17/17。exe 重建（22,012,416 B / 2026-09-11 00:15:01）。**未改 `wavepaint.clean.js` 与 `sim/engine.js` 一行**（C9） |
 | 更早（第二十二轮，2026-09-13，**纯规划 / 零产品代码改动**） | **面板系统重构方案成文 + 后端能力盘点**（用户要求「确认现在完成的功能 + 汇报后端支持如何 + 做出详细项目安排」）。落盘 **08 §6**：§6.1 后端能力表（传输/仿真/解析/激励/回显/存档/快照/可用性，全部带文件行号证据）/ §6.2 后端缺口 **G1~G8**（G1 TB 只读=最大缺口、G2 无日志与进度、G3 编译选项不可配、G4 无取消、G5 VCD 全量文本、G6 `/api/snapshot` 未接线、G7 单顶层、G8 解析器是 SV 子集）/ §6.3 前端面板现状 / §6.4 差距表 / §6.5 选型（**自研 dock 引擎为主**，Lumino/golden-layout 备选，React 系与 iframe 多窗否决）/ §6.6 目标架构（PanelRegistry + LayoutTree + DockDnD 三层，左/中/右/下四区 + 页内浮动层）/ §6.7 契约面与 e2e 影响面 / §6.8 分期 **#94 D0~D4 + #95 E1~E5 + #96 W1~W3** / §6.9 验收与回滚 / §6.10 四条待拍板 / §6.11 与远期关系。**本轮不重建 exe**（C1 未触发）。详见 04 §4.20、03 表 K、07 D22、日志 2026-09-13。**下一步 = 用户对 08 §6.10 四条拍板后才开工（D20「先方案后实施」）** |
 | 更早（第二十三轮，2026-09-13） | **用户四条拍板（全部通过）+ 交付零后端纯前端 UI 原型**（详见 §4.21）。拍板：① 面板形态 = **页内浮动面板**（不做真独立 OS 窗口）；② **解除**「侧栏保持右侧」；③ **解除**「层次树暂不左置」；④ 布局**暂不写 `.wp`**。另令：**G1~G8 全部暂不实现**（#95 整线后延）、**布局/预设/手感可先不做**，先只交付「假界面」给用户 review。产出：新增 `prototype/`（`ui-mockup.html` 9,625 B + `ui-mockup.css` 19,279 B + `ui-mockup.js` 45,656 B ≈960 行）= **完整轻量停靠引擎原型**（`split`/`tabs` 布局树、8 面板、3 预设、四向停靠 + Tab 合并 + 最外环新建区、浮出/最大化/收回、分隔条像素→比例、`Ctrl+Alt+1/2/3/0`、`localStorage['wavepaint.mock.layout.v1']` 400ms 防抖、`window.__mock` 探针）；主题变量逐条抄自真机 `:root`、类名统一 `mk-` 前缀、**与真前端零命名冲突**。验收：新增 `tools/mock-probe.mjs`（真实 Edge headless + CDP + dev-server）**34/34 全通过**，含真实鼠标拖拽、浮窗拖动、布局体检 F1~F10（无裁切/无溢出/图片全加载）。**原型内修掉 4 个真缺陷**（忽略 `opts.x/y` / `applyPreset` 忽略预设名 / 浮窗拖动无落点提示 / `pointerup` 无坐标）。**C1 未触发、未重建 exe**，`prototype/` 与 `tools/` 均不进 `resources.txt` |
@@ -22,13 +22,14 @@
 | 更早（第二十五轮，2026-09-13） | **U0-R 顶栏统一（撤销 D-UI-A）+ 真机面板 splitter 高度模型根本重写 + 三条真 bug 修复 + 混淆残留清零**（详见 §4.23）。用户原话：「**波形的时间标 1234 等错误地放在了源码区**」「**波形区的子波形区现在不添加功能栏，功能栏仍旧放在统一的顶栏**」「现在各个窗口的**大小拖拽有 bug，似乎和鼠标坐标对不上**」「**已有绘图 UI 尽量不做改动**」「编辑栏先不做修改」。**① 原型 U0-R（`prototype/ui-mockup.{html,css,js}`）**：把第二十四轮 D-UI-A 下沉到波形面板带的控件**全部收回统一顶栏** `#toolbar`（5 组 18 个绘图/编辑控件，带 `data-ovp`），**整条 `.mk-toolrow` 从波形面板删除**（波形区零子功能栏），帮助浮层 §5 与 `mk-version` 同步（→ `mock-3（顶栏统一 U0-R）`）。**② 真机 `js/sim/panel-layout.js` 重写 splitter 高度模型**（旧实现三处叠加缺陷：`onMove` 把累计位移当增量反复叠加 → 越拖越飞；`weights` 被当像素值但 `applyWeights()` 归一化成占比；`flex-basis:0` + 占比模型触到 `min-height` 后 px↔权重无恒定系数）→ 新模型 `cardBaseline`/`pairSlackPx`/`resizePairTo`/`resizePair`：`applyWeights` 改 `flexBasis = 基线 px + flexGrow = 占比*100 + flexShrink 0`；`applyMinHeights` **同时写 `minHeight` 与 `flexBasis`（同源）**。**③ 三条真 bug**：a) **「时间标跑进源码区」真正根因 = 原型 `.mk-gutter` 未 `white-space:pre`** → 行号换行吃掉宽度（实测 `gutW 369→32`、`bodyW 59→396`；修复后源码区 `ticksInSource 0`）；b) 原型波形刻度类名与菜单勾选冲突 `.mk-tick` → 改 **`.mk-wave-tick`**；c) 原型信号名列宽拖拽完全无效（`closest` → `querySelector`）+ 时间轴与波形轨横滚同步。**实测（全部实跑）**：`e2e-ui` **88/88**（I1 改口径 + 新增 **I4c 指针拖拽**）、`regression` 79/79、`e2e-rtl` 61/61、`e2e-sim` 0 失败、`mock-probe` 34/34、`ui-audit --mock` 1680/1280 两档违规 0。**④ 混淆复查**：`js/wavepaint.clean.js` 无混淆残留，**另清除 9 个残留 `_0x_` 前缀局部变量**（`_0x_wpf*` → `wpf*`，正文 `_0x` 归零）→ **触发 C1，exe 已重建**（`v0.4.0 build 2026-09-13 16:52:06 83fab85`，C8 特征串核验通过） |
 | 更早（第二十六轮，2026-09-13） | **原型打包为可双击运行的 exe（交付方式升级）+ 记忆同步**（详见 §4.24）。用户上一轮 review 方式为 `node tools/dev-server.mjs 8951` + 手输 URL，反馈「提供的网页链接无法打开」→ 本轮把第二十五轮 U0-R 原型打包成**双击即用、零依赖、零命令行**的 `WavePaintMockup.exe`。① **新增 `MockupLauncher.cs`（528 行，独立于真机 `WavePaintLauncher.cs`，后者一行未改 → C1 未触发）**：内嵌静态资源 HTTP 服务，端口优先 **17820**（真机 17817）被占则换随机端口，`/api/ping` 返回 **`WAVEPAINT-MOCKUP <构建戳>`**（与真机 `WAVEPAINT-SERVICE` 身份不混），`/mockup-version.txt` 暴露构建戳，`MapPathToResource` 映射（`/`→`prototype/ui-mockup.html`、`ui-mockup.*`→`prototype/`、其余按内嵌资源名、含 `..` 一律 404）；单实例发现 `%TEMP%\WavePaintMockup_service.txt`（`tag=`/`port=`）+ ping 判活；**开窗 = Edge `--app=` 无地址栏窗口**（无 Edge 退默认浏览器），`EnumWindows` + 标题含「原型」判窗口存活（真机标题不含「原型」→ 互不误伤），窗口关掉 **12 秒后自动退出**，最长存活 12 小时；参数 `/nolaunch`（只起服务）/`/port=N`。② **新增 `build-prototype.ps1`（64 行）**：独立构建脚本，**不写 `resources.txt`、不动 `version.txt`、不碰 `WavePaintClean.exe`**；内嵌 `prototype/**` + `img/**` + `mockup-version.txt`；产物 `WavePaintMockup.exe` + `mockup-version.txt`（**脚本必须带 UTF-8 BOM**，否则 PS5.1 读中文乱码 → 06 P38）。③ **新增 `tools/mockup-exe-smoke.mjs`（143 行）无浏览器自检**：`/nolaunch` 起服务后核验 ping 身份 / 首页与静态资源状态码·Content-Type·字节数与磁盘源码逐一相等 / 构建戳 / 404 分支 / HEAD / 4 条原始 socket 路径穿越非 200 → **41/41 ✅**。④ `tools/mock-probe.mjs` 支持外部 `MOCK_BASE`（`argv[2]` / `process.env.MOCK_BASE`），默认行为不变；`prototype/ui-mockup.html` 末尾抓 `/mockup-version.txt` 把构建戳插进顶部绿条（`#mock-version`），dev-server 下 404 静默跳过；`.gitignore` 加 `WavePaintMockup.exe` / `mockup-version.txt`。**实测（全部实跑）**：`build-prototype.ps1` → `csc exit: 0` / `res count: 27` / exe **186,368 B**；`mockup-exe-smoke` **41/41**；`mock-probe`（源码 dev-server）**34/34**；**对 exe 服务跑同一探针 34/34**；`ui-audit --mock` 违规 0；真实双击路径实测（`%TEMP%` 服务文件 `tag=WAVEPAINT-MOCKUP` / `port=17820`、可见窗口标题「WavePaint UI 原型（假界面 · 未连接后端）」、截图 1050×999 / 207 色非白屏、WM_CLOSE 关窗后第 12 秒自动退出、第二实例自动交接退出）。**C1 未触发 → 真机 `WavePaintClean.exe` 未重建**（仍 22,015,488 B / 16:52:06） |
 | 更早（第二十七轮，2026-09-13） | **① 修两条用户报的真 bug（拖拽预览≠落位 / 拖动中按钮乱闪，同一根因）+ ② 原型「1:1 完全照搬真机」重构 + ③ 审计口径按 D26 校准 + exe 重新打包**（详见 §4.25）。用户原话：「目前各个面板的**拖动仍然有问题，拖动的预览和最后实际的效果不一致**，且**拖动按钮在拖动时的显示也有 bug**」「代码显示区和菜单栏的显示等**并没有照搬原本的源码**…我要 **1:1 完全一样的效果**，完全一致的效果**起码波形显示区是这样的**」。**① 两条真 bug = 同一根因（06 P39 / 07 D27）**：拖拽闭包**缓存了 DOM 引用**（`el`/`handle`/`slots`），拖拽中途 `afterLayout()` 的 `setTimeout(60ms) → dispatchEvent('resize')` → 原型 `renderFloats()` **重建整棵 DOM** → 缓存的引用变成**游离节点**（实测 `elConnected=false`），样式写进空气 → 预览与落位不一致；`el.classList` 判拖动态失效 → 按钮显隐 CSS 不生效 → 乱闪。**修法（三条）**：a) split 节点补**稳定 id**（`'s-'+(++seq)`）+ `el.dataset.splitId`；b) 拖拽 `move` 里**每次现查活节点**（`[data-float=…]`/`[data-split-id=…]`，`\|\| el` 兜底），不再用缓存引用；c) `pointermove/up/cancel` **从 handle 改挂 `window`** + 跨重建的拖动态用**模块级变量** `draggingFloatId`（`renderFloats()` 按它拼 `.dragging` 类）+ 松手统一 `renderFloats()`/`persist()` 收尾。加 **I1~I5 五条回归**（重建后仍在拖动 / 预览==落位 / 清理状态 / 分隔条跟随且只改相邻两格 / 逐像素相等）。**② 1:1 照搬**：新增 `tools/gen-mock-page.mjs`（**从真机 `index.html` 逐字生成** `prototype/ui-mockup.html`：机械替换资源路径为 `../css` `../js` `../lib` `../img` + 内联 module 说明符 + 注入 `ui-mockup.css` + 追加 `prototype/mock-tail.html` 外壳；真机文件一律只读）+ 新增 `prototype/mock-tail.html`（工作区宿主/状态栏/帮助浮层/拖拽引擎）；**菜单栏 / 工具带 / 代码区（CodeMirror 宿主）/ 波形显示区 = 真机原样 DOM + 真机原样 CSS + 真机原样 JS**，不再「按预测效果复刻」。实测 `node .e2e-tmp/r37e.mjs` = **13 same / 1 diff**（唯一 diff = sim 卡片 DOM 顺序 `[source,rtl,vcd,tb]→[rtl,source,vcd,tb]`，无害；菜单栏/工具带 outerHTML·矩形·35 个子元素矩形/CodeMirror 文本·行数·字体·颜色·背景/verilog-source 兜底/rtl-tree 前缀/sim-status 文本/主题变量全 SAME）；**像素 diff：波形画布 908×609 `diffPx=78/552972 = 0.0141%`（只差网格虚线抗锯齿亚像素）、chrome band 1680×86 = 0.4713%** → **波形显示区 1:1 达成**。**③ 审计口径（07 D26）**：`tools/ui-audit.mjs` 的 **R5/R6(隐式溢出)/R8 三条「真机自身规范化」规则改为只在 `target==='real'` 判定**，mock 豁免（原型继承真机原生间距 `{4,6,8,10,12,18}` / 真机 1280 溢 192px / 步数越界，属真机待优化 P-UI-02，不是原型缺陷）→ `--mock` **1680/1280 两档违规 0**。**④ exe 重新打包**：`build-prototype.ps1` 内嵌目录由仅 `prototype/` 扩为 **`prototype/ img/ css/ js/ lib/` 五目录（res count 27→54）** → `WavePaintMockup.exe` **186,368 B → 1,709,056 B**；`tools/mockup-exe-smoke.mjs` 资源清单同步（新增 css/js/lib 三项字节数逐一相等；首页断言改 `#workbench`/`#mk-park`/`#menu-bar`/`#toolbar`）→ **56/56 ✅**。**实测（全部实跑）**：`mock-probe` **55/55**（源码 dev-server）+ **对 exe 服务（17899）55/55**；`ui-audit --mock` 两档违规 0；`mockup-exe-smoke` 56/56；真机 vs 原型 13 same/1 diff + 像素 diff 0.0141%。**C1 未触发 → 真机 `WavePaintClean.exe` 未重建**（仍 22,015,488 B / 16:52:06） |
-| 最新一轮（第二十九~三十五轮，2026-09-13） | **回归真机基线四区停靠 UI + 浮窗/菜单真 bug 修复 + 无死局护栏**（详见 §4.27）。① 废弃外部 UI Agent 产物 → 真机自带外壳 `#workbench` + `#wp-status-bar` + 自研停靠引擎 `js/sim/dock/workspace.js`（1,169 行，普通 `<script>` 早于 ESM）；② 六个面板一律**整块搬家不克隆**（`wave=#main-area` / `source/rtl/vcd/tb=#sim-card-*` / `console=#sim-console`），未显示时摘到 `#mk-park`，`#sim-panel` 原地保留仅 CSS 隐藏；③ 默认预设 `presetSim` = 左 `[rtl/vcd]` 19% + 中 `[wave]` 55% + 右 `[source/tb]` 26% + 下 `[console]`，全部位于吸顶 `#menu-bar`+`#toolbar` **之下**（编辑栏位置不变）；④ 三条真 bug：浮窗被「组内部追加」吸走无法自由摆放（改 strict 落点）、`render()` 按 `.mk-split` 清根导致塌树后孤儿组累积**四区变六区**（改 `data-mk-root` 标记；探针 §8 首跑 FAIL 先于用户发现）、`✕` 无护栏可关空（加护栏 + 页签条 `＋` 恢复入口 + `restore()` 兜底）；⑤ 新增 `tools/dock-probe.mjs`（真实 Edge，**81/81**）；`tools/e2e-ui.mjs` 改走 `?dock=off` 保住 88/88 旧口径；`tools/gen-mock-page.mjs` 加弃用护栏；⑥ exe 重建 **22,096,896 B** / `v0.4.0 build 2026-09-13 22:36:31 aec17e8`（res count 54，C8 特征串核验通过），真机冒烟 + 停靠外壳专项通过 |
-| 当前阻塞 | **无功能性阻塞**。当前唯一待办 = **等用户 review 第三十五轮重建的 `WavePaintClean.exe` 的四区停靠 UI**（形态与交互已在真实 Edge 下 81/81 断言通过）。外部 UI Agent 路线已作废（07 D28）；`prototype/**` 与 `WavePaintMockup.exe` 降级为历史参考 |
-| 下一步主线 | **① 用户 review 真机四区停靠 UI**（双击 `D:\Files\Code\波形\WavePaintClean.exe`；面板内 `#wp-version` 可自查 `v0.4.0 build 2026-09-13 22:36:31 aec17e8`）。**② 通过后按 08 §2.2/§2.6/§6.8 续做**：**D1 剩余**（面板表/预设扩展/键盘可达/拖动细节打磨）→ **D2 页内浮动增强**（最大化 / 键盘 / 多浮窗层级）→ **D3 持久化**（sessionStorage + localStorage + 3 预设 + reset，**不写 `.wp`**）→ **D4 + U3**（真机工具带分组/刻度/尺寸/溢出，修 **P-UI-02** 真机 1440/1280 越界；**波形区不得加子功能栏**，控件一律回统一顶栏 `#toolbar`）。**③ 可选淘汰**（待用户确认）：`prototype/**` + `WavePaintMockup.exe` + `build-prototype.ps1` + `tools/mock-probe.mjs` + `tools/mockup-exe-smoke.mjs` + `docs/ui-agent/**` + `tools/gen-mock-page.mjs`。**#95（G1~G8）** 仍为用户明确暂不实现；**#84 / #77 / #78** 远期（08 §3）；服务自愈（§4.11）为独立专项（C19 不变量） |
-| 测试基线 | regression **79/79**；e2e-rtl **61/61**；e2e-sim **0 失败**；e2e-ui **88/88**（已改走 `?dock=off`，口径 = 旧右侧栏卡片 splitter）；**dock-probe 81/81 全过**（2026-09-13 第三十五轮复跑：§1 外壳/四区几何 + §2 预览==落位 + §2.5 阈值/Esc/失焦 + §3 分隔条 + §4 浮出/预设/持久化 + §5 画布随面板宽重算 + §6a~6e 更多拖动路径 + §7 浮窗拖动/缩放 16 项 + §8 菜单/护栏 8 项；末行 `✔ 全部通过`）；probe-param 全过；真机 exe 冒烟通过（四区 `groups=4`、控制台异常无） |
+| 更早（第二十九~三十五轮，2026-09-13） | **回归真机基线四区停靠 UI + 浮窗/菜单真 bug 修复 + 无死局护栏**（详见 §4.27）。① 废弃外部 UI Agent 产物 → 真机自带外壳 `#workbench` + `#wp-status-bar` + 自研停靠引擎 `js/sim/dock/workspace.js`（1,169 行，普通 `<script>` 早于 ESM）；② 六个面板一律**整块搬家不克隆**（`wave=#main-area` / `source/rtl/vcd/tb=#sim-card-*` / `console=#sim-console`），未显示时摘到 `#mk-park`，`#sim-panel` 原地保留仅 CSS 隐藏；③ 默认预设 `presetSim` = 左 `[rtl/vcd]` 19% + 中 `[wave]` 55% + 右 `[source/tb]` 26% + 下 `[console]`，全部位于吸顶 `#menu-bar`+`#toolbar` **之下**（编辑栏位置不变）；④ 三条真 bug：浮窗被「组内部追加」吸走无法自由摆放（改 strict 落点）、`render()` 按 `.mk-split` 清根导致塌树后孤儿组累积**四区变六区**（改 `data-mk-root` 标记；探针 §8 首跑 FAIL 先于用户发现）、`✕` 无护栏可关空（加护栏 + 页签条 `＋` 恢复入口 + `restore()` 兜底）；⑤ 新增 `tools/dock-probe.mjs`（真实 Edge，**81/81**）；`tools/e2e-ui.mjs` 改走 `?dock=off` 保住 88/88 旧口径；`tools/gen-mock-page.mjs` 加弃用护栏；⑥ exe 重建 **22,096,896 B** / `v0.4.0 build 2026-09-13 22:36:31 aec17e8`（res count 54，C8 特征串核验通过），真机冒烟 + 停靠外壳专项通过 |
+| 最新一轮（第三十六~三十九轮，2026-09-14） | **「仿真状态」= 全应用唯一文本状态流（框套框彻底退役）+ 源码面板两件套 + 编辑栏仿真按钮 + 工具带窄屏换行**（详见 §4.28 / §4.29）。源码面板只留「文件标签条 + 代码框」两件东西；「自动加信号 / 运行仿真」搬进编辑栏末端 `#sim-tool-actions`；**第 37 轮的 `#sim-console-notes` 提示框在第 39 轮被用户否决并连同全部 `.helper-box` 彻底删除** —— `#sim-console-log` 成为全应用唯一状态/日志出口（`window.wpConsoleAppend`，一行一条 + 时间戳 + `.mk-cline` 计行契约 + 300 行上限 + kind 着色）；后端 `/api/sim` 成功路径改为回传 `"@@LOG:…@@VCD:…"` 分段，编译报错 / `$display` / `VCD info` 全部文本化进日志流（旧格式纯 VCD 向后兼容）。**真根因 = `#toolbar` 窄屏溢出**：`flex-wrap:wrap` + `--wp-toolbar-h` 变量化 + `#sim-panel top:calc()`（06 P48）；作者样式 `.source-actions{display:grid}` 盖掉 UA `[hidden]`（06 P47）。新增 `tools/source-panel-probe.mjs`；`e2e-rtl` 61 → **66**；`ui-audit real` 1280/1440 溢出 192px/32px → 0px。**触发 C1** → exe 重建 **22,115,840 B** / `v0.4.0 build 2026-09-14 00:17:03 24dab0a`；代码 commit `8d530c2`（4 files / +505 −19）+ `24dab0a`（8 files / +276 −149） |
+| 当前阻塞 | **无功能性阻塞**。当前唯一待办 = **等用户 review 第三十九轮重建的 `WavePaintClean.exe`**（双击 `D:\Files\Code\波形\WavePaintClean.exe`，面板内 `#wp-version` 自查 `v0.4.0 build 2026-09-14 00:17:03 24dab0a`）：本轮把「仿真状态」改成**全应用唯一文本状态流**（编译报错 / `$display` / 仿真摘要全部以文本行输出，框套框彻底删除），并保留了 36~37 轮的源码面板两件套 —— 全部已在真实 Edge（dev-server）+ **真机 exe（`/api/sim` 直连 + headless Edge 端到端）** 双路径断言通过。外部 UI Agent 路线已作废（07 D28）；`prototype/**` 与 `WavePaintMockup.exe` 降级为历史参考（是否物理淘汰待用户确认） |
+| 下一步主线 | **① 用户 review 真机「仿真状态」日志流 + 源码面板**（应看到：源码面板顶部只剩「文件标签条 + 代码框」两件东西、编辑栏末端只剩「自动加信号 / 运行仿真」两个按钮、底部「仿真状态」里是**纯文本日志行**（带 `[时:分:秒]` 时间戳），跑一次语法错误代码能看到 iverilog 报错原文）。**② 通过后按 08 §2.2 / §2.6 / §6.8 续做**：**D2**（页内浮窗最大化 / 键盘 / 多浮窗层级）→ **D3**（持久化 + 3 预设收口，**不写 `.wp`**）→ **D4 + U3**（真机工具带分组 / 刻度 / 尺寸 / `⋯` 溢出，修 **P-UI-02** 的 R5 间距基线；**波形区不得加子功能栏**，控件一律回统一顶栏 `#toolbar`）。**③ 可选淘汰**（待用户确认）：`prototype/**` + `WavePaintMockup.exe` + `build-prototype.ps1` + `tools/mock-probe.mjs` + `tools/mockup-exe-smoke.mjs` + `docs/ui-agent/**` + `tools/gen-mock-page.mjs`。**#95（G1~G8）** 仍为用户明确暂不实现；**#84 / #77 / #78** 远期（08 §3）；服务自愈（§4.11）为独立专项（C19 不变量） |
+| 测试基线 | regression **79/79**；e2e-rtl **66/66**（#85 D1~D6 / B3 层级浏览 / E1~E6 / F1~F9 / G1~G7 / H1~H6 / I1~I6 / J0~J7 / **C4·C5 成功路径日志行** / **K1~K3 编译报错文本化**）；e2e-sim **0 失败**；e2e-ui **88/88**（走 `?dock=off`，口径 = 旧右侧栏卡片 splitter）；**dock-probe 81/81 全过**；**source-panel-probe ✔ 全部通过**（§1 结构〔源码卡片无第二层标题栏 + `#sim-console` 只剩 `sim-console-log`/`sim-status`/`sim-recover` + `helperBoxes === 0` + 三个退役节点不在 DOM〕/ §1.5 TB 页签 / §2 标签条「＋」「−」交互〔含删到最后一个被拒〕/ §3 通用状态出口〔`wpConsoleAppend` 时间戳 + 续行缩进 + `.mk-ok`/`.mk-err` + 自动滚底〕/ §4 无未捕获异常）；probe-param 全过；**真机 exe 三路验证通过**（`tools/exe-smoke.mjs` 全局正常 + 弹窗中文 + 异常无；真机 `/api/sim` 直连正常/报错两路径协议正确；headless Edge 连真机 17817 端到端：报错原文进日志流 + `helperBoxes:0` + 正常仿真出 `VCD info` 与多行摘要）；`ui-audit real` 口径 **1280 / 1440 工具带溢出 192px / 32px → 0px**（仅余 R5 间距基线，属 U3 / D4 范围） |
 | 原型 / 控件测试基线（**历史，已弃用**） | 第二十七轮口径：`WavePaintMockup.exe` 1,709,056 B / `b93ad07`，内嵌 `prototype/ img/ css/ js/ lib/` 54 项资源；`tools/mock-probe.mjs` 55/55、`tools/mockup-exe-smoke.mjs` 56/56、`ui-audit --mock` 两档违规 0。**第三十五轮起：外部 UI Agent 路线已作废（07 D28），`prototype/**` 与 `WavePaintMockup.exe` 降级为历史参考，不再作为实施依据、不再接线真机**（是否物理淘汰待用户确认） |
-| UI 基线 | **停靠 UI（第三十五轮，当前生效）**：`node tools/dock-probe.mjs [端口]` → **81/81**（真实 Edge headless + CDP，Emulation 1680×980；含 §7 浮窗拖动/缩放 16 项 + §8 菜单/护栏 8 项；产物截图 `.e2e-tmp/dock-*.png`）。**旧右侧栏口径**：`e2e-ui` **88/88**（第二十一轮 I0~I8 + 第二十五轮 I1 改口径 + 新增 I4c 指针拖拽），已改走 `?dock=off` 保持可跑。e2e-rtl **61/61**（#85 D1~D6 / B3 层级浏览 / E1~E6 / F1~F9 / G1~G7 / H1~H6 / I1~I6 / J0~J7）；probe-tutorial / probe-addbtn / probe-simfail 全过。**真机工具带遗留（P-UI-02，待 U3）**：1920 违规 1 / 1440 溢 32px / 1280 溢 192px |
-| 交付提醒 | 重启应用、**从唯一路径启动**、面板版本号自查（应显示 **`v0.4.0 build 2026-09-13 22:36:31 aec17e8`**）。**本次 exe 首次内置四区停靠 UI**（`#workbench` + `css/workspace.css` + `js/sim/dock/workspace.js`）：左 `[rtl/vcd]` / 中 `[wave]` / 右 `[source/tb]` / 下 `[console]`；拖动页签可停靠（并入 / 分栏 / 外缘新建整行整列），双击页签浮出页内浮窗（可自由摆放），`✕` = 隐藏（有「至少保留一个面板」护栏），页签条 `＋` = 显示面板 / 3 预设 / 恢复默认布局；`?dock=off` 可退回旧右侧栏界面（故障逃生）。**旧功能全在**：第二十一轮可拖拽多面板（旧界面口径）、#87② `Ctrl+Alt+4`、#76 B1~B5、#86 A1~A4 + 服务自愈（端口 17817 + `WPServiceGuard` + `#sim-recover`）、#85、#88~#92、第六轮收官 clean.js。**首次**自愈时浏览器会弹一次「是否允许打开 wavepaint:」，勾选「始终允许」后无感（浏览器安全策略，无法绕过） |
+| UI 基线 | **停靠 UI（第三十九轮，当前生效）**：`node tools/dock-probe.mjs [端口]` → **81/81**（真实 Edge headless + CDP，Emulation 1680×980；含 §7 浮窗拖动/缩放 16 项 + §8 菜单/护栏 8 项；产物截图 `.e2e-tmp/dock-*.png`）。**旧右侧栏口径**：`e2e-ui` **88/88**（第二十一轮 I0~I8 + 第二十五轮 I1 改口径 + 新增 I4c 指针拖拽），已改走 `?dock=off` 保持可跑。e2e-rtl **66/66**（#85 D1~D6 / B3 层级浏览 / **C4·C5** / E1~E6 / F1~F9 / G1~G7 / H1~H6 / I1~I6 / J0~J7 / **K1~K3**）；`source-panel-probe` ✔ 全部通过（§1 结构 + §1.5 TB 页签 + §2 标签条「＋」「−」+ **§3 通用状态出口** + §4 无异常）；probe-tutorial / probe-addbtn / probe-simfail 全过。**真机工具带（第三十六~三十七轮已修）**：`ui-audit real` 1440 / 1280 工具带溢出 32px / 192px **→ 0px**；**遗留（U3 / D4）** = 1920 违规 1 条 + R5 间距基线 19 处 |
+| 交付提醒 | 重启应用、**从唯一路径启动**、面板版本号自查（应显示 **`v0.4.0 build 2026-09-14 00:17:03 24dab0a`**，exe **22,115,840 B**）。**本次变化**：① 底部「仿真状态」= **全应用唯一状态 / 日志出口** —— 里面只有**纯文本日志行**（`[时:分:秒] 内容`，续行缩进 11 空格，`ok` 绿 / `warn` 黄 / `error` 红），**原来的提示框（框套框）已彻底删除**；跑一次编译报错，iverilog 的报错原文会**逐行**出现在这里；② 源码面板 =「文件标签条 + 代码框」两件套（顶部无第二层标题栏；「导入源码 / 移除文件 / 解析 RTL / 生成 TB」隐藏；文件增删改标签页式「＋」/ 文件名后的「−」）；③ 「自动加信号 / 运行仿真」在**编辑栏（步数 / 子步数那一栏）末端**。**旧功能全在**：四区停靠拖拽（左 / 中 / 右 / 下，`#workbench`）、`?dock=off` 逃生口、`Ctrl+Alt+4` 全部接口入波形、B4 代码内点变量加信号、服务自愈（端口 17817 + `WPServiceGuard` + `#sim-recover`）、CM6 代码视图、RTL / VCD 树、波形区 1:1 绘制。**窄窗口下 `#toolbar` 会自动换行**（修复历史「点运行仿真无响应」，见 06 P48）。**首次**自愈时浏览器会弹一次「是否允许打开 wavepaint:」，勾选「始终允许」后无感（浏览器安全策略，无法绕过） |
 
 ---
 
@@ -69,6 +70,10 @@
 | 2026-09-13 | 第二十五轮：**U0-R 顶栏统一（撤销 D-UI-A）+ 真机 splitter 高度模型重写 + 三条真 bug 修复 + 混淆残留清零** | 用户四条原话：① 「**波形的时间标 1234 等错误地放在了源码区**」；② 「**编辑栏先不做修改**……保存图标、撤回图标、放大缩小图标等**还放到此位置**（统一顶栏），**波形区的子波形区现在不添加功能栏**，功能栏仍旧放在统一的顶栏那里」；③ 「现在各个窗口的**大小拖拽有 bug，似乎和鼠标坐标对不上**，而且检查显示等其他 bug」；④ 「**已有绘图 UI 尽量不做改动**……如果是很混淆过的，请查明问题之前做过的所有代码的解混淆和剔除工作」。**① 原型 U0-R**：`prototype/ui-mockup.{html,css,js}` —— 撤销第二十四轮 D-UI-A，把下沉到波形面板带的控件**全部收回 `#toolbar`**（5 组 18 项，`data-ovp`），**删除波形面板整条 `.mk-toolrow`**（波形区零子功能栏），帮助浮层 §5 + `mk-version`（→ `mock-3（顶栏统一 U0-R）`）同步。**② 真机 `js/sim/panel-layout.js` 根因重写**：`cardBaseline` / `pairSlackPx` / `resizePairTo` / `resizePair`；`applyWeights` = `flexBasis: 基线px` + `flexGrow: 占比*100` + `flexShrink: 0`；`applyMinHeights` **同源同时写 `minHeight` 与 `flexBasis`**（此前窗口 resize 只重算 min-height → flex-basis 留在旧值 = 拖拽错位根因之一）。**③ 三条真 bug**：a) **时间标跑进源码区根因 = 原型 `.mk-gutter` 缺 `white-space:pre`** → 行号换行吃掉宽度（`gutW 369→32`、`bodyW 59→396`，修复后 `ticksInSource 0`）；b) 原型 `.mk-tick` 与菜单勾选类名冲突 → 波形刻度改 **`.mk-wave-tick`**；c) 原型信号名列宽拖拽全失效（`closest` → `querySelector`）+ 时间轴与波形轨横滚同步（`tracks.scrollLeft` → `axisScroll.scrollLeft`）。**④ 混淆复查**：`js/wavepaint.clean.js` 无混淆残留（`_0x55bf` / `\xNN` 等均在注释或为 ✕ 字符 / 产品功能），**另清除 9 个残留 `_0x_` 前缀局部变量**（`_0x_wpf*` → `wpf*`）→ 正文 `_0x` 归零。**实测（全部实跑）**：e2e-ui **88/88**（I1 改口径 + 新增 I4c）、regression 79/79、e2e-rtl 61/61、e2e-sim 0 失败、mock-probe 34/34、ui-audit --mock 1680/1280 违规 0；真机四档数字不变（U3 修）。**C1 触发（改了 `js/`）→ exe 已重建**（22,015,488 B / 2026-09-13 16:52:06 / `v0.4.0 build 2026-09-13 16:52:06 83fab85`，C8 特征串核验通过） |
 | 2026-09-13 | 第二十六轮：**原型打包为可双击运行的 exe（交付方式升级：网页链接 → 零依赖 exe）** | 用户反馈「提供的网页链接无法打开，请按照原本之前的方式一样打包成一个可直接运行的点 exe 供我 review」→ 上一轮 review 链路（`node tools/dev-server.mjs 8951` + 手输 `http://127.0.0.1:8951/prototype/ui-mockup.html`）需 Node + 手输地址，本轮改为**双击 exe 即用**。① **新增 `MockupLauncher.cs`（528 行）**：自包含静态资源 HTTP 服务 + Edge `--app` 无地址栏窗口；端口优先 **17820**（真机 17817），冲突则随机；`/api/ping` = **`WAVEPAINT-MOCKUP <构建戳>`**（与真机 `WAVEPAINT-SERVICE` 身份隔离）；`/mockup-version.txt` 暴露构建戳；单实例发现 `%TEMP%\WavePaintMockup_service.txt`（`tag=`/`port=`）+ ping 判活；`EnumWindows` + 标题含「原型」判定窗口存活（真机标题不含「原型」→ 互不误伤）；关窗 **12s 后自动退出**、最长 12h；`/nolaunch`、`/port=N` 两参数。**独立于真机 `WavePaintLauncher.cs`（一行未改）**。② **新增 `build-prototype.ps1`（64 行）**：不写 `resources.txt`、不动 `version.txt`、不碰 `WavePaintClean.exe`，只产 `WavePaintMockup.exe` + `mockup-version.txt`（**须带 UTF-8 BOM**，见 06 P38）。③ **新增 `tools/mockup-exe-smoke.mjs`（143 行）** 无浏览器冒烟 **41/41**。④ `tools/mock-probe.mjs` 支持 `MOCK_BASE`（argv[2]/env）；`prototype/ui-mockup.html` 顶部绿条显示构建戳；`.gitignore` 加两产物。**实测：exe 186,368 B / 2026-09-13 17:08:12，构建戳 `v0.4.0-mock build 2026-09-13 17:08:12 2d1636a`；mockup-exe-smoke 41/41、mock-probe 34/34（源码 + exe 双跑）、ui-audit --mock 违规 0、真实双击路径全流程实测通过**。**C1 未触发 → 真机 exe 未重建**（仍 22,015,488 B / 16:52:06） |
 | 2026-09-13 | 第二十七轮：**拖拽两条真 bug 修复（同一根因）+ 原型「1:1 完全照搬真机」重构 + 审计口径校准 + exe 重打包** | 用户原话：① 「目前各个面板的**拖动仍然有问题，拖动的预览和最后实际的效果不一致**，且**拖动按钮在拖动时的显示也有 bug**」；② 「代码显示区和菜单栏的显示等**并没有照搬原本的源码**，我希望**完全照搬它的源码，做出 1:1 的效果**，只是原本是全屏的，现在是面板而已，而不是按照预测的显示效果等进行复刻，我要 **1:1 完全一样的效果**，完全一致的效果**起码波形显示区是这样的**」。**① 拖拽两 bug = 同一根因（06 P39 / 07 D27）**：拖拽闭包**缓存 DOM 引用**，拖拽中途 `afterLayout()`（60ms `setTimeout` + `resize`）触发 `renderFloats()` **重建整棵 DOM** → 缓存引用变**游离节点**（实测 `elConnected=false`）→ 写样式进空气（预览≠落位）、`classList` 判拖动态失效（按钮乱闪）。修法：split 补**稳定 id** + `data-split-id`；`move` 里**每次现查活节点**（`\|\| el` 兜底）；`pointermove/up/cancel` **挂 `window`** + 模块级 `draggingFloatId` 承载拖动态 + 松手统一 `renderFloats()/persist()`；新增 `.mk-float.dragging` 样式；加 **I1~I5 五条回归**、`E2` 过滤 `ERR_ABORTED`。**② 1:1 照搬**：新增 `tools/gen-mock-page.mjs`（**从真机 `index.html` 逐字生成** `prototype/ui-mockup.html`：资源路径 → `../css ../js ../lib ../img` + 内联 module 说明符 + 插 `ui-mockup.css` + 追加外壳；真机文件**只读**）+ 新增 `prototype/mock-tail.html`（工作区/状态栏/帮助浮层/拖拽引擎）；菜单栏·工具带·代码区·波形区 = **真机原样 DOM+CSS+JS**。实测 `.e2e-tmp/r37e.mjs` = **13 same / 1 diff**（唯一 diff = sim 卡片 DOM 顺序，无害）+ 像素 diff **波形画布 0.0141% / chrome band 0.4713%** → **波形显示区 1:1 达成**。**③ 审计口径（07 D26）**：R5/R6 隐式溢出/R8 改为**只在真机判定**，mock 豁免 → `ui-audit --mock` 两档违规 0。**④ exe 重打包**：内嵌目录扩为 `prototype/ img/ css/ js/ lib/`（res 27→54）→ `WavePaintMockup.exe` **186,368 B → 1,709,056 B**；`mockup-exe-smoke` **56/56**。⚠ 打包前须 `taskkill /F /IM WavePaintMockup.exe`（否则 `CS0016 文件被占用`）。**实测：mock-probe 55/55（源码 + exe 双跑）、ui-audit --mock 违规 0、mockup-exe-smoke 56/56**。**C1 未触发 → 真机 exe 未重建**（仍 22,015,488 B / 16:52:06） |
+| 2026-09-13 | 第二十八轮：**对外交付「给外部 UI Agent 的提示词 + 交接文档」（纯文档，零代码改动）** | 用户要求「生成一段提示词，主要针对本项目的文档管理和项目管理部分……交给其他项目的其他 AI，让他整理出相同的文档」→ 产出 04 §4.26（对外提示词 + 交接文档）；**该路线在第二十九轮被用户实测否决**（外部 Agent 写的 UI 不可靠 → 07 D28）。**C1 未触发 → 未重建 exe** |
+| 2026-09-13 | 第二十九~三十五轮：**回归真机基线四区停靠 UI + 浮窗/菜单真 bug 修复 + 无死局护栏 + exe 重建**（补记） | 用户裁决「别的 Agent 写的 UI 不可靠，请还是按照原来基线原来的 UI 进行修改……实现左中右下分块的模式，不同块的界面可以相互拖拽……尽量采用成熟的 UI 方案或者 UI 套件……保证 UI 的稳定性」→ **废弃外部 UI Agent 路线（07 D28）**，全部 UI 改动回归真机文件：新增自研停靠引擎 `js/sim/dock/workspace.js`（1,169 行）+ `css/workspace.css`（20,024 B / 309 行）+ `index.html` 外壳（`#workbench` / `#wp-status-bar`），默认预设 `presetSim` = 左 `[rtl/vcd]` 19% + 中 `[wave]` 55% + 右 `[source/tb]` 26% + 下 `[console]`；修掉 7 条真 bug（06 P40~P46，含 `render()` 按 `.mk-split` 清根致「四区变六区」）；新增 `tools/dock-probe.mjs` **81/81**；exe 重建 22,096,896 B / `aec17e8`（详见 §4.27） |
+| 2026-09-13 | 第三十六~三十七轮：**源码面板精简为「文件标签条 + 代码框」+ 仿真按钮收进编辑栏末端 + 工具带窄屏换行** | 用户五条裁决逐条落地（去第二层标题栏 / 面板只留文件标签条 + 代码框 / 提示框落进「仿真状态」/「自动加信号 + 运行仿真」搬进编辑栏末尾且隐掉「解析 RTL」「生成 TB」「导入源码」/ 文件增删改浏览器标签页式「＋」「−」）。**真根因 = `#toolbar` 窄屏溢出**（历史「点运行仿真没反应」的真凶）：`flex-wrap:wrap` + `--wp-toolbar-h` + `#sim-panel top:calc()`（06 P48）；另一坑 = 作者样式 `.source-actions{display:grid}` 盖掉 UA `[hidden]`（06 P47）。新增 `tools/source-panel-probe.mjs`；`ui-audit real` 1280/1440 溢出 192px/32px → 0px；exe 重建 22,111,744 B / `8d530c2`。详见 §4.28 |
+| 2026-09-14 | 第三十八~三十九轮：**「仿真状态」升级为全应用唯一文本状态流（框套框彻底退役）+ 后端 `@@LOG:` / `@@VCD:` 协议** | 用户原话「将仿真完成的框**放到仿真状态里**，**不是让框放到另外一个框下面**，而是**直接把框里的内容就是仿真完成的日志，直接的文本直接从仿真状态中输出**就可以了……如果**代码编译不过，可以把编译的问题、编译的报错直接输入到仿真状态这个窗口中**，通过文本输出，相当于这是一个**通用的端口或者说状态的一个显示部分**」→ ① 退役 `.helper-box` 三件套（`#sim-console-notes` / `#port-preview` / `#module-preview`）连 CSS 一起删除；② `window.wpConsoleAppend(text, kind)` 统一日志流（`.mk-cline` 计行契约 / 4 种 kind 着色 / 时间戳 / 续行缩进 11 空格 / 300 行环形上限）；③ `ui-bridge` 23 处提示改走 `consoleOut`；④ `WavePaintLauncher.cs` + `tools/dev-server.mjs` 成功路径回传 `@@LOG:…@@VCD:…`；⑤ 探针与用例同步（source-panel-probe §3 重写 + e2e-rtl 61 → 66）。exe 重建 22,115,840 B / `24dab0a`。详见 §4.29 |
 
 ---
 
@@ -1874,6 +1879,173 @@ D20/D22/D26/D27 + U0-R ／ §10 验收口径（唯一 = 用户双击 exe 拖一�
 
 ---
 
+### 4.28 ✅ 已完成：**源码面板精简为「文件标签条 + 代码框」+ 仿真按钮收进编辑栏末端 + 工具带窄屏换行**（第三十六~三十七轮，2026-09-13；代码 commit `8d530c2`）
+
+> ⚠ **第 39 轮已推翻本节 ④ 的做法**（用户否决「框套框」）：`#sim-console-notes` 与全部 `.helper-box`（`#port-preview` / `#module-preview`）已**彻底删除**，提示内容改为**纯文本行直进** `#sim-console-log` —— 见 **§4.29**。本节其余内容（① ② ③ ⑤ ⑥ ⑦ ⑧ ⑨ ⑩）仍然生效；只有「④ 提示框落进 `#sim-console`」与「⑩ 里关于提示框的验收话术」按 §4.29 口径读。
+
+**用户原话（第三十七轮，本轮唯一需求来源）**：「① 目前 SV 源码 testbench 这一块，也就是右边这一个块中还有一个 vlogs 非源码的块，也就是块里面好像套了一个块，**有双层的标题栏**，请将下面这个标题栏直接去除掉；② 我要求这个栏里面**只放两个东西**，一个是**文件的列表**（例如 `counter.sv` 这样的一个显示的东西）……然后保留这个代码框；③ **运行完仿真之后，底下有一个会有一个提示框**，这个提示框**直接放到最底下的端口，也就是仿真状态的一个 log 的框里面**；④ 将**自动加信号和运行仿真两个按钮放到编辑栏**（步数/子步数/步数编辑这一栏）里面**放到最后**，**只放这两个按钮**，**解析 RTL 和生成 TB 不需要这两个功能，这两个按钮就隐掉**，**导入源码也不要这个按钮**；⑤ **添加文件和移除文件**这两个功能，通过在文件列表（`counter.sv` 这一个 UI）周围做改动：**每个文件的文件名后面会有一个小的减号**，点击减号就可以移除文件，**在总的列表最后会有一个加号**，点这个加号就可以增加文件 —— **就类似于浏览器新标签页的添加方式和标签页的关闭方式**。」
+
+#### ① 源码面板 = 「文件标签条 + 代码框」两件套（去掉第二层标题栏）
+
+- **症状**：停靠 UI 下右侧「SV 源码」面板里**块里套块** —— 外层是停靠引擎的面板页签（`.mk-group > .mk-tabs`），内层是第二十一轮卡片化留下的 `.sim-card` 自带头部 `.sim-card-head`（标题「SV 源码」+ 一组操作按钮）→ 视觉上出现**双层标题栏**。
+- **修法（纯 CSS）**：`css/workspace.css` 新增 `body.wp-dock .mk-host > .sim-card > .sim-card-head { display: none !important; }` —— **只在停靠模式下隐藏**；`?dock=off` 旧界面仍保留卡片头，旧口径 `e2e-ui` 不受影响。另补 `.collapsed` 变体补偿规则（`flex: 1 1 auto` + `> .sim-card-body { display: flex }`），避免隐藏头部后折叠态塌成 0 高。
+- **按钮精简**：`.source-actions` 整组加 `hidden` → 「导入源码 `#sim-import` / 移除文件 `#sim-removefile` / 解析 RTL `#sim-parse` / 生成 TB `#sim-tb`」**只 hidden、不删节点**（这四个 id 是**冻结契约面**，`tools/e2e-rtl.mjs` 的 E6 仍断言它们存在）；「自动加信号 `#sim-addsignals` / 运行仿真 `#sim-run`」**整体删掉节点**（迁到编辑栏，见 ③）。
+- **端口 / 模块预览归位**：源码卡片里的 `.helper-box`（`#port-preview` + `#module-preview`）**整块从源码面板删除**，改放进最底部「仿真状态」面板的新容器 `#sim-console-notes`（见 ④）。
+- **⚠ 关键坑（06 P47）**：作者样式 `.source-actions { display: grid; }` **会盖掉 UA 默认的 `[hidden] { display: none }`** → 只加 `hidden` 属性**不生效**，必须补 `index.html` 内联 `<style>` 的 `.source-actions[hidden] { display: none !important; }`。
+- **`#source-tabs` 标签条**：新增 DOM（`#source-files` 容器 + 末尾 `#sim-addfile`「＋」）；**标签条相关 CSS 选择器一律带 `#source-tabs` 前缀**（避免与其它「＋」类按钮串味）。
+
+#### ② 文件增删改「浏览器标签页」式（`＋` / `−`）
+
+- **结构**：每个文件渲染为 `.source-tab`，其中 `.source-chip` = **纯文件名文本**（`.active` 标记当前文件），与它**平级的兄弟节点** `.source-chip-close` = 小「−」（点它移除该文件；hover 变红，`:disabled` 时置灰）。
+- **⚠ 闭包陷阱**：关闭键**必须是 chip 的兄弟节点、不能是子节点** —— `tools/e2e-rtl.mjs` E2 断言 `#source-files .source-chip.active` 的 `textContent === 'sub.v'`，写成子节点会把「−」读进文本里导致断言失败。
+- **移除**：`js/sim/ui-bridge.js` 新增 `removeFileAt(index)`（原 `removeFile()` 改为转调它）—— `state.files.length <= 1` 直接 return（**不允许删到零文件**）；`at` 先 clamp；删除后**索引收敛**（删左边 → 左移；删自己 → 原地落到后一个；删右边 → 不变）；随后 `syncEditor()` → `renderFileTabs()` → `setStatus(...)` → `render()`。
+- **新增**：`#sim-addfile`（标签条末尾的虚线圆「＋」）沿用原「添加文件」链路。
+- **旧按钮**：「添加文件 / 移除文件」两个按钮**删除**（功能改由标签条承载）。
+
+#### ③「自动加信号 + 运行仿真」搬进编辑栏末端（`#sim-tool-actions`）
+
+- **位置**：`#toolbar` 内、`.step-controls`（步数 / 子步数）**之后**、`.spacer` **之前** —— 即「编辑栏这一栏的最后」；先一条 `.separator`「|」，再一组 `.sim-tool-actions`，**只放这两个按钮**。
+- **口径**：`#sim-run` 仍是**全应用唯一 primary 按钮**且**始终可点**（08 §7.10 契约硬约束），只是从「源码面板内」变成「编辑栏末端」—— 仍在**吸顶常驻带 `#toolbar`** 内，故不违反「常驻」条款。
+
+#### ④ ~~仿真提示框落进最底部「仿真状态」面板（`#sim-console-notes`）~~（**⚠ 第 39 轮已推翻** → 见 §4.29）
+
+- `#sim-console` 内顺序改为：`#sim-console-log`（日志）→ **`#sim-console-notes`（提示框：`#port-preview` / `#module-preview`）** → `#sim-status`（状态行）。
+- **换父节点不换 id** → `ui-bridge` 的写入逻辑**零改动**；空内容时用 `:has()` 自动收起（`body.wp-dock #sim-console > #sim-console-notes:not(:has(.helper:not(:empty))) { display: none; }`）。
+- **TB 卡片同步小改**：`#sim-tb-copy` 从 `.sim-card-head` 移进卡片体顶部新 `.tb-actions`；`#tb-source` 的 placeholder 改为「点顶部编辑栏的「运行仿真」后自动生成 testbench。」。
+
+#### ⑤ 真根因：`#toolbar` 窄屏溢出（历史「点运行仿真没反应」的真凶）
+
+- **复现**：`tools/e2e-ui.mjs` 的 I8（750×485 矮窗口按坐标点 `#sim-run`）`hitIsRun:false`。用临时探针 `.e2e-tmp/i8dbg.mjs` 逐层定位：
+  1. 首诊 `hitTag:null` → 按钮 `getBoundingClientRect()` 算出的中心点**落在视口外**；
+  2. **根因一**：`#toolbar` 是 `flex-wrap:nowrap` + `overflow:visible`，内容总宽 ≈ **1470px** → 750px 窗口下**末端按钮被推出视口** → `elementFromPoint` 返回 `null`（这正是历史 `P-UI-02` / 「运行仿真点不动」的真凶）；
+  3. 加 `flex-wrap:wrap` 后按钮回到视口内（y=113），**又**被 `#sim-panel`（`position:fixed; top:92px`）盖住（`stack[0]` = `#sim-panel-header`）—— 因为换行后工具带实测高变成 **110px**（底 150px）；
+  4. **根因二**：`--wp-toolbar-h` 从未被写入 + `#sim-panel` 的 `top:92px` 是**硬编码**。
+- **修法（三件一起）**：
+  - `css/workspace.css`：`#toolbar { flex-wrap: wrap; }`（**唯一一条非 `body.wp-dock` 作用域的规则**）；
+  - `js/sim/ui-bridge.js` 新增 `syncToolbarHeight()`：把 `#toolbar` 实测高写进 CSS 变量 `--wp-toolbar-h`（`document.documentElement.style.setProperty`，带存在性守卫），在脚本尾部立即调用 + `resize` + `DOMContentLoaded` + `ResizeObserver` 四个时机刷新；
+  - `index.html`：`#sim-panel` 的 `top` 由硬编码 `92px` 改为 `top: calc(40px + var(--wp-toolbar-h, 46px) + 6px);`（40px = `#menu-bar` 高）。
+- **⚠ 禁止用 `overflow-x: auto` 修**（06 P48）：按 CSS 规范，`overflow-x: auto` 会把 `overflow-y` 一并变成 `auto` → **裁掉** `.dropdown-content` / `.submenu-content` 弹出菜单（菜单绝对定位在工具带溢出区里）。
+- **验证**：`stack[0] = BUTTON#sim-run`；I8 转 PASS；`ui-audit real` 口径 **1280 / 1440 工具带溢出 192px / 32px → 0px**。
+
+#### ⑥ 新增探针 `tools/source-panel-probe.mjs`（278 行）
+
+真实 Edge headless + CDP + 内部起 `tools/dev-server.mjs`；用法 `node tools/source-panel-probe.mjs [端口 8971] [CDP 9541]`。覆盖：§1 结构（源码卡片无第二层标题栏 + 面板只剩标签条 / 代码框）/ §1.5 TB 页签 / §2 标签条「＋」「−」交互（含删到最后一个被拒）/ §3 提示框落在 `#sim-console-notes` 且顺序为「日志 → 提示 → 状态行」/ §4 无未捕获异常。截图产出 `.e2e-tmp/src-1-structure.png` 等。
+
+#### ⑦ 本轮文件清单
+
+| 文件 | 改动 |
+|---|---|
+| `index.html` | +128 −12（`.source-actions` 加 `hidden` + 删两个按钮节点 + 新增 `#source-tabs` / `#sim-addfile` + `.helper-box` 搬到 `#sim-console-notes` + `#toolbar` 新增 `#sim-tool-actions` + `#sim-panel top:calc()` + 内联 CSS 四组） |
+| `js/sim/ui-bridge.js` | +63 −6（`renderFileTabs()` 重写 + 新增 `removeFileAt()` + 新增 `syncToolbarHeight()`） |
+| `css/workspace.css` | +36 −1（隐藏第二层标题栏 + `.collapsed` 补偿 + `#sim-console-notes` 布局与收起 + `#toolbar{flex-wrap:wrap}`） |
+| `tools/source-panel-probe.mjs` | **新增 278 行**（源码面板专项回归） |
+
+#### ⑧ 实测（全绿）
+
+| 命令 | 结果 |
+|---|---|
+| `node tools/e2e-sim.mjs` | ✅ 失败 0 项（修掉 `syncToolbarHeight()` 的 `TypeError: window.addEventListener is not a function` 后恢复） |
+| `node tools/probe-param.mjs` | ✅ 全部通过 |
+| `node tools/regression.mjs` | ✅ 79 项全过 |
+| `node tools/e2e-ui.mjs` | ✅ 88/88（**I8 已 PASS**） |
+| `node tools/e2e-rtl.mjs` | ✅ 61/61（E2 / E6 契约面仍成立） |
+| `node tools/source-panel-probe.mjs` | ✅ ✔ 全部通过 |
+| `node tools/dock-probe.mjs` | ✅ ✔ 全部通过（reset 后 `{"groups":4,"vis":6,"hidden":0}`） |
+| `node tools/ui-audit.mjs --all --check` | ⚠ real 口径**溢出归零**；仍余 1 条 **R5 间距**（属 U3 / D4 范围基线，非本轮引入） |
+| `.\build.ps1` | ✅ `csc exit: 0` / `res count: 54` / **22,111,744 B** / `v0.4.0 build 2026-09-13 23:17:38 8d530c2` |
+| C8 特征串（`rg -a -c`） | ✅ `source-chip-close`=9 / `sim-tool-actions`=6 / `sim-console-notes`=5 / `source-tabs`=12 / `wp-toolbar-h`=5（全部 ≥1） |
+| `node tools/exe-smoke.mjs` | ✅ 全局 `{core,wpf,doc,canvas,zh}` 正常、弹窗标题「添加时钟信号」、异常无 |
+
+#### ⑨ 与 08 §7.9 / §7.10 的关系（口径变更说明）
+
+- 08 §7.9 第 3 条「溢出策略」原默认 = **`⋯` 溢出菜单**（留待 U3 落地）。**本轮真机先用 `flex-wrap: wrap` 兜底** —— 因为 `⋯` 溢出菜单尚未在真机实现，而「末端控件点不动」是**必须立刻修的真 bug** → 记入 07 **D35**；U3 落地时再决定是否改回 `⋯` 溢出菜单。
+- `#sim-run` 仍在**吸顶常驻带** `#toolbar` 内 → 不违反 08 §7.10「`#sim-status` 常驻可见 + `#sim-run` 始终可点」。
+
+#### ⑩ 遗留 / 下一步
+
+- **待用户 review**：双击 `D:\Files\Code\波形\WavePaintClean.exe`（面板内 `#wp-version` 自查 `v0.4.0 build 2026-09-13 23:17:38 8d530c2`）。
+- 下一步 = **D2**（浮窗最大化 / 键盘 / 多浮窗层级）→ **D3**（持久化扩展 + 3 预设收口，**不写 `.wp`**）→ **D4 + U3**（真机工具带分组 / 刻度 / 尺寸 / 溢出；顺手修 **P-UI-02** 的 R5 间距基线）。
+- **#95（G1~G8）** 用户明确暂缓；**#84 / #77 / #78** 远期（08 §3）。
+
+### 4.29 ✅ 已完成：**「仿真状态」升级为全应用唯一文本状态流（框套框彻底退役）+ 后端 `@@LOG:` / `@@VCD:` 协议**（第三十八~三十九轮，2026-09-14；代码 commit `24dab0a`）
+
+**用户原话（第三十九轮，本轮唯一需求来源）**：「将仿真完成的框**放到仿真状态里**，**不是让框放到另外一个框下面**，而是**直接把框里的内容就是仿真完成的日志，直接的文本直接从仿真状态中输出**就可以了；同样的，如果**代码编译不过，可以把编译的问题、编译的报错直接输入到仿真状态这个窗口中**，通过文本输出，相当于这是一个**通用的端口或者说状态的一个显示部分**。可以将**其他各种状态显示的信息汇总到这里**」
+
+#### ① 口径：`#sim-console` = 全应用唯一状态 / 日志汇聚口
+
+- **最终结构（只有 3 个子节点，顺序固定）**：`#sim-console-log`（日志流）→ `#sim-status`（单行当前状态）→ `#sim-recover`（自愈按钮，默认 `display:none`）。
+- **删除的东西**：`#sim-console-notes`（第 37 轮加的提示框容器）、`#port-preview`、`#module-preview`，以及 `.helper-box` / `.helper` 的全部 CSS（含 `:has()` 自动收起规则、`body.wp-dock .mk-host > #sim-console` 之外的相关规则）。
+- **不要复活**：`.helper-box` / `#sim-console-notes` / `#port-preview` / `#module-preview` 均为**已退役 id**（**不再是冻结契约面**，已从 08 §7.10 冻结名单移除；`tools/source-panel-probe.mjs` 会断言它们不在 DOM 里）。**「框套框」是用户明确否决的形态** —— 想加提示，一律走文本行。
+- `#sim-status` **保留但只承载单行**：多行文本先 `firstLine()` 截首行再写（历史实现直接把整段摘要塞进 `#sim-status`，单行元素里会挤成一大坨）。
+
+#### ② 统一输出流 `window.wpConsoleAppend(text, kind)`
+
+- 实现位置：`js/sim/dock/workspace.js`（**普通 `<script>`，早于 ESM 加载**；所以 `ui-bridge.js` 只能经 `window.wpConsoleAppend` 调用，**不能 import**）。
+- 契约：`text` 按 `\n` 切行；**首行带 `[HH:MM:SS] ` 时间戳**，续行缩进 **11 个空格**（与时间戳同宽）；每行 = 一个 `div.mk-cline`（**`.mk-cline` 类名是计行契约**，`tools/dock-probe.mjs` 第 128 行按它统计日志行数）；`kind` 追加修饰类 `mk-ok` / `mk-warn` / `mk-err`（`info` 无修饰类）；环形上限 **`CONSOLE_MAX = 300`** 行，超出删最旧；每次追加后 `scrollTop = scrollHeight` 自动滚底。
+- kind 语义：`info` 普通信息 / `ok` 成功（仿真完成且无提醒）/ `warn` 警告（有提醒、服务自愈类提示）/ `error` 失败（解析失败、编译报错、TB 失败、请求失败）。
+- CSS：`css/workspace.css` §5 的日志皮肤**已从 `body.wp-dock` 作用域提出去变全局**（`?dock=off` 逃生口下日志也必须可见）；配色 `.mk-ok` = `#8fd48f` / `.mk-warn` = `#e6c86e` / `.mk-err` = `#ff9b8a` / 普通 = `#d5e6d5`。
+- `?dock=off` 逃生口下用**垫片**保留可用性：`body:not(.wp-dock) #sim-console-log { flex: 0 1 auto; min-height: 64px; max-height: 38vh; overflow: auto; }` —— **绝不能写 `display:none`**（否则逃生口下所有状态输出全盲）。
+
+#### ③ 后端协议 E2：`@@LOG:` / `@@VCD:` 分段（成功路径也回传文本）
+
+- **动机**：iverilog 的 warning、vvp 的 `$display` 输出、`VCD info: dumpfile … opened for output.` 原本在成功路径被整包丢掉 → 用户看不到任何编译 / 运行信息。
+- **协议（成功）**：`"@@LOG:\n" + (iverilog stdout+stderr + vvp stdout+stderr).Trim() + "\n@@VCD:\n" + vcdText`；**若日志为空则退化为纯 VCD 文本**（不产生空的 `@@LOG:` 段）。
+- **协议（失败）**：维持原样 —— `"IVERILOG-ERROR: …"` / `"VVP-ERROR: …"` / `"SIM-ERROR: …"` / `"XX-ERROR: …"`。
+- **前端解析（`js/sim/ui-bridge.js`，`const text = await response.text();` 之后）**：**只有 `text.startsWith("@@LOG:")` 才分段**；`indexOf("@@VCD:")` 切两段；`vcdText` 交给 `vcdToProjectOutputs(vcdText, project)`；日志段按 `/\r?\n/` 切行、逐行 `replace(/\r/g,"")`（**iverilog / vvp 在 Windows 上是 CRLF**）、跳过空白行 → 逐行进 `consoleOut(line, /error/i.test(line) ? "error" : (/warning/i.test(line) ? "warn" : "info"))`。**无 `@@LOG:` 前缀的响应整体当 VCD**（旧 exe / 旧 dev-server 向后兼容）。
+- **两端实现同源**：真机 `WavePaintLauncher.cs`（`RunSimulationCore()` 新增 `string compileLog`；`err1` / `err2` = `Run()` 已合并的 stdout+stderr 文本）；`tools/dev-server.mjs`（`execFileSync` → `spawnSync` 拿成功路径的 `stdout + stderr`）。
+- ⚠ **C# 字面量坑（06 P49）**：用脚本改 `WavePaintLauncher.cs` 时，`"@@LOG:\n"` 里的 `\n` **必须是两个字符**（反斜杠 + `n`）；把 `\n` 写成**真实换行**会让字符串字面量断裂（`CS1010` / `CS1646`）→ 排错先 `node tools\gen-resources.mjs` 再手跑 csc 看第一手报错。
+
+#### ④ `ui-bridge` 的 `consoleOut()` 薄封装
+
+- `function consoleOut(text, kind)`：空文本直接 return；`window.wpConsoleAppend` 存在才转发（**不再直接写 DOM**）。
+- `function firstLine(text)`：给 `setStatus` 用（多行只取首行 + trim）。
+- **23 处** `refs.portPreview.textContent = X` / `refs.modulePreview.textContent = X` 全部改为 `consoleOut(X, kind)`；`initRefs()` 里两个 ref 删除。
+- **kind 分配口径**：解析失败 / 编译器错误 / TB 失败 / 请求失败 = `error`；服务自愈类提示 = `warn`；解析摘要 / 端口绑定 / 「正在运行真实仿真（iverilog）...」= `info`；仿真完成摘要 = `notes.length ? "warn" : "ok"`。
+
+#### ⑤ 探针与用例同步（防回归）
+
+- `tools/source-panel-probe.mjs`：§1 断言改为 `#sim-console` 子节点恰好 = `sim-console-log,sim-status,sim-recover` + `helperBoxes === 0` + 三个退役节点不在 DOM + 日志流有高度且排在状态行之上；§3 整段重写为**通用状态出口**用例（直接调 `window.wpConsoleAppend`，断言时间戳格式 / 续行 11 空格缩进 / `.mk-ok` 与 `.mk-err` 存在 / 自动滚底）。
+- `tools/e2e-rtl.mjs`：新增 **C4 / C5**（成功路径日志行带 `[HH:MM:SS]` 时间戳、行类全为 `mk-cline`、`#sim-console .helper-box` = 0、旧三节点不存在）+ **K1~K3**（编译失败时 iverilog 报错原文以文本行进日志流 + 行类契约 + 无 `.helper-box`）。用例数 **61 → 66**。
+
+#### ⑥ 本轮文件清单
+
+| 文件 | 改动 |
+|---|---|
+| `index.html` | 删 `#sim-console-notes` 及其内两节点 + 删 4 处 `.helper-box` / `.helper` 相关 CSS |
+| `css/workspace.css` | §5 日志皮肤改全局 + 4 条 kind 配色 + 删 `#sim-console-notes` 两条规则 + §6 逃生口垫片 |
+| `js/sim/dock/workspace.js` | 新增 `consoleAppend()` / `window.wpConsoleAppend` / `flash()` |
+| `js/sim/ui-bridge.js` | 删 2 个 ref + 新增 `consoleOut()` / `firstLine()` + 23 处改写 + E2 分段解析 |
+| `WavePaintLauncher.cs` | 新增 `compileLog` + 成功路径 `@@LOG:` / `@@VCD:` 分段 |
+| `tools/dev-server.mjs` | `execFileSync` → `spawnSync` + 同协议 |
+| `tools/source-panel-probe.mjs` | §1 / §3 重写 |
+| `tools/e2e-rtl.mjs` | 新增 C4 / C5 / K1~K3 |
+
+#### ⑦ 实测（全绿）
+
+| 命令 | 结果 |
+|---|---|
+| `node tools/e2e-sim.mjs` | ✅ 失败 0 项 |
+| `node tools/probe-param.mjs` | ✅ 全部通过 |
+| `node tools/regression.mjs` | ✅ 79/79 |
+| `node tools/e2e-ui.mjs` | ✅ 88/88 |
+| `node tools/e2e-rtl.mjs` | ✅ **66/66**（61 → 66） |
+| `node tools/source-panel-probe.mjs` | ✅ ✔ 全部通过 |
+| `node tools/dock-probe.mjs` | ✅ ✔ 全部通过（`{"groups":4,"vis":6,"hidden":0}`） |
+| `node tools/ui-audit.mjs --all --check` | ⚠ 仅 R5 间距 19 处（8 / 10 / 6 / −1160px）= **U3 / D4 旧基线，非本轮引入** |
+| `.\build.ps1` | ✅ `csc exit: 0` / `res count: 54` / **22,115,840 B** / `v0.4.0 build 2026-09-14 00:17:03 24dab0a` |
+| C8 特征串（`rg -a -c`） | ✅ `@@LOG:` = 4 / `mk-err` = 4 / `consoleAppend` = 5（全部 ≥1） |
+| `node tools/exe-smoke.mjs` | ✅ 全局 `{core,wpf,doc,canvas,zh}` 正常、弹窗中文、控制台异常无 |
+| **真机 `/api/sim` 直连**（`.e2e-tmp/probe-exe-sim*.mjs`） | ✅ 正常路径回 `"@@LOG:\nVCD info: dumpfile wave_out.vcd opened for output.\r\nQVAL=x\n@@VCD:\n$date…"`；语法错误路径回 `"IVERILOG-ERROR:\nbad.v:2: syntax error\r\nbad.v:2: error: invalid module item.\r\n"` |
+| **真机端到端**（headless Edge 连 exe 17817，`.e2e-tmp/probe-exe-e2e.mjs`） | ✅ 编译报错原文进 `#sim-console-log`（行类 `mk-cline mk-err`）、日志行带 `[00:16:04]` 时间戳、`helperBoxes: 0`、`#sim-console` 子节点 = `sim-console-log,sim-status,sim-recover`；正常仿真输出 `VCD info: dumpfile…` + 「仿真完成：4 个输出信号…」多行摘要（续行缩进生效） |
+
+#### ⑧ 遗留 / 下一步
+
+- **待用户 review**：双击 `D:\Files\Code\波形\WavePaintClean.exe`（`#wp-version` 自查 `v0.4.0 build 2026-09-14 00:17:03 24dab0a`）。
+- 下一步 = **D2**（页内浮窗最大化 / 键盘 / 多浮窗层级）→ **D3**（持久化 + 3 预设收口，**不写 `.wp`**）→ **D4 + U3**（真机工具带分组 / 刻度 / 尺寸 / `⋯` 溢出，修 **P-UI-02** 的 R5 间距基线）。
+- **#95（G1~G8）** 用户明确暂缓；**#84 / #77 / #78** 远期（08 §3）。
+
+---
+
 ## 5. 已知未排期方向
 
 - 边缘对齐辅助线
@@ -1988,6 +2160,11 @@ D20/D22/D26/D27 + U0-R ／ §10 验收口径（唯一 = 用户双击 exe 拖一�
 - **e2e 观察行清理陷阱**：`clearWatches()` 只 `m_signals.splice`、**不清 `state.simWatches`** →
   `render()`/`syncSimRows()` 会按登记把行**重建回来**。写观察行相关断言时，要么同时清登记，
   要么改用「桶分类」口径（e2e-rtl J7 即此）。
+- **「仿真状态」= 全应用唯一状态 / 日志出口（第三十八~三十九轮，07 D36）**：`#sim-console-log` 是**唯一**状态输出口 —— 一律走 `window.wpConsoleAppend(text, kind)`（一行一条 + 首行 `[HH:MM:SS]` 时间戳 + **`.mk-cline` 计行契约** + 300 行环形上限 + `kind ∈ info/ok/warn/error` 着色）。**`.helper-box` / `#sim-console-notes` / `#port-preview` / `#module-preview` 全部已退役**（连 CSS 一起删）—— 想加提示时用 `consoleOut(text, kind)`，**绝不要再造第二层容器**（第 37 轮的「框套框」已被用户明确否决）。`#sim-status` 只放**单行**「当前状态」。
+- **`/api/sim` 成功路径也带文本（第 39 轮 E2 协议）**：响应可能是 `"@@LOG:\n…\n@@VCD:\n…"`；**只有 `startsWith("@@LOG:")` 才分段**，否则**整体当 VCD**（旧 exe / dev-server 兼容）。iverilog / vvp 输出在 Windows 上是 **CRLF**，切行必须 `/\r?\n/` 且逐行 `replace(/\r/g,'')`。失败前缀仍为 `IVERILOG-ERROR:` / `VVP-ERROR:` / `SIM-ERROR:` / `XX-ERROR:`。
+- **源码面板「两件套」口径（第三十六~三十七轮，07 D35）**：停靠模式下 `#sim-card-source` **只允许**「文件标签条（`#source-tabs`：`#source-files` + `#sim-addfile`）+ 代码框（`verilog-source` / `#verilog-cm-host`）」两件东西 —— `.sim-card-head` 被 CSS 隐藏、`.source-actions` 整组 `hidden`。**「导入源码 / 移除文件 / 解析 RTL / 生成 TB」四个 id 只 hidden 不删节点**（冻结契约面，`e2e-rtl` E6 断言存在）；文件增删只走标签条「＋」/「−」（`removeFileAt()` 不允许删到零文件）。**要把源码面板改回「多层容器」会直接违反用户第三十七轮裁决**，动手前先读 §4.28。
+- **`#toolbar` 窄屏必须换行 + 禁止 `overflow-x: auto`（第三十六~三十七轮，06 P48 / 07 D35）**：真机 `#toolbar` 内容宽 ≈1470px，窄窗口（如 750px）下 `flex-wrap:nowrap` 会把末端控件（`#sim-run`）推出视口 → 坐标点击 / `elementFromPoint` 全部落空（历史「点运行仿真没反应」的真凶）；修法 = `flex-wrap: wrap` + `ui-bridge.syncToolbarHeight()` 把实测高写进 `--wp-toolbar-h` + `#sim-panel top: calc(40px + var(--wp-toolbar-h, 46px) + 6px)`。**绝不可改用 `overflow-x: auto`**：按 CSS 规范它会把 `overflow-y` 一并变成 `auto`，从而裁掉 `.dropdown-content` / `.submenu-content` 这些绝对定位弹出菜单。
+
 ---
 
 ## 7. 维护规则
