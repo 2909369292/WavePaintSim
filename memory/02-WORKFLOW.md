@@ -32,7 +32,7 @@
 
 | # | 约束 | 对应做法 |
 |---|---|---|
-| C1 | **改任何会被内嵌 exe 的文件**（`js/`、`index.html`、`css/`、`img/`、`lib/`、`WavePaintLauncher.cs`、`build.ps1`）→ **必须重建 exe** | ① `taskkill /F /IM WavePaintClean.exe`（用户已授权直接杀）② `powershell -NoProfile -Command "Set-Location -LiteralPath 'D:\Files\Code\波形'; .\build.ps1"` ③ 确认 `csc exit: 0` + 产物时间戳刷新 | **原型构建（`build-prototype.ps1` → `WavePaintMockup.exe`）不走 C1**：`prototype/`、`tools/`、`memory/`、`MockupLauncher.cs`、`build-prototype.ps1` 均**不进** `resources.txt`，改它们只需重跑 `.\build-prototype.ps1`，**不杀真机进程、不碰真机 exe**（口径见 07 D25）
+| C1 | **改任何会被内嵌 exe 的文件**（`js/`、`index.html`、`css/`、`img/`、`lib/`、`WavePaintLauncher.cs`、`build.ps1`）→ **必须重建 exe** | ① `taskkill /F /IM WavePaintClean.exe`（用户已授权直接杀）② `powershell -NoProfile -Command "Set-Location -LiteralPath 'D:\Files\Code\波形'; .\build.ps1"` ③ 确认 `csc exit: 0` + 产物时间戳刷新 **原型构建（`build-prototype.ps1` → `WavePaintMockup.exe`）不走 C1**：`prototype/`、`tools/`、`memory/`、`MockupLauncher.cs`、`build-prototype.ps1` 均**不进** `resources.txt`，改它们只需重跑 `.\build-prototype.ps1`，**不杀真机进程、不碰真机 exe**（口径见 07 D25） |
 | C2 | 任何改动 → `git commit` + `git push main` | 每个逻辑批次独立 commit；message 写清动机 + 改法 + 验证结果；不 push = 下个 AI 看不到 |
 | C3 | 提交前全量验证（见 §3） | 跳过验证的提交是项目事故 |
 | C4 | 交付 exe 后必须提醒用户 | 给出唯一绝对路径 + “重启应用、必须从该路径启动” + 让用户对照面板版本号自查 |

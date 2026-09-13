@@ -749,3 +749,102 @@ W1~W3，其中 **W3 已拍板不做**）见 `03-REQUIREMENTS.md` 表 K；后端�
 **看门狗**：`tools/mock-probe.mjs` **I1~I5 五条回归**（重建后仍在拖动 / 重建后松手位置==拖动中最后位置 / 松手清理状态 / 分隔条重建后仍跟随指针且只改相邻两格 / 拖动中==松手后逐像素相等）长期看守。
 
 **关联**：`06 P39` / `04 §4.25` / `09 §3.2` / `prototype/ui-mockup.js` / `prototype/ui-mockup.css` / `tools/mock-probe.mjs`。
+
+---
+
+## D28 · 停靠 UI 归真机自研：**废弃外部 UI Agent 产物**，停靠引擎内嵌真机 `js/sim/dock/workspace.js`（2026-09-13 第二十九~三十五轮，用户实测后裁决）
+
+**背景**：第二十八轮把 UI 设计外包给外部 AI Agent（`docs/ui-agent/PROMPT.md` + `HANDOFF.md`，白名单只准写 `prototype/**`）。用户实测后裁决：**「别的 Agent 写的 UI 不可靠，请还是按照原来基线原来的 UI 进行修改，修改 bug 逐步完善并实现」**，并要求「**保证 UI 的稳定性**」。
+
+**决策**：
+1. **外部 Agent 路线作废**：`docs/ui-agent/` 两份文档降级为**历史存档**（保留可追溯，不再作为实施依据）；`prototype/**` 与 `WavePaintMockup.exe` 降级为**参考原型**，**不接线真机**。
+2. **回归真机基线**：全部 UI 改动直接落在**受版本控制的产品文件**上 —— `index.html`（外壳 + 容器）、`css/workspace.css`（自带样式，20 KB）、`js/sim/dock/workspace.js`（**自研停靠引擎，1,169 行，普通 `<script>` 早于 ESM 加载**）。**不引入 React / Vue / 打包器 / 第三方 dock 库**（零构建约束，07 D22 不变）。
+3. **稳定性的实现方式 = 自研引擎 + 严格断言护栏**：既然不能引第三方套件，稳定性靠 ① **宿主节点整块搬家（绝不克隆、绝不 `remove()`**）；② **预览 == 落位同一数据源**（`computeDrop()` 在布局树副本上真跑 `applyOp()` → `layoutRects()` 反算矩形，`showIndicator()` 只消费 `d.rect`，`placePanel()` 执行同一操作）；③ **拖拽韧性三件套**（D30）；④ **无死局护栏**（D33）；⑤ **`tools/dock-probe.mjs` 46 条真实 Edge 断言**长期看守。
+4. **面板宿主映射固定**（`HOST_ID`，见 04 §4.27 与 09 §3.0）：`wave→#main-area`（**波形显示区原样搬运，不重绘、不复制，1:1**）、`source→#sim-card-source`、`rtl→#sim-card-rtl`、`vcd→#sim-card-vcd`、`tb→#sim-card-tb`、`console→#sim-console`。
+
+**后果**：真机 `index.html` 自带 `#workbench` / `#wp-status-bar` 外壳；**旧的右侧栏 `#sim-panel` 在停靠模式下被 CSS 隐藏（DOM 原地保留，`ui-bridge.initRefs()` 仍能拿到非空引用）**；所有既有冻结 id / class 一个未改。
+
+**关联**：`06 P40~P46` / `04 §4.27` / `09 §3.0` / `08 §2.2·§2.6·§6.10` / `js/sim/dock/workspace.js` / `css/workspace.css` / `tools/dock-probe.mjs`。
+
+---
+
+## D29 · 外壳与逃生口：`#workbench` + `#sim-console` 容器 + `?dock=off` 垫片（2026-09-13 第二十九~三十五轮）
+
+**① `#workbench`**：`#menu-bar`（吸顶）+ `#toolbar`（吸顶，「编辑栏」）**之下**新增 `#workbench`，**所有面板、所有分栏都在它里面** —— 直接落实用户口径「之前的编辑栏位置不变，所有的分栏、所有的块儿都在之前编辑栏的下边」。
+
+**② `#sim-console`**：`#sim-status` / `#sim-recover` **原址搬入**新建的 `#sim-console`（顺序 = `#sim-console-log` → `#sim-status` → `#sim-recover`），供 `console` 面板整块托管。**这是 DOM 移动不是复制** → `sim-status` / `sim-recover` 两个 id 全文档仍只出现一次，冻结契约面不破。
+
+**③ 逃生口 `?dock=off`**：URL 带 `?dock=off` 或 `<html data-dock="off">` 时，引擎**只设 `window.__wpDockOff = true`，不定义 `window.__wpDock`** → 页面退回旧右侧栏布局（`css/workspace.css` §6 兼容垫片）。用途：① 老 `e2e-ui.mjs` 88 项断言（口径 = 右侧栏卡片 splitter）仍可原样跑；② 万一停靠引擎出问题，用户可用该参数立刻回到旧界面（**故障逃生开关**）。
+
+**关联**：`06 P40` / `04 §4.27` / `09 §3.0` / `tools/e2e-ui.mjs`（改走 `?dock=off`）。
+
+---
+
+## D30 · 拖拽韧性三件套：**指针捕获 + 阈值 + 全局取消**（2026-09-13 第二十九~三十五轮）
+
+**背景**：用户反复报「窗口拖动有问题」「拖动按钮在拖动时显示有 bug」，且「指针移出窗口/切走窗口」时旧实现会留下**拖拽僵尸态**（D27 的同类隐患在真机侧的再现）。
+
+**三条硬规则（真机 `js/sim/dock/workspace.js`）**：
+1. **指针捕获**：四种拖拽（面板停靠 / 浮窗拖动 / 浮窗缩放 / 分隔条）一律 `capturePointer(el, ev)`（`el.setPointerCapture(ev.pointerId)`），松手 `releasePointer()` 释放 —— 指针移出窗口、移出节点仍持续收到事件。
+2. **点击阈值** `DRAG_THRESHOLD = 4`：位移 < 4px 视为点击（页签点击切换、双击浮出不被误判成拖拽）。
+3. **全局取消** `activeDragCancels: Set` + `cancelAllDrags()`：`pointercancel`、`Esc` 键、`window blur` 三条路径**都调** `cancelAllDrags()` → 取消落点提示、清 `.mk-dragging` / `.dragging` 外观、**不提交落位**（`endPanelDrag(false)`），保证「绝不卡在拖拽态」。监听一律挂 `window`（不挂拖拽手柄本身，避免重建后事件中断，D27 同源）。
+
+**看门狗**：`tools/dock-probe.mjs` §2.5（阈值 / Esc / 失焦）+ §7（浮窗拖动 16 项，含「拖拽期间组右上角 ⧉▣✕ 被强制隐藏」= 历史 bug「拖动时按钮乱闪」的回归）。
+
+**关联**：`06 P42` / `07 D27`（原型侧同源铁律） / `04 §4.27` / `09 §3.0`。
+
+---
+
+## D31 · 落点判定优先级：**页签条 > 外缘环带**（仅顶边 `outerTop:8` 例外）（2026-09-13 第二十九~三十五轮）
+
+**背景**：新建「整行 / 整列」的外缘环带（`DROP.outer = 14`）与面板**页签条**在几何上重叠 → 拖到某组页签条上本想「并入」，却命中环带变成「新建整行」，用户操作被顶掉。
+
+**决策**：`hitTestOp(x, y, panelId, strict)` 内**先判页签条**（`DROP.tabBand = 3`，页签条矩形命中即返回 `tab` 操作），**页签条不命中才判外缘环带**。**唯一例外 = 顶边最外 `DROP.outerTop = 8`**：这一条 8px 窄带仍优先判「新建整行」—— 因为顶部页签条紧贴工作区顶边，若不留一条窄带就**再也无法**在顶部新建整行（能力保留与误触抑制的折中）。
+
+**常量表** `DROP = { outer: 14, outerTop: 8, tabBand: 3, groupRatio: 0.25, groupMin: 28, groupMax: 96, splitShare: 0.30, rootShare: 0.22 }`（全数值集中一处，减少魔数）。
+
+**看门狗**：`tools/dock-probe.mjs` §6a~§6e（含「顶边最外 8px = 新建整行窄环带，页签条中下部才是并入」逐条断言）。
+
+**关联**：`06 P43` / `04 §4.27` / `09 §3.0`。
+
+---
+
+## D32 · 浮窗拖拽走 **strict 落点**：只认外缘环带与页签条，**不再被「组内部追加」吸走**（2026-09-13 第三十四~三十五轮）
+
+**背景**：浮窗（`floatPanel` 产出的 `.mk-float`）拖动时**复用了停靠面板的落点判定**，而停靠判定包含「**落入某个组的矩形内 → 并入该组**」这一条 → 浮窗在**任意位置松手都会被最近的一个组吸进去**，**永远无法自由摆放**（用户报「拖动的预览和最后实际的效果不一致」的浮窗侧真根因之一）。
+
+**决策**：浮窗拖动调用 `computeDrop(x, y, panelId, /* strict */ true)` —— `strict = true` 时**只接受两类落点**：① 工作区**外缘环带**（新建整行 / 整列）；② 某个组的**页签条**（并入）。**组矩形本体内部的「追加」判定在 strict 下全部失效** → 停在空白处 = 保持浮窗原位（自由摆放），落在环带 / 页签条 = 按预览停靠。**「预览 == 落位」仍然成立**，因为 `computeDrop()` 依旧是唯一数据源（D28 第 3 条）。
+
+**看门狗**：`tools/dock-probe.mjs` §7（「浮窗拖到工作区外：不显示落点提示 / 松手后仍是浮窗（未被误停靠）」+「浮窗拖到波形组页签条：落点提示是『并入』且预览 == 波形组矩形（±3px）」）。
+
+**关联**：`06 P44` / `07 D28` / `04 §4.27` / `09 §3.0`。
+
+---
+
+## D33 · ✕ 语义 = **隐藏**（不是关闭）：加「至少保留一个面板」护栏 + 恢复入口放页签条 `＋`，**不放只读状态栏**（2026-09-13 第三十五轮）
+
+**背景**：`✕` 若语义为「关闭」且无护栏 → 用户可以把面板一个个关光，得到**空工作区死局**（无入口再加回来）。
+
+**决策三条**：
+1. **`✕` = 隐藏**（`hidePanel(id)`：面板从布局树摘除，宿主节点按 D28 摘到 `#mk-park`，**不销毁**）。
+2. **护栏**：`hidePanel()` 里若 `visiblePanels().length <= 1` 且目标仍显示 → **拒绝执行** + `flash('至少保留一个面板：✕ 只是隐藏，隐藏的可用页签条上的 ＋ 加回来')`（中文提示进仿真状态日志，可回溯）。
+3. **恢复入口 = 页签条右侧的 `＋` 按钮** → `openPanelMenu()`（`position:fixed` / `z-index:950` / 10 项 = 6 个面板〔可见项标 `✓` 且置灰不可重复添加〕+ 3 个预设 + 「恢复默认布局（仿真预设）」）。**明确不放底部状态栏** —— `#wp-status-bar` 是**纯只读显示**（`.mk-st-dot` + `#wp-status-text` + `#wp-layout` + `#wp-panels` + `#wp-version`），**不承载任何菜单 / 交互**。
+4. **兜底**：`restore()` 若从旧版持久化数据里读出「零可见面板」→ 回 `presetSim()` + flash，保证**任何历史脏状态都不会开出一个空界面**。
+
+**看门狗**：`tools/dock-probe.mjs` §8（8 项：`＋` 入口存在 / 隐藏到只剩 1 个 / 再隐藏被拒 + 中文提示 / 菜单 10 项 / `✓` 标记不可点 / 点空白收起 / 点隐藏面板加回 / 恢复默认回四区 `{"groups":4,"vis":6,"hidden":0}`）。
+
+**关联**：`06 P45` / `04 §4.27` / `09 §3.0`。
+
+---
+
+## D34 · 【渲染残留铁律】`render()` 清理必须用**根节点标记**（`[data-mk-root]`），**禁止按 `.mk-split` 清**（2026-09-13 第三十五轮，实测复现后升格）
+
+**背景（实测）**：`render()` 原先只清理 `wb.querySelectorAll(':scope > .mk-split')`。当布局树**塌成单个 `tabs` 节点**（用户把面板一路隐藏到只剩 1 个）时，顶层插入的直接是 `.mk-group` 而**不是** `.mk-split` → **孤儿 `.mk-group` 永不被删除**；再点「恢复默认布局」后实测 `.mk-group` 计数 = **6**（应为 4）→ **四区变六区**。该 bug 由 `tools/dock-probe.mjs` §8「恢复默认布局：回到四区」**首跑即 FAIL 暴露**（`{"groups":4,...}` 断言失败）。
+
+**铁律**：`render()` 产出的根节点必须打标 `built.dataset.mkRoot = '1'`，插入 `wb.insertBefore(built, floatsLayer)`；清理时用 `wb.querySelectorAll(':scope > [data-mk-root]')`。**任何新分支（无根 split / 单 tabs / 单 group / 浮窗层）都必须走同一条插入-清理路径**，不得再引入「按节点类型猜根」的清理逻辑。
+
+**推广**：这是 D27（禁止缓存 DOM）在**重建路径**上的姊妹条款 —— D27 管「拖拽期间不准抓住旧节点」，D34 管「重建时不准漏删旧根」。两条合起来 = 停靠引擎「重建后世界一致」的完整保证。
+
+**看门狗**：`tools/dock-probe.mjs` §8 末项（`{"groups":4,"vis":6,"hidden":0}`，`reset()` 前先跑「隐藏到只剩 1 个面板」制造塌树态）。
+
+**关联**：`06 P46` / `07 D27` / `04 §4.27` / `09 §3.0` / `js/sim/dock/workspace.js` 的 `render()`。

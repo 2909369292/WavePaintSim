@@ -1,0 +1,4 @@
+# 记忆区固定 LF + 不做 CRLF 转换：保证任何机器 clone / checkout 后
+# memory/** 仍是 LF，跨 AI 交接不会因换行符差异产生整文件级 diff。
+# 依据：memory/02-WORKFLOW.md（记忆维护约定）、memory/logs/2026-09-13.md 的「记忆修缮」段。
+memory/** text eol=lf
