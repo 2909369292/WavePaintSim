@@ -117,19 +117,15 @@ const snap = await ev(`(() => {
     bodyClass: document.body.className,
     wbDisplay: getComputedStyle(document.getElementById('workbench')).display,
     wb: R(document.getElementById('workbench')),
-    statusBar: R(document.getElementById('wp-status-bar')),
     toolbar: R(document.getElementById('toolbar')),
     menu: R(document.getElementById('menu-bar')),
     groups,
     mainArea: R(ma), mainAreaPadRight: cs ? cs.paddingRight : null, mainAreaHeightCss: cs ? cs.height : null,
     waveView: R(wv),
     canvas: wc ? { cssW: Math.round(wc.getBoundingClientRect().width), cssH: Math.round(wc.getBoundingClientRect().height), attrW: wc.width, attrH: wc.height } : null,
-    consoleHasStatus: !!(sc && sc.querySelector('#sim-status')),
     consoleLogLines: document.querySelectorAll('#sim-console-log .mk-cline').length,
     simPanelVisible: getComputedStyle(document.getElementById('sim-panel')).display,
     handles: document.querySelectorAll('.mk-handle').length,
-    layoutText: (document.getElementById('wp-layout') || {}).textContent,
-    panelsText: (document.getElementById('wp-panels') || {}).textContent,
   });
 })()`);
 console.log('\n=== 1. 外壳 / 四区几何 ===');
@@ -151,18 +147,18 @@ check('#main-area 尺寸 > 0 且 padding-right 已归零', S.mainArea && S.mainA
   // 画布至少要盖满视图（真实判据在 §5：面板比内容宽时画布必须跟着长）。
   check('波形画布不窄于视图', !!S.canvas && !!S.waveView && S.canvas.attrW >= S.waveView.w - 2 && S.canvas.attrH >= S.waveView.h - 2,
     JSON.stringify(S.canvas) + ' vs view ' + JSON.stringify(S.waveView));
-check('#sim-console 内含 #sim-status', S.consoleHasStatus === true);
 check('旧侧栏已隐藏', S.simPanelVisible === 'none', S.simPanelVisible);
 check('存在可拖分隔条', S.handles >= 3, S.handles + ' 条');
-  check('底部状态栏存在', S.statusBar && S.statusBar.h > 10, JSON.stringify(S.statusBar) + ' ' + S.layoutText + ' | ' + S.panelsText);
   // 「所有分栏都在编辑栏（工具带）之下」——用户点名的硬约束，直接按矩形验。
-  check('所有分栏都在工具带之下、状态栏之上', (() => {
-    const t = S.toolbar, sb = S.statusBar;
-    if (!t || !sb) return false;
-    return gs.every((g) => g.rect.y >= t.y + t.h - 1 && g.rect.y + g.rect.h <= sb.y + 1);
-  })(), 'toolbar ' + JSON.stringify(S.toolbar) + ' statusbar ' + JSON.stringify(S.statusBar));
+  // 「所有分栏都在编辑栏（工具带）之下」——用户点名的硬约束，直接按矩形验；
+  // 第 44 轮起再补一条上界：分栏必须落在工作区 #workbench 之内（底部状态栏已删）。
+  check('所有分栏都在工具带之下、工作区之内', (() => {
+    const t = S.toolbar, wb = S.wb;
+    if (!t || !wb) return false;
+    return gs.every((g) => g.rect.y >= t.y + t.h - 1 && g.rect.y + g.rect.h <= wb.y + wb.h + 1);
+  })(), 'toolbar ' + JSON.stringify(S.toolbar) + ' workbench ' + JSON.stringify(S.wb));
 check('所有面板节点未被克隆（各 id 唯一）', await ev(`(() => {
-  const ids = ['main-area','wave-view','wave-canvas','sim-card-source','sim-card-rtl','sim-card-vcd','sim-card-tb','sim-console','sim-status','sim-recover'];
+  const ids = ['main-area','wave-view','wave-canvas','sim-card-source','sim-card-rtl','sim-card-vcd','sim-card-tb','sim-console','sim-recover'];
   return ids.every((i) => document.querySelectorAll('#' + i).length === 1);
 })()`) === true);
 await shot(shotPath('1-default'));

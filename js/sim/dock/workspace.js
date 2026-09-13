@@ -2,7 +2,7 @@
  * WavePaint 工作区停靠引擎（真机）—— 多窗格停靠 + 浮出 + 预设 + 持久化
  * ----------------------------------------------------------------------------
  * 目的：让真机（WavePaintClean.exe）拥有 Verdi 式多窗格布局 + Word 式自由拖拽。
- *   · 外壳 DOM（#workbench / #wp-status-bar / #mk-floats …）在 index.html 里；
+ *   · 外壳 DOM（#workbench / #mk-floats …）在 index.html 里；
  *   · 本文件 = 唯一停靠引擎（prototype/ 页由 tools/gen-mock-page.mjs 从真机
  *     index.html 逐字复制而来，天然共用这份引擎，不再另养一份拷贝）。
  *
@@ -1009,25 +1009,18 @@ function openPanelMenu(anchor) {
  *     $display 输出都变成纯文本行进这里，不再用「框套框」的提示框。
  */
 
-// 真机 #sim-status / #sim-recover 从侧栏（.sim-panel-body）搬进「仿真状态」面板
-// （#sim-console）。**只是换父节点**：id / class / inline style 与 ui-bridge 的
-// initRefs() / recoverBtn 事件绑定一律不动，所以仿真进度、手动自愈按钮照常工作。
-// 本函数是幂等的安全网：index.html 里已按「日志 → 状态 → 自愈」排好，正常情况
-// 什么都不做；若将来外壳顺序被改乱，它会把这两个节点拉回来。
+// 真机 #sim-recover（服务自愈按钮）从侧栏（.sim-panel-body）搬进「仿真状态」面板
+// （#sim-console）。**只是换父节点**：id / inline style 与 ui-bridge 的 recoverBtn
+// 事件绑定一律不动，所以手动自愈按钮照常工作。
+// 本函数是幂等的安全网：index.html 里已按「日志 → 自愈」排好，正常情况什么都不做；
+// 若将来外壳顺序被改乱，它会把按钮拉回日志流之后。
+// ⚠ 第 44 轮删除了原来的单行状态行 #sim-status（用户裁决：占一行界面高度、内容与
+// 日志流重复），这里不再有「状态行」需要校准。
 function mountStatusNodes() {
   const host = document.getElementById('sim-console');
   if (!host) return;
-  const log = document.getElementById('sim-console-log');
-  const st = document.getElementById('sim-status');
   const rc = document.getElementById('sim-recover');
-  if (st && st.parentNode !== host) {
-    if (log && log.parentNode === host) host.insertBefore(st, log.nextSibling);
-    else host.appendChild(st);
-  }
-  if (rc && rc.parentNode !== host) {
-    if (st && st.parentNode === host) host.insertBefore(rc, st.nextSibling);
-    else host.appendChild(rc);
-  }
+  if (rc && rc.parentNode !== host) host.appendChild(rc);
 }
 
 /* ── 10.1 统一状态输出流 consoleAppend(text, kind) ───────────────────────
@@ -1114,23 +1107,16 @@ function restore() {
   }
   return true;
 }
-// 底部状态栏（#wp-status-bar）只读显示，不做菜单；节点缺失时静默跳过
-// （这里是「停靠引擎可独立于外壳存在」的唯一让步：外壳想省掉状态栏也不会报错）。
+// 第 44 轮：底部状态栏 #wp-status-bar 已整条删除（用户裁决：它占一行界面高度）。
+// 本函数保留为「纯计数」工具：只统计 区 / 停靠 / 浮动 / 未显示 数量并返回，不碰 DOM。
+// 调用点（初始化后与每次 render 后）保持不动，返回值目前无人消费；真正的状态文本
+// 一律走日志流（consoleAppend → #sim-console-log，见第 10.1 节）。
 function updateStatus() {
   let zones = 0, docked = 0;
   eachTabs(root, (n) => { zones++; docked += n.panels.length; });
-  const elLayout = document.getElementById('wp-layout');
-  if (elLayout) {
-    elLayout.textContent = '布局：' + (PRESET_NAME[preset] || '自定义') + '预设' +
-      (hidden.length ? '（' + hidden.length + ' 个面板已隐藏）' : '');
-  }
   const vis = visiblePanels();
   const unplaced = PANEL_ORDER.filter((p) => vis.indexOf(p) < 0).length;
-  const elPanels = document.getElementById('wp-panels');
-  if (elPanels) {
-    elPanels.textContent = '面板：' + docked + ' 停靠 / ' + zones + ' 区 / ' +
-      Object.keys(floats).length + ' 浮动' + (unplaced ? ' / ' + unplaced + ' 未显示' : '');
-  }
+  return { zones, docked, floats: Object.keys(floats).length, unplaced };
 }
 function visiblePanels() {
   const out = [];

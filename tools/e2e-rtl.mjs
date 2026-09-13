@@ -207,7 +207,7 @@ if (ready === 'ready') {
   })()`);
   const RTL = JSON.parse(rtlState || '{}');
   check('B1: RTL 树按文件渲染模块行', RTL.mods >= 1 && RTL.files >= 1 && RTL.empty === false, rtlState);
-  const statusAfterJump = await ev(`(() => document.getElementById('sim-status').textContent || '')()`);
+  const statusAfterJump = await ev(`(() => (() => { const l = document.getElementById('sim-console-log'); if (!l) return ''; const k = Array.from(l.children); let s = 0; k.forEach((c, i) => { if (c.textContent.indexOf('[') === 0) s = i; }); return k.slice(s).map((c) => c.textContent).join(' | '); })())()`);
   check('B2: 点击模块行触发跳转（状态栏确认）', /已定位到 module/.test(statusAfterJump), statusAfterJump.slice(0, 80));
   // 第十二轮澄清：RTL 树 = 纯代码层级浏览，不渲染端口/参数分组（fixture counter 有 4 个端口，
   // 若分组回归会在这里暴露），模块 meta 也不再显示端口计数。
@@ -234,7 +234,7 @@ if (ready === 'ready') {
   let statusText = '';
   for (let i = 0; i < 60; i++) {
     await sleep(500);
-    statusText = String(await ev(`(() => document.getElementById('sim-status').textContent || '')()`));
+    statusText = String(await ev(`(() => (() => { const l = document.getElementById('sim-console-log'); if (!l) return ''; const k = Array.from(l.children); let s = 0; k.forEach((c, i) => { if (c.textContent.indexOf('[') === 0) s = i; }); return k.slice(s).map((c) => c.textContent).join(' | '); })())()`));
     if (/仿真完成/.test(statusText) || /ERROR|失败/.test(statusText)) break;
   }
   check('C1: 运行仿真返回完成', /仿真完成/.test(statusText), statusText.slice(0, 100).replace(/\n/g, ' '));
@@ -289,7 +289,7 @@ if (ready === 'ready') {
       row.click();
       return 'clicked';
     };
-    const status = () => document.getElementById('sim-status').textContent || '';
+    const status = () => (() => { const l = document.getElementById('sim-console-log'); if (!l) return ''; const k = Array.from(l.children); let s = 0; k.forEach((c, i) => { if (c.textContent.indexOf('[') === 0) s = i; }); return k.slice(s).map((c) => c.textContent).join(' | '); })();
     const before = mlen();
     // #76 B4 收敛：仿真后画布不再自动灌 VCD 输出行，同源比对改用桥的
     // nativeValuesOfOutput('q')（state.outputs 经同一画布口径展开），不再依赖画布上的原生 q 行。
@@ -358,7 +358,7 @@ if (ready === 'ready') {
     let statusText = '';
     for (let i = 0; i < 80; i++) {
       await sleep(400);
-      statusText = String(document.getElementById('sim-status').textContent || '');
+      statusText = String((() => { const l = document.getElementById('sim-console-log'); if (!l) return ''; const k = Array.from(l.children); let s = 0; k.forEach((c, i) => { if (c.textContent.indexOf('[') === 0) s = i; }); return k.slice(s).map((c) => c.textContent).join(' | '); })());
       if (/仿真完成/.test(statusText) || /ERROR|失败/.test(statusText)) break;
     }
     const afterRows = findW('tb.dut.q');
@@ -412,7 +412,7 @@ if (ready === 'ready') {
     const chip = document.querySelector('#source-files .source-chip.active');
     return JSON.stringify({
       label: inst.textContent,
-      status: (document.getElementById('sim-status').textContent || ''),
+      status: ((() => { const l = document.getElementById('sim-console-log'); if (!l) return ''; const k = Array.from(l.children); let s = 0; k.forEach((c, i) => { if (c.textContent.indexOf('[') === 0) s = i; }); return k.slice(s).map((c) => c.textContent).join(' | '); })()),
       active: window.__wpsim.active,
       chip: chip ? chip.textContent : ''
     });
@@ -432,7 +432,7 @@ if (ready === 'ready') {
     if (!inst) return JSON.stringify({ err: 'no-inst' });
     inst.click();
     await sleep(250);
-    return JSON.stringify({ status: (document.getElementById('sim-status').textContent || '') });
+    return JSON.stringify({ status: ((() => { const l = document.getElementById('sim-console-log'); if (!l) return ''; const k = Array.from(l.children); let s = 0; k.forEach((c, i) => { if (c.textContent.indexOf('[') === 0) s = i; }); return k.slice(s).map((c) => c.textContent).join(' | '); })()) });
   })()`);
   const E3 = JSON.parse(blackbox || '{}');
   check('E3: 黑盒例化 → 提示未找到模块源码定义并退回例化点',
@@ -451,7 +451,7 @@ if (ready === 'ready') {
     inst.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
     await sleep(250);
     return JSON.stringify({
-      status: (document.getElementById('sim-status').textContent || ''),
+      status: ((() => { const l = document.getElementById('sim-console-log'); if (!l) return ''; const k = Array.from(l.children); let s = 0; k.forEach((c, i) => { if (c.textContent.indexOf('[') === 0) s = i; }); return k.slice(s).map((c) => c.textContent).join(' | '); })()),
       active: window.__wpsim.active
     });
   })()`);
@@ -521,7 +521,7 @@ if (ready === 'ready') {
     let status = '';
     for (let i = 0; i < 80; i++) {
       await sleep(400);
-      status = String(document.getElementById('sim-status').textContent || '');
+      status = String((() => { const l = document.getElementById('sim-console-log'); if (!l) return ''; const k = Array.from(l.children); let s = 0; k.forEach((c, i) => { if (c.textContent.indexOf('[') === 0) s = i; }); return k.slice(s).map((c) => c.textContent).join(' | '); })());
       if (/仿真完成/.test(status) || /ERROR|失败/.test(status)) break;
     }
     const idx = window.__wpsim.symbolIndex;
@@ -610,7 +610,7 @@ if (ready === 'ready') {
     const dw = () => window.document_wave;
     const wpsim = window.__wpsim;
     const watchPaths = () => dw().m_signals.filter((s) => s && s.__simWatchPath).map((s) => s.__simWatchPath);
-    const status = () => String(document.getElementById('sim-status').textContent || '');
+    const status = () => String((() => { const l = document.getElementById('sim-console-log'); if (!l) return ''; const k = Array.from(l.children); let s = 0; k.forEach((c, i) => { if (c.textContent.indexOf('[') === 0) s = i; }); return k.slice(s).map((c) => c.textContent).join(' | '); })());
     // 1) 造两文件工程（counter 里 sub 例化两次 u_a/u_b）跑一次真实仿真
     wpsim.setSourceFiles(${G_FILES_JSON});
     await sleep(500);
@@ -718,7 +718,7 @@ if (ready === 'ready') {
   const hState = await ev(`(async () => {
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const wpsim = window.__wpsim;
-    const status = () => String(document.getElementById('sim-status').textContent || '');
+    const status = () => String((() => { const l = document.getElementById('sim-console-log'); if (!l) return ''; const k = Array.from(l.children); let s = 0; k.forEach((c, i) => { if (c.textContent.indexOf('[') === 0) s = i; }); return k.slice(s).map((c) => c.textContent).join(' | '); })());
     wpsim.setSourceFiles(${G_FILES_JSON});
     await sleep(500);
     if (!document.querySelectorAll('#vcd-tree .vcd-signal-row').length) {
@@ -812,7 +812,7 @@ if (ready === 'ready') {
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const dw = () => window.document_wave;
     const wpsim = window.__wpsim;
-    const status = () => String(document.getElementById('sim-status').textContent || '');
+    const status = () => String((() => { const l = document.getElementById('sim-console-log'); if (!l) return ''; const k = Array.from(l.children); let s = 0; k.forEach((c, i) => { if (c.textContent.indexOf('[') === 0) s = i; }); return k.slice(s).map((c) => c.textContent).join(' | '); })());
     const rowOf = (path) => dw().m_signals.find((s) => s && s.__simWatchPath === path) || null;
     const watchPaths = () => dw().m_signals.filter((s) => s && s.__simWatchPath).map((s) => s.__simWatchPath);
     const out = {};
@@ -918,7 +918,7 @@ if (ready === 'ready') {
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const dw = () => window.document_wave;
     const wpsim = window.__wpsim;
-    const status = () => String(document.getElementById('sim-status').textContent || '');
+    const status = () => String((() => { const l = document.getElementById('sim-console-log'); if (!l) return ''; const k = Array.from(l.children); let s = 0; k.forEach((c, i) => { if (c.textContent.indexOf('[') === 0) s = i; }); return k.slice(s).map((c) => c.textContent).join(' | '); })());
     const watchPaths = () => dw().m_signals.filter((s) => s && s.__simWatchPath).map((s) => s.__simWatchPath);
     const clearWatches = () => {
       for (const s of dw().m_signals.filter((x) => x && x.__simWatchPath)) {
@@ -1083,7 +1083,7 @@ if (ready === 'ready') {
       rows: rows,
       text: text.slice(0, 400),
       helperBoxes: document.querySelectorAll('#sim-console .helper-box').length,
-      statusText: String(document.getElementById('sim-status').textContent || '').slice(0, 120),
+      statusText: String((() => { const l = document.getElementById('sim-console-log'); if (!l) return ''; const k = Array.from(l.children); let s = 0; k.forEach((c, i) => { if (c.textContent.indexOf('[') === 0) s = i; }); return k.slice(s).map((c) => c.textContent).join(' | '); })()).slice(0, 120),
     });
   })()`);
   const BADSIM = JSON.parse(badSim || '{}');

@@ -271,9 +271,7 @@
         #sim-resize-x:focus-visible::after,
         #sim-resize-x.dragging::after { background: var(--accent, #4CAF50); }
         #sim-resize-x:focus-visible { outline: none; }
-        .sim-panel-body > #sim-status, .sim-panel-body > #sim-recover { flex: 0 0 auto; }
-        /* 面板区整体滚动时状态条吸底：仿真进度 / 结果不会被其它卡片顶出视口 */
-        .sim-panel-body > #sim-status { position: sticky; bottom: 0; z-index: 2; background: var(--toolbar-bg, #f8faf8); }
+        .sim-panel-body > #sim-recover { flex: 0 0 auto; }
         .sim-sec-title { margin: 0; font-size: 12px; font-weight: 600; color: var(--text-muted, #5a6a5a); }
         .source-toolbar { display: grid; gap: 8px; align-items: start; }
         .source-files { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
@@ -436,7 +434,6 @@
             border-color: var(--accent-hover, #3d9141);
         }
         .sim-btns { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-        .sim-status { font-size: 12px; color: var(--text-muted, #5a6a5a); }
         /* #76 B4：代码内点变量 → 多候选时的轻量选择器（挂在 body 上绝对定位，
            不是侧栏面板、不显示 RTL 层级树）。 */
         .sim-symbol-picker {
@@ -1030,20 +1027,20 @@
                      编译报错、$display 输出、解析结果、自愈进度、布局动作……
                      一律由 workspace.js 的 consoleAppend(text, kind) 追加成
                      「一行一条」；行首带时间戳，kind ∈ info/ok/warn/error 决定配色。
-                   · #sim-status  —— 单行「当前状态」（始终显示最新一句，不替代日志）。
                    · #sim-recover —— 服务彻底死亡时的手动自愈按钮。
-                 固定顺序：日志区 → 状态行 → 自愈按钮。workspace.js 的
-                 mountStatusNodes() 会按这个顺序校准，顺序被改乱也能自愈。
-                 ⚠ 后两个节点是**真机原生节点**：#sim-status 的进度文字与
-                 #sim-recover 的显隐仍由 js/sim/ui-bridge.js 照常驱动，停靠时整个
-                 #sim-console 被搬进面板；带 ?dock=off 时它们原地留在侧栏底部，
+                 固定顺序：日志区 → 自愈按钮。workspace.js 的 mountStatusNodes()
+                 会按这个顺序校准，顺序被改乱也能自愈。
+                 ⚠ 第 44 轮删除了单行状态行 #sim-status（用户裁决：它占一行界面高度，
+                   而内容已由日志流逐条覆盖）：ui-bridge 的 setStatus() 现在直接把
+                   文本转发进日志流，不再有第二个状态出口。
+                 ⚠ #sim-recover 的显隐由 js/sim/ui-bridge.js 驱动；停靠时整个
+                 #sim-console 被搬进面板，带 ?dock=off 时它原地留在侧栏底部，
                  旧 UI 行为不变。
                  ⚠ 第 39 轮**退役**了原来套在这里的 .helper-box（#sim-console-notes
                  / #port-preview / #module-preview）：「框套框」被用户否决，框里的
                  内容改为**纯文本行**直接进日志流（见 06-PITFALLS P50 / 07 D37）。 -->
             <div id="sim-console" class="sim-console">
                 <div id="sim-console-log" class="sim-console-log" role="log" aria-live="polite"></div>
-                <div id="sim-status" class="sim-status"></div>
                 <!-- 服务彻底死亡时的手动自愈入口（默认隐藏，ui-bridge 在自动恢复失败时显示）。
                      点击后用 wavepaint: 协议拉起 exe；首次浏览器会弹一次「是否允许打开
                      wavepaint:」确认框，勾选「始终允许」后以后无感。 -->
@@ -1055,7 +1052,7 @@
         </div>
     </div>
     <!-- ═══════════════════════════════════════════════════════════════════════
-         工作区停靠外壳（真机）—— 左中右下四区 / 面板互拖 / 浮出 / 底部状态栏
+         工作区停靠外壳（真机）—— 左中右下四区 / 面板互拖 / 浮出
          ------------------------------------------------------------------------
          由 js/sim/dock/workspace.js 驱动；样式在 css/workspace.css（全部规则都
          挂在 body.wp-dock 之下）。外壳本身只提供「挂载点」，真正的内容是上面
@@ -1063,25 +1060,13 @@
          面板 —— 不克隆、不重绘，所以波形/源码/RTL/VCD/TB 的观感与真机完全一致。
          ⚠ #mk-park 是「未显示面板的真机节点暂存区」：节点在那里 display:none，
            但**始终留在文档里**，保证 ui-bridge 的 getElementById 永远命中。
-         ⚠ 带 ?dock=off 时 body 没有 wp-dock 类 → #workbench / #wp-status-bar
+         ⚠ 带 ?dock=off 时 body 没有 wp-dock 类 → #workbench
            都是 display:none，本段彻底不参与布局，旧侧栏 UI 逐像素不变。 -->
     <div id="workbench">
         <div id="mk-drop"></div>
         <div id="mk-caret"></div>
         <div id="mk-floats"></div>
         <div id="mk-park" hidden></div>
-    </div>
-    <!-- 底部状态栏：纯只读（当前预设 / 面板计数 / 版本戳），不放任何菜单 ——
-         所有布局动作都在面板页签上完成（拖动=停靠，双击/中键=浮出，✕=隐藏）。 -->
-    <div id="wp-status-bar">
-        <span class="mk-st-dot" title="本地仿真服务状态指示（见「仿真状态」面板日志）"></span>
-        <span id="wp-status-text">WavePaint 工作区</span>
-        <span class="mk-st-sep"></span>
-        <span id="wp-layout">布局：仿真预设</span>
-        <span class="mk-st-sep"></span>
-        <span id="wp-panels">面板</span>
-        <span class="mk-spacer"></span>
-        <span id="wp-version" class="mk-version" title="构建版本（version.txt）"></span>
     </div>
     <div id="wavedrom-debug-panel" class="wavedrom-debug-panel hidden">
         <div class="wavedrom-debug-header">

@@ -423,7 +423,8 @@ function initRefs() {
   refs.vcdTree = el("vcd-tree");
   // #port-preview / #module-preview 已于第 39 轮退役：.helper-box 删除，
   // 全部状态文本统一走「仿真状态」日志流（见下方 consoleOut）。
-  refs.status = el("sim-status");
+  // ⚠ 第 44 轮删除单行状态行 #sim-status 后，refs.status 也不再存在：setStatus()
+  // 直接把文本转发进日志流（用户裁决：那一行白占界面高度，内容与日志重复）。
   refs.recoverBtn = el("sim-recover"); // 服务彻底死亡时的手动自愈入口（index.html 默认隐藏）
   refs.addFile = el("sim-addfile");
   refs.importFile = el("sim-import");
@@ -1387,9 +1388,7 @@ async function runSimulation() {
     render();
     refreshStructureTrees();
     if (refs.recoverBtn) refs.recoverBtn.style.display = "none"; // 仿真成功 → 收起自愈入口
-    setStatus(notes.length
-      ? `仿真完成：${outputs.length} 个输出信号，但有 ${notes.length} 条提醒，请查看详情。在代码里双击变量名可加入波形。`
-      : `仿真完成：${outputs.length} 个输出信号。在代码里双击变量名（或 Ctrl+Alt+W）加入波形；Ctrl+Alt+4 加整模块接口。`);
+    // 第 44 轮：单行状态行已删，仿真完成摘要只由上面的 consoleOut 输出一次（不再重复一行）。
   } catch (error) {
     // Bug1（2026-09-09）：失败要区分「服务进程已死」与「服务瞬时重启/自愈中」。
     // 旧实现任何 fetch 失败都只提示“请重启应用” —— launcher 的 AcceptLoop 异常自愈
@@ -1551,18 +1550,20 @@ function render() {
   syncSimRows();
   window.drawWaveform?.();
   window.updateSidePanels?.();
-  const outputCount = state.outputs && state.outputs.length ? state.outputs.length : 0;
-  const watchCount = Array.isArray(state.simWatches) ? state.simWatches.length : 0;
-  setStatus(outputCount
-    ? (watchCount
-      ? `波形中已有 ${watchCount} 个仿真信号（本次仿真共 ${outputCount} 个输出）。在代码里双击变量名可继续添加。`
-      : `仿真已就绪（${outputCount} 个输出信号）。在代码里双击变量名（或 Ctrl+Alt+W）加入波形；Ctrl+Alt+4 加整模块接口。`)
-    : "暂无仿真结果，点「运行仿真」；加信号请在代码里双击变量名。");
+  // 第 44 轮：这里原来那条「仿真完成 / 双击变量名加信号」的单行状态文案已删
+  // （用户裁决：它白占一行界面高度；同样的摘要已由日志流逐条输出）。
   if (refs.toggleBtn) refs.toggleBtn.style.display = refs.panel?.classList.contains("collapsed") ? "block" : "none";
 }
 
-function setStatus(text) {
-  if (refs.status) refs.status.textContent = String(text || "");
+let lastStatusLine = ""; // 连续重复的状态文案只进日志一次（render 等高频路径不刷屏）
+// 第 44 轮：单行状态行 #sim-status 已删（用户裁决：占一行界面高度，且内容与日志流重复）。
+// 从此 setStatus() = 把文本转发进「仿真状态」日志流（全应用唯一状态出口，见 consoleOut），
+// 并做「连续去重」；kind 按文案粗判，失败 / 错误类走 error 配色。
+function setStatus(text, kind) {
+  const line = String(text == null ? "" : text).trim();
+  if (!line || line === lastStatusLine) return;
+  lastStatusLine = line;
+  consoleOut(line, kind || (/失败|错误|无响应|未找到|无法|不可用|请重启/.test(line) ? "error" : "info"));
 }
 
 // 第 39 轮：全应用唯一状态 / 日志出口 —— 「仿真状态」面板的 #sim-console-log。
@@ -1577,7 +1578,7 @@ function consoleOut(text, kind) {
   if (typeof emit === "function") emit(body, kind || "info");
 }
 
-// 单行容器 #sim-status 的写入兜底：多行文本只取首行（完整文本走日志流）。
+// 只取首行的工具（错误消息进日志流时保持一行，避免一条消息散成多行）。
 function firstLine(text) {
   return String(text == null ? "" : text).split("\n")[0].trim();
 }
@@ -2064,18 +2065,17 @@ function init() {
 // 表现为「修复没生效」。开发服务器下 version.txt 可能不存在，静默留空。
 function showAppVersion() {
   const elVer = document.getElementById("app-version");
-  // 停靠引擎接管时 #app-version 所在的 #sim-panel 被隐藏 → 同步镜像到底部
-  // 状态栏的 #wp-version，保证「用户可自查是不是旧 exe」这条能力不丢。
-  const elStatusVer = document.getElementById("wp-version");
-  if (!elVer && !elStatusVer) return;
+  // ⚠ 第 44 轮删除底部状态栏后，镜像节点 #wp-version 也没了；停靠模式下
+  // #app-version 所在的 #sim-panel 被隐藏，版本号改为写进「仿真状态」日志流，
+  // 「用户可自查是不是旧 exe」这条能力不丢。
+  if (!elVer) return;
   fetch("version.txt", { cache: "no-store" })
     .then((r) => (r.ok ? r.text() : ""))
     .then((t) => {
       const text = String(t || "").replace(/^\uFEFF/, "").trim();
       if (text) {
         if (elVer) { elVer.textContent = text; elVer.title = text; }
-        if (elStatusVer) { elStatusVer.textContent = text; elStatusVer.title = text; }
-        console.info("[WavePaint] " + text);
+        consoleOut("[WavePaint] " + text, "info");
       }
     })
     .catch(() => { /* 无版本文件（如 dev-server）：留空 */ });

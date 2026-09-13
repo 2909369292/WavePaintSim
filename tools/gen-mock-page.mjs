@@ -16,7 +16,7 @@
 // 用法：node tools/gen-mock-page.mjs   （改完真机骨架后必须重跑，再跑 build-prototype.ps1）
 //
 // ⚠ 已弃用（第三十五轮起）：wavepaint mockup 是「真机停靠 UI 落地之前」的纯前端
-//   预览页。现在真机 index.html 自带 #workbench/#wp-status-bar + js/sim/dock/workspace.js，
+//   预览页。现在真机 index.html 自带 #workbench + js/sim/dock/workspace.js，
 //   而 prototype/mock-tail.html 里也有一份同名元素（#workbench/#mk-*/#status-bar）——
 //   继续「照搬真机 + 追加 tail」会生成**重复 id** 的坏页（两份停靠引擎抢同一批节点）。
 //   所以默认只打印弃用提示并退出（0），不产生产物；确需复现历史 mockup 时用 --force。

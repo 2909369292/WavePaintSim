@@ -2,8 +2,9 @@
 // 覆盖用户本轮点名的四件事：
 //   ① 右侧源码面板不再有「第二层标题栏」（停靠模式下 .sim-card-head 必须隐藏）；
 //   ② 该面板只剩「文件标签条 + 代码框」两件东西（其余控件移出 / 隐去 / 不可见）；
-//   ③ 「仿真状态」面板 = 全应用唯一状态出口：只剩 #sim-console-log 日志流 + #sim-status
-//      状态行（.helper-box / #port-preview / #module-preview / #sim-console-notes 已退役）；
+//   ③ 「仿真状态」面板 = 全应用唯一状态出口：只剩 #sim-console-log 日志流 + 自愈按钮
+//      （.helper-box / #port-preview / #module-preview / #sim-console-notes 已退役；
+//       单行状态行 #sim-status 于第 44 轮按用户裁决删除）；
 //   ④ 文件的新增 / 移除 = 标签条末尾的「＋」+ 每个标签右侧的「−」。
 // 用法：node tools/source-panel-probe.mjs [端口]
 // 产物：.e2e-tmp/src-*.png 截图 + 控制台 PASS/FAIL 明细
@@ -104,7 +105,7 @@ const snap = await ev(`(() => {
     consoleKids: conKids,
     legacyNodes: legacyNodes,
     helperBoxes: document.querySelectorAll('.helper-box').length,
-    statusRect: R(document.getElementById('sim-status')), logRect: R(logEl),
+    logRect: R(logEl),
     importHidden: !vis(document.getElementById('sim-import')),
     removeFileHidden: !vis(document.getElementById('sim-removefile')),
     parseHidden: !vis(document.getElementById('sim-parse')),
@@ -138,13 +139,13 @@ check('两个按钮在编辑栏下沿之内（未被裁出工具带）',
   !!S.runRect && !!S.addSigRect && !!S.toolbarRect
     && S.runRect.y >= S.toolbarRect.y - 1 && S.runRect.y + S.runRect.h <= S.toolbarRect.y + S.toolbarRect.h + 1,
   JSON.stringify({ run: S.runRect, addSig: S.addSigRect, tb: S.toolbarRect }));
-check('「仿真状态」面板只剩 日志流 + 状态行（+ 自愈按钮）：提示框两件套已彻底退役',
-  (S.consoleKids || []).join(',') === 'sim-console-log,sim-status,sim-recover'
+check('「仿真状态」面板只剩 日志流 + 自愈按钮：提示框两件套已彻底退役',
+  (S.consoleKids || []).join(',') === 'sim-console-log,sim-recover'
     && S.helperBoxes === 0 && (S.legacyNodes || []).length === 0,
   JSON.stringify({ kids: S.consoleKids, boxes: S.helperBoxes, legacy: S.legacyNodes }));
-check('日志流是面板主内容（有高度、且排在状态行之上）',
-  !!S.logRect && !!S.statusRect && S.logRect.h > 0 && S.logRect.y + S.logRect.h <= S.statusRect.y + 2,
-  JSON.stringify({ log: S.logRect, status: S.statusRect }));
+check('日志流是面板主内容（有高度）',
+  !!S.logRect && S.logRect.h > 0,
+  JSON.stringify({ log: S.logRect }));
 await shot(shotPath('1-structure'));
 
 // ─────────────────────────────────────── 1.5 切到 TB 页签：同样只有一层标题栏
@@ -207,7 +208,9 @@ const tabs = await ev(`(async () => {
   const chips2 = Array.from(strip.querySelectorAll('.source-chip'));
   out.afterRemoveNames = chips2.map((c) => c.textContent);
   out.afterRemoveActive = (strip.querySelector('.source-chip.active') || {}).textContent;
-  out.status = (document.getElementById('sim-status').textContent || '').slice(0, 60);
+  const conLog = document.getElementById('sim-console-log');
+  // 第 44 轮：单行状态行 #sim-status 已删，这里改为回报日志流尾部（诊断用）。
+  out.status = conLog ? (conLog.textContent || '').slice(-120) : '';
   // 用「＋」新增一个文件（stub prompt，避免弹系统框）
   window.prompt = () => 'extra.sv';
   document.getElementById('sim-addfile').click();

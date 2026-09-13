@@ -32,11 +32,11 @@
 }
 
 /* ══ 0. 外壳可见性 ═══════════════════════════════════════════════════════
-   外壳（#workbench / #wp-status-bar）默认 display:none，只有停靠引擎接管
+   外壳（#workbench）默认 display:none，只有停靠引擎接管
    （body.wp-dock）时才成形。好处有二：
      · ?dock=off 时外壳完全不参与布局，旧侧栏 UI 与改动前逐像素一致；
      · 脚本执行前不会有半截状态栏闪一下（FOUC）。 */
-#workbench, #wp-status-bar { display: none; }
+#workbench { display: none; }
 
 /* ══ 0.5 工具带窄窗口换行（全局规则，本文件唯一的「非 wp-dock 作用域」例外）══
    问题：真机 #toolbar 是 flex-wrap:nowrap + overflow:visible（见
@@ -59,7 +59,6 @@
    面板全被裁掉、页签连点都点不中（被状态栏盖住）。 */
 body.wp-dock { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 body.wp-dock > #workbench { display: flex; flex: 1 1 auto; min-height: 0; }
-body.wp-dock > #wp-status-bar { display: flex; }
 
 /* 停靠接管后，右侧仿真栏与它的收起标签退役（四张卡片已各自成为面板）。 */
 body.wp-dock #sim-panel,
@@ -274,29 +273,11 @@ body.wp-dock .mk-float-resize {
     background: linear-gradient(135deg, transparent 50%, var(--border-color, #d0dcd0) 50%, var(--border-color, #d0dcd0) 60%, transparent 60%);
 }
 
-/* ══ 4. 底部状态栏（纯只读，不放菜单）═══════════════════════════════════
-   所有布局动作都在面板页签上完成（拖动 = 停靠，双击 / 中键 = 浮出，✕ = 隐藏），
-   这里只显示「当前预设 / 面板计数 / 版本戳」。 */
-body.wp-dock #wp-status-bar {
-    flex: 0 0 auto; align-items: center; gap: 10px; height: 26px; padding: 0 12px;
-    font-size: 11.5px; color: var(--text-muted, #5a6a5a); background: var(--header-bg, #f0f4f0);
-    border-top: 1px solid var(--border-color, #d0dcd0); white-space: nowrap;
-}
-body.wp-dock #wp-status-bar .mk-st-dot {
-    flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%;
-    background: var(--accent, #4CAF50); box-shadow: 0 0 6px var(--accent, #4CAF50);
-}
-body.wp-dock #wp-status-bar .mk-st-sep { flex: 0 0 auto; width: 1px; height: 14px; background: var(--border-color, #d0dcd0); }
-body.wp-dock #wp-status-bar .mk-spacer { flex: 1 1 auto; }
-body.wp-dock #wp-status-bar #wp-layout,
-body.wp-dock #wp-status-bar #wp-panels,
-body.wp-dock #wp-status-bar .mk-version { flex: 0 0 auto; }
-body.wp-dock #wp-status-bar .mk-version { font-size: 11px; color: var(--text-muted, #5a6a5a); }
-
 /* ══ 5. 「仿真状态」面板（console）═══════════════════════════════════════
-   真机的 #sim-status（进度文字）与 #sim-recover（服务自愈按钮）在 index.html 里
-   就排在 #sim-console 内，引擎只负责把整个 #sim-console 搬进面板。
-   面板本体 = 日志流（#sim-console-log，深色，可回溯）+ 状态行 + 自愈按钮。
+   真机的 #sim-recover（服务自愈按钮）在 index.html 里就排在 #sim-console 内，
+   引擎只负责把整个 #sim-console 搬进面板。
+   面板本体 = 日志流（#sim-console-log，深色，可回溯）+ 自愈按钮。
+   （第 44 轮删除了单行状态行 #sim-status：用户裁决它白占一行界面高度。）
 
    ⚠ 日志流是**全应用唯一的状态输出口**（第 39 轮用户裁决）：
      仿真完成摘要 / 编译报错 / $display 输出 / 解析结果 / 自愈进度 / 布局动作
@@ -316,14 +297,6 @@ body.wp-dock #wp-status-bar .mk-version { font-size: 11px; color: var(--text-mut
 #sim-console-log .mk-cline.mk-err { color: #ff9b8a; }
 body.wp-dock .mk-host > #sim-console { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 body.wp-dock #sim-console-log { flex: 1 1 auto; min-height: 0; overflow: auto; }
-body.wp-dock #sim-console > #sim-status {
-    flex: 0 0 auto; margin: 0; padding: 5px 8px; min-height: 24px;
-    background: var(--toolbar-bg, #f8faf8); border-top: 1px solid var(--section-border, #e0e8e0);
-    font-size: 12px; color: var(--text-muted, #5a6a5a);
-    /* 真机 index.html 里那条 .sim-panel-body > #sim-status{position:sticky} 已因
-       搬移失效，这里补一条等价的（面板内嵌在文档流底部，不需要 sticky）。 */
-    position: static;
-}
 /* #sim-recover 的 display 由 ui-bridge 用 inline style 控制（none ↔ block），
    这里只调观感，**不要**用 display 去和 inline style 抢。 */
 body.wp-dock #sim-console > #sim-recover {
@@ -336,16 +309,12 @@ body.wp-dock #sim-console > #sim-recover {
    本文件对旧 UI 是「零影响」的（所有规则都在 body.wp-dock 之下），例外只有三处：
      · §0.5 工具带窄屏换行；
      · §5 日志皮肤（#sim-console-log，旧侧栏也必须看得到状态输出）；
-     · 本节的兼容垫片 —— #sim-console 这个容器把 #sim-status / #sim-recover
-       包了一层，于是真机 index.html 里 `.sim-panel-body > #sim-status` 这类
-       「直接子元素」规则不再命中，这里补回等价观感。
+     · 本节的兼容垫片 —— #sim-console 这个容器把 #sim-recover 包了一层，于是
+       真机 index.html 里 `.sim-panel-body > #sim-recover` 这条「直接子元素」
+       规则不再命中，这里补回等价观感。
    除日志流外，逃生口下的侧栏与改动前保持一致（回归脚本按此口径断言）。 */
 body:not(.wp-dock) #sim-console { flex: 0 0 auto; display: flex; flex-direction: column; }
 /* 逃生口下日志流同样要看得见（第 39 轮起它是唯一的状态输出口）：给个矮一点的
    上限，别把旧侧栏挤变形。 */
 body:not(.wp-dock) #sim-console-log { flex: 0 1 auto; min-height: 64px; max-height: 38vh; overflow: auto; }
-body:not(.wp-dock) #sim-console > #sim-status {
-    flex: 0 0 auto; position: sticky; bottom: 0; z-index: 2;
-    background: var(--toolbar-bg, #f8faf8);
-}
 body:not(.wp-dock) #sim-console > #sim-recover { flex: 0 0 auto; }
