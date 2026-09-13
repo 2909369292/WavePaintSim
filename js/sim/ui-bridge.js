@@ -1960,6 +1960,11 @@ function bindEvents() {
 // 布局失败（DOM 缺节点）不影响仿真功能：installSimPanelLayout 返回 null，
 // 侧栏退回 CSS 兜底（四张卡片均分高度、无拖拽），既有 id/class 语义不变。
 function initPanelLayout() {
+  // 停靠引擎接管时让位：js/sim/dock/workspace.js 会把四张卡片整块搬进面板
+  // （布局树自己管），侧栏那套「折叠 / 高度分割 / 宽度拖拽」在这时既无意义，
+  // 还会往卡片上写 inline flex 样式去干扰面板内的排布。带 ?dock=off 时
+  // window.__wpDock 未定义 → 照旧装配，旧侧栏 UI 完整可用。
+  if (window.__wpDock) return;
   if (!refs.panel || !refs.panelBody) return;
   panelLayout = installSimPanelLayout({
     panel: refs.panel,
@@ -1994,14 +1999,17 @@ function init() {
 // 表现为「修复没生效」。开发服务器下 version.txt 可能不存在，静默留空。
 function showAppVersion() {
   const elVer = document.getElementById("app-version");
-  if (!elVer) return;
+  // 停靠引擎接管时 #app-version 所在的 #sim-panel 被隐藏 → 同步镜像到底部
+  // 状态栏的 #wp-version，保证「用户可自查是不是旧 exe」这条能力不丢。
+  const elStatusVer = document.getElementById("wp-version");
+  if (!elVer && !elStatusVer) return;
   fetch("version.txt", { cache: "no-store" })
     .then((r) => (r.ok ? r.text() : ""))
     .then((t) => {
       const text = String(t || "").replace(/^\uFEFF/, "").trim();
       if (text) {
-        elVer.textContent = text;
-        elVer.title = text;
+        if (elVer) { elVer.textContent = text; elVer.title = text; }
+        if (elStatusVer) { elStatusVer.textContent = text; elStatusVer.title = text; }
         console.info("[WavePaint] " + text);
       }
     })

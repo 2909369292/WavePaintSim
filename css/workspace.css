@@ -1,0 +1,309 @@
+/* ============================================================================
+ * WavePaint 工作区样式（真机）—— 左中右下四区停靠外壳 + 真机节点宿主化
+ * ----------------------------------------------------------------------------
+ * 谁在用这份文件：
+ *   · 真机 index.html（<link rel="stylesheet" href="css/workspace.css">）；
+ *   · 原型 prototype/ui-mockup.html —— tools/gen-mock-page.mjs 从真机 index.html
+ *     逐字复制，所以它自带同一条 <link>，只是路径被机械重写成 ../css/workspace.css。
+ *   于是「真机 = 原型」共用同一份外壳样式，不再各养一份拷贝。
+ *
+ * 三条铁律：
+ *   1) 作用域：除 :root 布局常量外，**所有**规则都挂在 body.wp-dock 之下。
+ *      带 ?dock=off（逃生口，见 js/sim/dock/workspace.js 的 dockDisabled）
+ *      时 body 上没有 wp-dock 类 → 本文件对旧侧栏 UI 零影响，旧 UI 照常工作。
+ *   2) 不重绘真机：菜单栏 / 工具带 / 波形画布 / 源码卡片 / 结构树的**外观**一律
+ *      沿用 css/wavepaint.e7b903ef.css + index.html 内联 <style>（本文件在那里
+ *      之后加载，天然压过同名同权规则）。这里只覆盖那些「只在整页全屏时成立」的
+ *      定位与尺寸：#main-area 的 100vh 高、body.sim-open 的 padding-right、
+ *      body.wavedrom-debug-open 的减 250px、窄屏与 VCD 面板的 margin-*。
+ *   3) 常量一致：--mk-handle / --mk-gap 必须与 js/sim/dock/workspace.js 的
+ *      metrics()/layoutRects() 完全一致，--mk-tabbar-h 必须等于 .mk-tabbar 的
+ *      实际高度 —— 否则「落点预览矩形」与「落位后的真实矩形」会对不上
+ *      （历史 bug：预览用一套常量、落位用另一套比例）。
+ * ========================================================================== */
+
+/* 布局常量：三个值都被 js/sim/dock/workspace.js 读取，改这里必须同步改那里。 */
+:root {
+    --mk-handle: 7px;          /* 分隔条粗细（layoutRects 用它扣减可用长度） */
+    --mk-gap: 6px;             /* 工作区内边距（workbenchContentRect 的起算原点） */
+    --mk-tabbar-h: 32px;       /* 页签条高度（固定，保证预览 == 落位） */
+}
+
+/* ══ 0. 外壳可见性 ═══════════════════════════════════════════════════════
+   外壳（#workbench / #wp-status-bar）默认 display:none，只有停靠引擎接管
+   （body.wp-dock）时才成形。好处有二：
+     · ?dock=off 时外壳完全不参与布局，旧侧栏 UI 与改动前逐像素一致；
+     · 脚本执行前不会有半截状态栏闪一下（FOUC）。 */
+#workbench, #wp-status-bar { display: none; }
+
+/* 真机 body 原来的高度是 auto（内容决定），因为旧 UI 全靠 #main-area 的
+   100vh 与 position:fixed 自己撑起来。改成 flex 列布局后必须显式给 body 一屏高，
+   否则 body 高度 = 菜单栏+工具带+状态栏 的内容高（约 131px），#workbench 的
+   flex:1 拿不到剩余空间 → 工作区被压成十几像素的细条（真机实测 h=19px），
+   面板全被裁掉、页签连点都点不中（被状态栏盖住）。 */
+body.wp-dock { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+body.wp-dock > #workbench { display: flex; flex: 1 1 auto; min-height: 0; }
+body.wp-dock > #wp-status-bar { display: flex; }
+
+/* 停靠接管后，右侧仿真栏与它的收起标签退役（四张卡片已各自成为面板）。 */
+body.wp-dock #sim-panel,
+body.wp-dock #sim-toggle-btn { display: none !important; }
+
+/* ══ 1. 宿主化：真机元素搬进面板后的定位 / 尺寸覆盖 ══════════════════════ */
+/* 面板内容宿主：真机节点整块塞进来，自身撑满面板。 */
+.mk-host { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+
+/* 波形区（#main-area 内含 #wave-view > #wave-canvas）。
+   真机规则里 #main-area 有 height:calc(100vh - 78px)、body.sim-open 会加
+   padding-right: var(--sim-panel-w)、body.wavedrom-debug-open 再减 250px、
+   @media(max-width:1200px) 给 margin-right:180px、.with-vcd-panel 给
+   margin-left:350px —— 这些都是「整页全屏」的假设，在面板里必须全部作废，
+   改成由面板高度决定。过渡也要关掉，否则拖动面板时画布会滞后跟随。 */
+body.wp-dock .mk-host > #main-area {
+    flex: 1 1 auto; height: auto !important; min-height: 0;
+    margin: 0 !important; padding: 0 !important; transition: none !important;
+}
+body.wp-dock .mk-host > #main-area > #wave-view { min-height: 0; }
+
+/* 源码 / RTL / VCD / TB 四张真机卡片：直接当面板内容（.sim-card 自带
+   纵向 flex 与内部滚动，这里只把它从「侧栏里的一份子」改成「占满面板」）。 */
+body.wp-dock .mk-host > .sim-card { flex: 1 1 auto; min-height: 0; }
+
+/* 被隐藏 / 被并成页签 / 停在别处的真机节点暂存区：
+   display:none → 不参与布局，也不触发画布重排（但节点仍在文档里，
+   真机 ui-bridge 的 getElementById 永远命中）。 */
+#mk-park { display: none !important; }
+
+/* ══ 2. 工作区 / 可停靠窗格 ═══════════════════════════════════════════════ */
+body.wp-dock #workbench {
+    position: relative; padding: var(--mk-gap); background: var(--bg-color, #f0f2f0);
+    overflow: hidden;
+}
+/* split = 横向(row)/纵向(col) 的一组 slot，slot 之间夹一条分隔条。
+   flex 权重来自 slot 的 inline style（引擎按 sizes 写死），
+   与 layoutRects() 的求解完全同构。 */
+body.wp-dock #workbench .mk-split { display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; position: relative; }
+body.wp-dock #workbench .mk-split.row { flex-direction: row; }
+body.wp-dock #workbench .mk-split.col { flex-direction: column; }
+body.wp-dock #workbench .mk-slot { display: flex; min-width: 0; min-height: 0; position: relative; }
+
+/* touch-action:none = 这块区域上的触摸/笔手势不再触发浏览器自身的滚动/缩放
+   （否则触屏或触控板拖分隔条会被当成页面手势，pointercancel 一来拖拽就断）。
+   桌面鼠标不受影响。 */
+body.wp-dock #workbench .mk-handle { flex: 0 0 auto; position: relative; z-index: 6; background: transparent; touch-action: none; }
+body.wp-dock #workbench .mk-handle.v { width: var(--mk-handle); cursor: col-resize; }
+body.wp-dock #workbench .mk-handle.h { height: var(--mk-handle); cursor: row-resize; }
+body.wp-dock #workbench .mk-handle::before {
+    content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    background: var(--border-color, #d0dcd0); border-radius: 2px; transition: background .12s ease;
+}
+body.wp-dock #workbench .mk-handle.v::before { width: 2px; height: 34px; }
+body.wp-dock #workbench .mk-handle.h::before { width: 34px; height: 2px; }
+body.wp-dock #workbench .mk-handle.v:hover::before,
+body.wp-dock #workbench .mk-handle.v.active::before {
+    background: var(--accent, #4CAF50); width: 3px; height: auto; top: 6px; bottom: 6px;
+}
+body.wp-dock #workbench .mk-handle.h:hover::before,
+body.wp-dock #workbench .mk-handle.h.active::before {
+    background: var(--accent, #4CAF50); height: 3px; width: auto; left: 6px; right: 6px; top: 50%;
+}
+
+/* 面板组 = 一个页签组 / 一个窗格 */
+body.wp-dock #workbench .mk-group {
+    display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0;
+    background: var(--section-bg, #f8faf8);
+    border: 1px solid var(--section-border, #e0e8e0); border-radius: var(--radius-md, 10px);
+    overflow: hidden; box-shadow: 0 1px 2px rgba(0, 0, 0, .05);
+}
+body.wp-dock #workbench .mk-group.focused { border-color: #b5cdb5; }
+body.wp-dock #workbench .mk-group.drop-tab { border-color: var(--accent, #4CAF50); box-shadow: 0 0 0 1px var(--accent, #4CAF50); }
+
+body.wp-dock #workbench .mk-tabbar {
+    flex: 0 0 auto; height: var(--mk-tabbar-h); display: flex; align-items: center; gap: 2px;
+    padding: 2px 4px; overflow: hidden;
+    background: var(--header-bg, #f0f4f0); border-bottom: 1px solid var(--section-border, #e0e8e0);
+    cursor: grab; user-select: none; touch-action: none;
+}
+body.wp-dock #workbench .mk-tabbar:active { cursor: grabbing; }
+body.wp-dock #workbench .mk-tab {
+    display: flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 6px 6px 0 0;
+    font-size: 12px; color: var(--text-muted, #5a6a5a); cursor: pointer; white-space: nowrap;
+    touch-action: none;
+}
+body.wp-dock #workbench .mk-tab:hover { background: var(--hover-bg, #e8f0e8); color: var(--text-color, #1a1f1a); }
+body.wp-dock #workbench .mk-tab.active {
+    background: var(--canvas-bg, #fff); color: var(--text-color, #1a1f1a);
+    font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent, #4CAF50);
+}
+body.wp-dock #workbench .mk-tab .mk-tab-x { font-size: 10px; opacity: 0; padding: 0 2px; border-radius: 3px; }
+body.wp-dock #workbench .mk-tab:hover .mk-tab-x { opacity: .55; }
+body.wp-dock #workbench .mk-tab .mk-tab-x:hover { opacity: 1; background: var(--active-bg, #d0e0d0); }
+
+/* 组右上角 ⧉ ▣ ✕：只在悬停「页签条本身」时出现（悬停面板内容不显示），
+   拖拽期间由 body.mk-dragging 强制隐藏（历史 bug：拖拽划过别的面板时按钮乱闪）。 */
+body.wp-dock #workbench .mk-tabbar .mk-grp-btns { margin-left: auto; display: flex; gap: 1px; opacity: 0; }
+body.wp-dock #workbench .mk-tabbar:hover .mk-grp-btns { opacity: 1; }
+body.wp-dock #workbench .mk-grp-btns button {
+    width: 20px; height: 20px; font: inherit; font-size: 11px; line-height: 1; padding: 0; border: none;
+    border-radius: 4px; background: transparent; color: var(--text-muted, #5a6a5a); cursor: pointer;
+}
+body.wp-dock #workbench .mk-grp-btns button:hover { background: var(--active-bg, #d0e0d0); color: var(--text-color, #1a1f1a); }
+
+body.wp-dock #workbench .mk-panel {
+    flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column;
+    overflow: hidden; background: var(--canvas-bg, #fff);
+}
+
+/* 拖拽中：指针全站变抓取态，且禁用一切悬停显隐 */
+body.wp-dock.mk-dragging { cursor: grabbing; }
+body.wp-dock.mk-dragging * { cursor: grabbing !important; user-select: none !important; }
+body.wp-dock.mk-dragging .mk-grp-btns,
+body.wp-dock.mk-dragging .mk-tab .mk-tab-x { opacity: 0 !important; pointer-events: none !important; }
+body.wp-dock.mk-dragging .mk-tab:hover { background: transparent; color: var(--text-muted, #5a6a5a); }
+body.wp-dock.mk-dragging .mk-tab.active { color: var(--text-color, #1a1f1a); }
+
+/* 落点提示（overlay）：矩形 = 松手后该面板的真实占位。
+   left/top/width/height 全部由 showIndicator() 按 computeDrop().rect 写入，
+   CSS 只负责观感。 */
+body.wp-dock #mk-drop {
+    position: absolute; display: none; z-index: 450; pointer-events: none;
+    border: 2px solid var(--accent, #4CAF50); background: var(--accent-soft, rgba(76, 175, 80, .12));
+    border-radius: var(--radius-sm, 6px);
+}
+/* 并入页签：矩形就是目标组的矩形，用虚线区分「不改几何，只加一个页签」 */
+body.wp-dock #mk-drop.tab { border-style: dashed; background: rgba(76, 175, 80, .08); }
+body.wp-dock #mk-caret {
+    position: absolute; display: none; width: 3px; z-index: 460; pointer-events: none;
+    background: var(--accent, #4CAF50); border-radius: 2px; box-shadow: 0 0 6px rgba(76, 175, 80, .7);
+}
+body.wp-dock .mk-drag-ghost {
+    position: fixed; z-index: 900; pointer-events: none; padding: 5px 10px; font-size: 12px;
+    background: var(--menu-bg, #fff); border: 1px solid var(--accent, #4CAF50);
+    border-radius: var(--radius-sm, 6px); box-shadow: var(--shadow-soft, 0 8px 24px rgba(0, 0, 0, .12));
+    opacity: .95;
+}
+
+/* 面板菜单（页签条 ＋ 弹出的「显示面板 / 布局预设」）：
+   position:fixed 贴按钮下方，是文档级浮层而不是面板内元素 —— 组有 overflow:hidden，
+   放进组里会被裁掉一半。 */
+body.wp-dock .mk-menu {
+    position: fixed; z-index: 950; min-width: 168px; padding: 4px;
+    display: flex; flex-direction: column;
+    background: var(--menu-bg, #fff); border: 1px solid var(--border-color, #d0dcd0);
+    border-radius: var(--radius-sm, 6px); box-shadow: var(--shadow-strong, 0 12px 40px rgba(0, 0, 0, .18));
+}
+body.wp-dock .mk-menu-title {
+    padding: 4px 8px 2px; font-size: 11px; color: var(--text-muted, #5a6a5a);
+}
+body.wp-dock .mk-menu-item {
+    display: block; width: 100%; text-align: left; padding: 5px 8px; font: inherit; font-size: 12px;
+    border: none; border-radius: 4px; background: transparent; color: var(--text-color, #1a1f1a); cursor: pointer;
+}
+body.wp-dock .mk-menu-item:hover:not(:disabled) { background: var(--hover-bg, #e8f0e8); }
+body.wp-dock .mk-menu-item:disabled { color: var(--text-muted, #5a6a5a); cursor: default; }
+body.wp-dock .mk-menu-item.on { font-weight: 600; }
+
+/* ══ 3. 浮动窗（Word 式自由排布）═════════════════════════════════════════ */
+body.wp-dock #mk-floats { position: absolute; inset: 0; pointer-events: none; z-index: 400; }
+body.wp-dock .mk-float {
+    position: absolute; pointer-events: auto; display: flex; flex-direction: column;
+    min-width: 260px; min-height: 150px;
+    background: var(--menu-bg, #fff); border: 1px solid var(--border-color, #d0dcd0);
+    border-radius: var(--radius-md, 10px); box-shadow: var(--shadow-strong, 0 12px 40px rgba(0, 0, 0, .18));
+    overflow: hidden;
+}
+body.wp-dock .mk-float.max {
+    left: var(--mk-gap) !important; top: var(--mk-gap) !important;
+    width: calc(100% - 2 * var(--mk-gap)) !important; height: calc(100% - 2 * var(--mk-gap)) !important;
+    border-radius: var(--radius-sm, 6px);
+}
+/* 拖动中的浮窗：抬升 + 高亮标题栏。类名由 js 侧 draggingFloatId 持久化，
+   所以中途被 renderFloats() 重建也不会掉状态（历史 bug：拖动时观感乱跳）。 */
+body.wp-dock .mk-float.dragging {
+    z-index: 500; border-color: var(--accent, #4CAF50);
+    box-shadow: 0 14px 34px rgba(0, 0, 0, .26);
+}
+body.wp-dock .mk-float.dragging .mk-float-head { background: var(--active-bg, #d0e0d0); }
+body.wp-dock .mk-float.dragging .mk-float-head,
+body.wp-dock .mk-float.dragging .mk-float-head * { cursor: grabbing !important; }
+body.wp-dock .mk-float.dragging .mk-float-body { pointer-events: none; }
+body.wp-dock .mk-float-head {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 5px 8px;
+    background: var(--header-bg, #f0f4f0); border-bottom: 1px solid var(--section-border, #e0e8e0);
+    cursor: move; user-select: none; touch-action: none;
+}
+body.wp-dock .mk-float-head .mk-float-title {
+    flex: 1 1 auto; font-size: 12px; font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+body.wp-dock .mk-float-head button {
+    width: 20px; height: 20px; padding: 0; font: inherit; font-size: 11px; line-height: 1; border: none;
+    border-radius: 4px; background: transparent; color: var(--text-muted, #5a6a5a); cursor: pointer;
+}
+body.wp-dock .mk-float-head button:hover { background: var(--active-bg, #d0e0d0); color: var(--text-color, #1a1f1a); }
+body.wp-dock .mk-float-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+body.wp-dock .mk-float-resize {
+    position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize;
+    touch-action: none;
+    background: linear-gradient(135deg, transparent 50%, var(--border-color, #d0dcd0) 50%, var(--border-color, #d0dcd0) 60%, transparent 60%);
+}
+
+/* ══ 4. 底部状态栏（纯只读，不放菜单）═══════════════════════════════════
+   所有布局动作都在面板页签上完成（拖动 = 停靠，双击 / 中键 = 浮出，✕ = 隐藏），
+   这里只显示「当前预设 / 面板计数 / 版本戳」。 */
+body.wp-dock #wp-status-bar {
+    flex: 0 0 auto; align-items: center; gap: 10px; height: 26px; padding: 0 12px;
+    font-size: 11.5px; color: var(--text-muted, #5a6a5a); background: var(--header-bg, #f0f4f0);
+    border-top: 1px solid var(--border-color, #d0dcd0); white-space: nowrap;
+}
+body.wp-dock #wp-status-bar .mk-st-dot {
+    flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent, #4CAF50); box-shadow: 0 0 6px var(--accent, #4CAF50);
+}
+body.wp-dock #wp-status-bar .mk-st-sep { flex: 0 0 auto; width: 1px; height: 14px; background: var(--border-color, #d0dcd0); }
+body.wp-dock #wp-status-bar .mk-spacer { flex: 1 1 auto; }
+body.wp-dock #wp-status-bar #wp-layout,
+body.wp-dock #wp-status-bar #wp-panels,
+body.wp-dock #wp-status-bar .mk-version { flex: 0 0 auto; }
+body.wp-dock #wp-status-bar .mk-version { font-size: 11px; color: var(--text-muted, #5a6a5a); }
+
+/* ══ 5. 「仿真状态」面板（console）═══════════════════════════════════════
+   真机的 #sim-status（进度文字）与 #sim-recover（服务自愈按钮）在 index.html 里
+   就排在 #sim-console 内，引擎只负责把整个 #sim-console 搬进面板。
+   面板本体 = 日志区（#sim-console-log，深色，可回溯）+ 状态行 + 自愈按钮。 */
+body.wp-dock .mk-host > #sim-console { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+body.wp-dock #sim-console-log {
+    flex: 1 1 auto; min-height: 0; overflow: auto;
+    background: #1f241f; color: #d5e6d5; padding: 6px 8px;
+    font-family: Consolas, "Courier New", monospace; font-size: 12px; line-height: 17px;
+    white-space: pre-wrap; word-break: break-all;
+}
+body.wp-dock #sim-console-log .mk-cline { color: #d5e6d5; }
+body.wp-dock #sim-console > #sim-status {
+    flex: 0 0 auto; margin: 0; padding: 5px 8px; min-height: 24px;
+    background: var(--toolbar-bg, #f8faf8); border-top: 1px solid var(--section-border, #e0e8e0);
+    font-size: 12px; color: var(--text-muted, #5a6a5a);
+    /* 真机 index.html 里那条 .sim-panel-body > #sim-status{position:sticky} 已因
+       搬移失效，这里补一条等价的（面板内嵌在文档流底部，不需要 sticky）。 */
+    position: static;
+}
+/* #sim-recover 的 display 由 ui-bridge 用 inline style 控制（none ↔ block），
+   这里只调观感，**不要**用 display 去和 inline style 抢。 */
+body.wp-dock #sim-console > #sim-recover {
+    flex: 0 0 auto; margin: 0 !important; padding: 3px 10px; font-size: 12px;
+    border: 1px solid var(--input-border, #c0d0c0); border-radius: var(--radius-sm, 6px);
+    background: var(--input-bg, #fff); color: var(--text-color, #1a1f1a); cursor: pointer;
+}
+
+/* ══ 6. ?dock=off 逃生口：旧侧栏 UI 的兼容垫片 ═══════════════════════════
+   本文件对旧 UI 是「零影响」的（所有规则都在 body.wp-dock 之下），唯一例外是
+   #sim-console 这个新增容器把 #sim-status / #sim-recover 包了一层，于是真机
+   index.html 里 `.sim-panel-body > #sim-status` 这类「直接子元素」规则不再命中。
+   这里补回等价观感，让逃生口下的侧栏与改动前完全一致（回归脚本按此口径断言）。 */
+body:not(.wp-dock) #sim-console { flex: 0 0 auto; display: flex; flex-direction: column; }
+body:not(.wp-dock) #sim-console-log { display: none; }
+body:not(.wp-dock) #sim-console > #sim-status {
+    flex: 0 0 auto; position: sticky; bottom: 0; z-index: 2;
+    background: var(--toolbar-bg, #f8faf8);
+}
+body:not(.wp-dock) #sim-console > #sim-recover { flex: 0 0 auto; }

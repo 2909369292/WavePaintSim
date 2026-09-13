@@ -574,6 +574,11 @@
             box-shadow: inset 2px 0 0 var(--accent, #4CAF50);
         }
 </style>
+    <!-- 工作区停靠外壳（左中右下四区 / 面板互拖 / 浮出）样式。
+         必须放在真机内联 <style> 之后：它要覆盖 #main-area 的 height:100vh 等
+         「只在整页全屏时成立」的规则；同时所有规则都挂在 body.wp-dock 之下，
+         对带 ?dock=off 的旧侧栏 UI 零影响（见 js/sim/dock/workspace.js）。 -->
+    <link rel="stylesheet" href="css/workspace.css">
     <script>
         (function () {
             function removeLoader() {
@@ -926,16 +931,56 @@
                     <textarea id="tb-source" spellcheck="false" readonly placeholder="点击「生成 TB」生成 testbench，或点「运行仿真」后自动生成。"></textarea>
                 </div>
             </section>
-            <div id="sim-status" class="sim-status"></div>
-            <!-- 服务彻底死亡时的手动自愈入口（默认隐藏，ui-bridge 在自动恢复失败时显示）。
-                 点击后用 wavepaint: 协议拉起 exe；首次浏览器会弹一次「是否允许打开
-                 wavepaint:」确认框，勾选「始终允许」后以后无感。 -->
-            <button id="sim-recover" type="button"
-                    style="display:none;margin:6px 0 0;width:100%;">启动本地仿真服务</button>
+            <!-- ── #sim-console = 「仿真状态」面板的宿主（停靠引擎的面板之一）────
+                 固定顺序：日志区 → 状态行 → 自愈按钮。workspace.js 的
+                 mountStatusNodes() 会按这个顺序校准，顺序被改乱也能自愈。
+                 ⚠ 后两个节点是**真机原生节点**：#sim-status 的进度文字与
+                 #sim-recover 的显隐仍由 js/sim/ui-bridge.js 照常驱动，停靠时整个
+                 #sim-console 被搬进面板；带 ?dock=off 时它们原地留在侧栏底部，
+                 旧 UI 行为不变。 -->
+            <div id="sim-console" class="sim-console">
+                <div id="sim-console-log" class="sim-console-log" role="log" aria-live="polite"></div>
+                <div id="sim-status" class="sim-status"></div>
+                <!-- 服务彻底死亡时的手动自愈入口（默认隐藏，ui-bridge 在自动恢复失败时显示）。
+                     点击后用 wavepaint: 协议拉起 exe；首次浏览器会弹一次「是否允许打开
+                     wavepaint:」确认框，勾选「始终允许」后以后无感。 -->
+                <button id="sim-recover" type="button"
+                        style="display:none;margin:6px 0 0;width:100%;">启动本地仿真服务</button>
+            </div>
             <!-- 收起入口只保留「点击表头」这一个（原底部「收起」按钮冗余，已删）；
                  展开入口 = 收起后贴在右缘的竖排「仿真」标签。 -->
         </div>
-    </div>    <div id="wavedrom-debug-panel" class="wavedrom-debug-panel hidden">
+    </div>
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         工作区停靠外壳（真机）—— 左中右下四区 / 面板互拖 / 浮出 / 底部状态栏
+         ------------------------------------------------------------------------
+         由 js/sim/dock/workspace.js 驱动；样式在 css/workspace.css（全部规则都
+         挂在 body.wp-dock 之下）。外壳本身只提供「挂载点」，真正的内容是上面
+         那些真机节点（#main-area / #sim-card-* / #sim-console），由引擎整块搬进
+         面板 —— 不克隆、不重绘，所以波形/源码/RTL/VCD/TB 的观感与真机完全一致。
+         ⚠ #mk-park 是「未显示面板的真机节点暂存区」：节点在那里 display:none，
+           但**始终留在文档里**，保证 ui-bridge 的 getElementById 永远命中。
+         ⚠ 带 ?dock=off 时 body 没有 wp-dock 类 → #workbench / #wp-status-bar
+           都是 display:none，本段彻底不参与布局，旧侧栏 UI 逐像素不变。 -->
+    <div id="workbench">
+        <div id="mk-drop"></div>
+        <div id="mk-caret"></div>
+        <div id="mk-floats"></div>
+        <div id="mk-park" hidden></div>
+    </div>
+    <!-- 底部状态栏：纯只读（当前预设 / 面板计数 / 版本戳），不放任何菜单 ——
+         所有布局动作都在面板页签上完成（拖动=停靠，双击/中键=浮出，✕=隐藏）。 -->
+    <div id="wp-status-bar">
+        <span class="mk-st-dot" title="本地仿真服务状态指示（见「仿真状态」面板日志）"></span>
+        <span id="wp-status-text">WavePaint 工作区</span>
+        <span class="mk-st-sep"></span>
+        <span id="wp-layout">布局：仿真预设</span>
+        <span class="mk-st-sep"></span>
+        <span id="wp-panels">面板</span>
+        <span class="mk-spacer"></span>
+        <span id="wp-version" class="mk-version" title="构建版本（version.txt）"></span>
+    </div>
+    <div id="wavedrom-debug-panel" class="wavedrom-debug-panel hidden">
         <div class="wavedrom-debug-header">
             <span class="wavedrom-debug-title">WaveDrom 代码（实时编辑）</span>
             <div class="wavedrom-debug-status">
@@ -1033,6 +1078,12 @@
         import { normalizeVectorValue, formatVectorValue } from './js/sim/project-model.js';
         window.__wpfVec = { normalizeVectorValue, formatVectorValue };
     </script>
+    <!-- 工作区停靠引擎（普通 script，必须早于 ui-bridge.js 这个 ESM 跑完）：
+         它决定「谁来装配侧栏」—— 接管时定义 window.__wpDock 并给 body 加
+         wp-dock 类（ui-bridge 让位）；带 ?dock=off 时只设 window.__wpDockOff
+         （ui-bridge 照旧装配旧侧栏）。因为要读 #workbench / #mk-* 等外壳节点，
+         所以放在 </body> 前（此时外壳与全部真机节点都已解析完）。 -->
+    <script src="js/sim/dock/workspace.js"></script>
     <script type="module" src="js/sim/ui-bridge.js"></script>
 </body>
 </html>

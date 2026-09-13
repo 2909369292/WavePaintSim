@@ -14,11 +14,26 @@
 //      ui-mockup.js）。
 // 真机 index.html / js/ / css/ / img/ / lib/ **一律只读**，本脚本不写它们。
 // 用法：node tools/gen-mock-page.mjs   （改完真机骨架后必须重跑，再跑 build-prototype.ps1）
+//
+// ⚠ 已弃用（第三十五轮起）：wavepaint mockup 是「真机停靠 UI 落地之前」的纯前端
+//   预览页。现在真机 index.html 自带 #workbench/#wp-status-bar + js/sim/dock/workspace.js，
+//   而 prototype/mock-tail.html 里也有一份同名元素（#workbench/#mk-*/#status-bar）——
+//   继续「照搬真机 + 追加 tail」会生成**重复 id** 的坏页（两份停靠引擎抢同一批节点）。
+//   所以默认只打印弃用提示并退出（0），不产生产物；确需复现历史 mockup 时用 --force。
+//   淘汰 prototype/ + build-prototype.ps1 + WavePaintMockup.exe 需用户确认，见 memory。
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const FORCE = process.argv.includes('--force');
+if (!FORCE) {
+  console.log('⚠ prototype/ mockup 已弃用：真机 index.html 现自带停靠外壳（#workbench /');
+  console.log('  js/sim/dock/workspace.js），再追加 prototype/mock-tail.html 会产生重复 id。');
+  console.log('  真机 UI 请直接 node build.ps1 → WavePaintClean.exe；');
+  console.log('  确需复现历史 mockup：node tools/gen-mock-page.mjs --force（产物仅供考古）。');
+  process.exit(0);
+}
 const srcPath = path.join(root, 'index.html');
 const tailPath = path.join(root, 'prototype', 'mock-tail.html');
 const outPath = path.join(root, 'prototype', 'ui-mockup.html');

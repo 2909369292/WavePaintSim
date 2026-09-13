@@ -60,9 +60,14 @@ for (let i = 0; i < 30; i++) {
 
 // 禁组件更新 + 系统 TEMP 重定向：headless Edge 不再往 C 盘 %TEMP% 写垃圾
 const edgeEnv = { ...process.env, TEMP: sysTmp, TMP: sysTmp, TMPDIR: sysTmp };
+// ⚠ 本套断言里 I0~I8 是「旧右侧仿真侧栏」的口径（.sim-card 折叠 / splitter / --sim-panel-w）。
+//   真机 index.html 现在默认被停靠引擎接管（body.wp-dock，四张卡片各自成为面板），
+//   侧栏整体退役 → 那批断言必然红。所以这里一律带 ?dock=off 走逃生口：停靠引擎
+//   完全不定义 window.__wpDock，ui-bridge 照旧装配旧侧栏，本套断言与改动前逐项一致。
+//   新停靠 UI 由 tools/dock-probe.mjs 用同一台真机页面（不带参数）单独验。
 spawn(edge, ['--headless=new', '--disable-gpu', '--disable-component-update', '--disable-features=msEdgeComponentUpdate',
   '--remote-debugging-port=9531', '--user-data-dir=' + edgeProfile, '--no-first-run',
-  'http://127.0.0.1:' + PORT + '/index.html'], { stdio: 'ignore', env: edgeEnv });
+  'http://127.0.0.1:' + PORT + '/index.html?dock=off'], { stdio: 'ignore', env: edgeEnv });
 
 let target = null;
 for (let i = 0; i < 40; i++) {
