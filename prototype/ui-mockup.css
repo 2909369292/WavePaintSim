@@ -15,6 +15,9 @@
   --section-bg:#f8faf8;--section-border:#e0e8e0;--header-bg:#f0f4f0;
   --timeaxis-bg:#f0f2f0;--timeaxis-text:#333333;--timeaxis-tick:#888888;
   --mk-row-h:34px;--mk-name-w:210px;--mk-band:26%;
+  /* 控件刻度（08 §7.5：R4 尺寸三档 / R5 间距只用 4·12） */
+  --ui-icon-h:28px;--ui-ctl-h:24px;--ui-band-h:36px;--ui-bar-h:44px;
+  --ui-gap-in:4px;--ui-gap-out:12px;
 }
 *{box-sizing:border-box}
 html,body{height:100%}
@@ -60,15 +63,31 @@ body.mk{
 .mk-spacer{flex:1 1 auto}
 .mk-version{font-size:11px;color:var(--text-muted)}
 
-#toolbar{display:flex;align-items:center;gap:4px;flex-wrap:wrap;padding:4px 8px;
-  background:var(--toolbar-bg);border-top:1px solid var(--section-border);min-height:36px}
-.tool-btn{display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;
-  background:transparent;border:1px solid transparent;border-radius:var(--radius-sm);cursor:pointer}
+/* L1 应用工具带：高度固定 44；内容 flex-wrap:nowrap；放不下的整组收进 ⋯（R4/R5/R6） */
+#toolbar{display:flex;align-items:center;gap:var(--ui-gap-out);flex-wrap:nowrap;padding:0 8px;height:var(--ui-bar-h);
+  background:var(--toolbar-bg);border-top:1px solid var(--section-border)}
+/* 控件组：组内 4px；组间只由父容器 gap 给（禁止组件自带 margin，R5） */
+.mk-tbg{position:relative;display:flex;align-items:center;gap:var(--ui-gap-in)}
+/* 组间分隔线画在 gap 正中（伪元素不算子元素，故不影响 ui-audit 的间距判定） */
+:where(#toolbar,.mk-toolrow)>.mk-tbg+.mk-tbg::before{content:"";position:absolute;left:-6px;top:50%;
+  transform:translateY(-50%);width:1px;height:20px;background:var(--section-border)}
+:where(#toolbar,.mk-toolrow)>.mk-spacer+.mk-tbg::before{display:none}
+.tool-btn{display:flex;align-items:center;justify-content:center;width:var(--ui-icon-h);height:var(--ui-icon-h);
+  padding:0;background:transparent;border:1px solid transparent;border-radius:var(--radius-sm);cursor:pointer}
 .tool-btn:hover{background:var(--hover-bg);border-color:var(--border-color)}
 .tool-btn img{width:16px;height:16px}
-#toolbar .separator{color:var(--border-color);opacity:.9;margin:0 2px}
-.mk-step-group{display:flex;align-items:center;gap:5px;margin:0 4px}
+.tool-btn.disabled{opacity:.4;cursor:not-allowed}
+.tool-btn.disabled:hover{background:transparent;border-color:transparent}
+.tool-btn.paint-color .color-box{width:16px;height:16px;border-radius:3px;background:var(--signal-color);
+  border:1px solid rgba(0,0,0,.18)}
+/* 全应用唯一主按钮（R3） */
+.mk-run{display:flex;align-items:center;gap:6px;height:var(--ui-ctl-h);padding:0 12px;font:inherit;font-size:12.5px;
+  font-weight:600;color:#fff;background:var(--accent);border:1px solid var(--accent);border-radius:var(--radius-sm);cursor:pointer}
+.mk-run:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
+.mk-run::before{content:"▶";font-size:9px;line-height:1}
+.mk-step-group{gap:6px}
 .mk-step-group>label{font-size:11px;color:var(--text-muted)}
+.mk-step-input{height:var(--ui-ctl-h)}
 .mk-step-input{display:flex;align-items:center;background:var(--input-bg);
   border:1px solid var(--input-border);border-radius:var(--radius-sm);overflow:hidden}
 .mk-step-input input{width:48px;border:none;outline:none;padding:3px 6px;font:inherit;
@@ -77,8 +96,30 @@ body.mk{
 .mk-stepper button{width:18px;height:11px;line-height:9px;font-size:8px;padding:0;border:none;
   background:transparent;color:var(--text-muted);cursor:pointer}
 .mk-stepper button:hover{background:var(--hover-bg);color:var(--text-color)}
-.mk-hintbar{font-size:11px;color:var(--text-muted);max-width:62ch;overflow:hidden;
-  text-overflow:ellipsis;white-space:nowrap}
+
+/* 分段控件（整步·子步 / Dec·Hex·Bin）：文本控件统一 24 高（R4） */
+.mk-seg{display:flex;align-items:center;height:var(--ui-ctl-h);background:var(--input-bg);
+  border:1px solid var(--input-border);border-radius:var(--radius-sm);overflow:hidden}
+.mk-seg button{height:22px;padding:0 8px;font:inherit;font-size:11px;color:var(--text-muted);
+  background:transparent;border:none;cursor:pointer}
+.mk-seg button+button{border-left:1px solid var(--input-border)}
+.mk-seg button:hover{background:var(--hover-bg);color:var(--text-color)}
+.mk-seg button.on{background:var(--accent-soft);color:#123f16;font-weight:600}
+
+/* 带 ▼ 的图标按钮：箭头内嵌，外框仍按 28×28 网格（R4） */
+.tool-btn.has-caret{gap:2px}
+.tool-btn .mk-caret{font-size:7px;line-height:1;color:var(--text-muted)}
+
+/* 下拉（位状态 / 添加信号 / ⋯）：容器 .mk-dd 内联在工具带里 */
+.mk-dd{position:relative;display:flex}
+.mk-dd-menu,.mk-ovf-menu{display:none;position:absolute;left:0;top:calc(100% + 6px);min-width:150px;padding:4px;
+  background:var(--menu-bg);border:1px solid var(--border-color);border-radius:var(--radius-md);
+  box-shadow:var(--shadow-soft);z-index:700}
+.mk-dd.open>.mk-dd-menu,.mk-ovf.open>.mk-ovf-menu{display:flex}
+.mk-dd-i{display:flex;align-items:center;gap:8px;padding:4px 8px;border-radius:var(--radius-sm);
+  font-size:12px;white-space:nowrap;cursor:default}
+.mk-dd-i:hover{background:var(--hover-bg)}
+.mk-dd-h{font-size:10.5px;color:var(--text-muted);padding:4px 8px 2px}
 
 /* ── 工作区 ─────────────────────────────────────────────────────────── */
 #workbench{position:relative;flex:1 1 auto;min-height:0;display:flex;padding:6px;background:var(--bg-color)}
@@ -150,19 +191,25 @@ body.mk{
 
 /* ── 状态栏 ─────────────────────────────────────────────────────────── */
 #status-bar{flex:0 0 auto;display:flex;align-items:center;gap:10px;height:26px;padding:0 12px;
-  font-size:11.5px;color:var(--text-muted);background:var(--header-bg);border-top:1px solid var(--border-color)}
+  font-size:11.5px;color:var(--text-muted);background:var(--header-bg);border-top:1px solid var(--border-color);
+  white-space:nowrap}
 .mk-st-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 6px var(--accent)}
+.mk-st-sep{width:1px;height:14px;background:var(--border-color)}
+#st-ctx{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+#st-text,.mk-st-sep,#st-layout,#st-panels{flex:0 0 auto}
 
 /* ══ 面板内容（全部假数据）══════════════════════════════════════════ */
-.mk-toolrow{flex:0 0 auto;display:flex;align-items:center;gap:4px;padding:4px 6px;
-  background:var(--toolbar-bg);border-bottom:1px solid var(--section-border);flex-wrap:wrap}
-.mk-toolrow button{font:inherit;font-size:11.5px;padding:3px 8px;color:var(--text-color);
+/* L2/L3 面板上下文带：固定 36 高、禁折行、放不下的整组进本带 ⋯（R4/R6） */
+.mk-toolrow{flex:0 0 auto;display:flex;align-items:center;gap:var(--ui-gap-out);padding:0 8px;height:var(--ui-band-h);
+  background:var(--toolbar-bg);border-bottom:1px solid var(--section-border);flex-wrap:nowrap}
+.mk-toolrow button{font:inherit;font-size:11.5px;height:var(--ui-ctl-h);padding:0 8px;color:var(--text-color);
   background:var(--input-bg);border:1px solid var(--input-border);border-radius:var(--radius-sm);cursor:pointer}
 .mk-toolrow button:hover{background:var(--hover-bg);border-color:var(--accent)}
-.mk-toolrow button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-.mk-toolrow button.primary:hover{background:var(--accent-hover)}
-.mk-toolrow .mk-sep{width:1px;height:16px;background:var(--section-border);margin:0 2px}
-.mk-toolrow .mk-chip{font-size:11px;color:var(--text-muted)}
+.mk-toolrow .tool-btn{background:transparent;border-color:transparent}
+.mk-toolrow .tool-btn:hover{background:var(--hover-bg);border-color:var(--border-color)}
+/* ⋯ 溢出菜单：被收进来的整组在菜单里竖排（右对齐展开，避免贴面板右缘被裁切） */
+.mk-ovf-menu .mk-tbg{padding:3px 4px;border-radius:var(--radius-sm)}
+.mk-ovf-menu{left:auto;right:0;min-width:0;flex-direction:column;gap:2px}
 
 /* 波形窗 */
 .mk-wave{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;background:var(--canvas-bg)}

@@ -260,14 +260,73 @@ function panelWave() {
     (s.kind === 'bits' ? bitsSvg(s.segs) : busSvg(s.vals)) + `</div>`).join('');
   let ticks = '';
   for (let i = 0; i <= 10; i++) ticks += `<div class="mk-tick" style="left:${i * 100}px"><span>${i * 100}ns</span></div>`;
+  // L2 波形面板上下文带：只对波形有意义的控件全部下沉到这里（5 组 + ⋯）
+  // data-ovp = 溢出优先级（数字小的先被收进 ⋯）；无 data-ovp 的组永不进 ⋯
   return `<div class="mk-toolrow">
-      <button class="primary">运行仿真</button><button>重新载入</button>
-      <span class="mk-sep"></span>
-      <button>适应窗口</button><button>放大</button><button>缩小</button>
-      <span class="mk-sep"></span>
-      <button>时间游标</button><button>量测</button><button>标记</button>
-      <span class="mk-sep"></span>
-      <span class="mk-chip">选中信号：data[7:0] · 值 3F @ 420ns（框选后直接输入即可改值）</span>
+      <div class="mk-tbg">
+        <button type="button" class="tool-btn" title="缩小"><img src="../img/zoom_out.svg" alt="缩小"></button>
+        <button type="button" class="tool-btn" title="放大"><img src="../img/zoom_in.svg" alt="放大"></button>
+        <button type="button" class="tool-btn" title="适应窗口"><img src="../img/zoom_fit.svg" alt="适应窗口"></button>
+        <button type="button" class="tool-btn" title="时间跳转 / 游标 (J)"><img src="../img/time_jump.svg" alt="时间跳转"></button>
+      </div>
+      <div class="mk-tbg" data-ovp="3">
+        <button type="button" class="tool-btn" title="画笔 (P)"><img src="../img/paint.svg" alt="画笔"></button>
+        <button type="button" class="tool-btn" title="橡皮擦 (E)"><img src="../img/erase.svg" alt="橡皮擦"></button>
+        <button type="button" class="tool-btn" title="选择 / 框选 (S)"><img src="../img/selection.svg" alt="选择"></button>
+      </div>
+      <div class="mk-tbg" data-ovp="4">
+        <div class="mk-dd">
+          <button type="button" class="tool-btn has-caret" title="位状态（点击切换 1 / 0 / z / x / u / d）">
+            <svg width="14" height="14" viewBox="0 0 16 16"><line x1="2" y1="4" x2="14" y2="4" stroke="currentColor" stroke-width="2"/></svg>
+            <span class="mk-caret">▼</span>
+          </button>
+          <div class="mk-dd-menu">
+            <div class="mk-dd-h">位状态（写 1 bit）</div>
+            <div class="mk-dd-i">高电平 (1)<span class="mk-key">1</span></div>
+            <div class="mk-dd-i">低电平 (0)<span class="mk-key">0</span></div>
+            <div class="mk-dd-i">高阻 (z)<span class="mk-key">Z</span></div>
+            <div class="mk-dd-i">未定义 (x)<span class="mk-key">X</span></div>
+            <div class="mk-dd-i">上拉 (u)<span class="mk-key">U</span></div>
+            <div class="mk-dd-i">下拉 (d)<span class="mk-key">D</span></div>
+          </div>
+        </div>
+        <div class="mk-seg" title="编辑力度：整步 = 一次改整个主步（仿真采样正确）；子步 = 一次只改一个子格（画时钟沿用）">
+          <button type="button" class="on">整步</button><button type="button">子步</button>
+        </div>
+        <div class="mk-seg" title="总线（矢量信号）显示进制：切换即重算标签">
+          <button type="button" class="on">Dec</button><button type="button">Hex</button><button type="button">Bin</button>
+        </div>
+      </div>
+      <div class="mk-tbg" data-ovp="2">
+        <button type="button" class="tool-btn" title="箭头 (A)"><img src="../img/arrow.svg" alt="箭头"></button>
+        <button type="button" class="tool-btn" title="时间跨度 (R)"><img src="../img/time_span.svg" alt="时间跨度"></button>
+        <button type="button" class="tool-btn" title="标记 (M)"><img src="../img/marker.svg" alt="标记"></button>
+        <button type="button" class="tool-btn" title="文本标注 (T)"><img src="../img/text_annotation.svg" alt="文本标注"></button>
+      </div>
+      <div class="mk-tbg" data-ovp="1">
+        <div class="mk-dd">
+          <button type="button" class="tool-btn has-caret" title="添加信号（位 / 矢量 / 预定义 / 波形生成器 / 协议模板）">
+            <img src="../img/add_signal.svg" alt="添加信号"><span class="mk-caret">▼</span>
+          </button>
+          <div class="mk-dd-menu">
+            <div class="mk-dd-i">位信号</div>
+            <div class="mk-dd-i">矢量信号</div>
+            <div class="mk-dd-h">预定义信号 ▸</div>
+            <div class="mk-dd-i">时钟 / 计数器 / 复位 / 脉冲</div>
+            <div class="mk-dd-h">波形生成器 ▸</div>
+            <div class="mk-dd-i">正弦 / 三角 / 锯齿 / 随机 / 带毛刺</div>
+            <div class="mk-dd-h">协议模板 ▸</div>
+            <div class="mk-dd-i">SPI / I2C / UART（读 · 写）</div>
+            <div class="mk-dd-i">空白行</div>
+          </div>
+        </div>
+        <button type="button" class="tool-btn" title="选择对象 (V)"><img src="../img/cursor.svg" alt="选择对象"></button>
+        <button type="button" class="tool-btn disabled" title="属性（请先选择对象）" disabled><img src="../img/properties.svg" alt="属性"></button>
+      </div>
+      <div class="mk-tbg mk-ovf">
+        <button type="button" class="tool-btn mk-ovf-btn" title="更多（本带放不下的整组控件收在这里）">⋯</button>
+        <div class="mk-ovf-menu"></div>
+      </div>
     </div>
     <div class="mk-wave">
       <div class="mk-wave-scroll">
@@ -314,10 +373,14 @@ const CODE_LINES = [
 ];
 function panelSource() {
   const gutter = CODE_LINES.map((_, i) => i + 1).join('\n');
+  // L3 源码面板上下文带：不再重复「运行仿真」（R2 —— 全应用唯一入口在 L1）
   return `<div class="mk-toolrow">
-      <button>打开…</button><button>保存</button><span class="mk-sep"></span>
-      <button>解析 RTL</button><button>生成 TB</button><button class="primary">运行仿真</button>
-      <span class="mk-sep"></span><span class="mk-chip">fifo_ctrl.v · 第 13 行</span>
+      <div class="mk-tbg"><button>打开…</button><button>保存</button></div>
+      <div class="mk-tbg"><button>解析 RTL</button><button>生成 TB</button></div>
+      <div class="mk-tbg mk-ovf">
+        <button type="button" class="tool-btn mk-ovf-btn" title="更多（本带放不下的整组控件收在这里）">⋯</button>
+        <div class="mk-ovf-menu"></div>
+      </div>
     </div>
     <div class="mk-code">
       <div class="mk-gutter">${gutter}</div>
@@ -329,8 +392,13 @@ function panelRtl() {
     `<div class="mk-node-row ${cls || ''}" style="padding-left:${6 + depth * 14}px">` +
     `<span class="mk-tw">${extra && extra.tw ? extra.tw : ''}</span>${text}` +
     `${extra && extra.w ? `<span class="mk-w">${extra.w}</span>` : ''}</div>`;
-  return `<div class="mk-toolrow"><button>展开全部</button><button>折叠全部</button>
-      <span class="mk-sep"></span><span class="mk-chip">双击模块名 → 打开源码</span></div>
+  return `<div class="mk-toolrow">
+      <div class="mk-tbg"><button>展开全部</button><button>折叠全部</button></div>
+      <div class="mk-tbg mk-ovf">
+        <button type="button" class="tool-btn mk-ovf-btn" title="更多（本带放不下的整组控件收在这里）">⋯</button>
+        <div class="mk-ovf-menu"></div>
+      </div>
+    </div>
     <div class="mk-tree">
       ${row(0, '<span class="mk-scope">▾</span> fifo_ctrl.v')}
       ${row(1, '<span class="mk-scope">▾</span> <b>fifo_ctrl</b>（顶层）', '', { w: 'module' })}
@@ -348,8 +416,13 @@ function panelVcd() {
   const sig = (depth, name, w, hot) =>
     `<div class="mk-node-row sig${hot ? ' hot' : ''}" style="padding-left:${6 + depth * 14}px">` +
     `<span class="mk-tw"></span>${name}<span class="mk-w">${w}</span></div>`;
-  return `<div class="mk-toolrow"><button>全部加入波形</button><button>过滤…</button>
-      <span class="mk-sep"></span><span class="mk-chip">$dumpvars · 7 条信号</span></div>
+  return `<div class="mk-toolrow">
+      <div class="mk-tbg"><button>全部加入波形</button><button>过滤…</button></div>
+      <div class="mk-tbg mk-ovf">
+        <button type="button" class="tool-btn mk-ovf-btn" title="更多（本带放不下的整组控件收在这里）">⋯</button>
+        <div class="mk-ovf-menu"></div>
+      </div>
+    </div>
     <div class="mk-tree">
       <div class="mk-node-row"><span class="mk-tw">▾</span><span class="mk-scope">tb</span><span class="mk-path">tb</span></div>
       <div class="mk-node-row"><span class="mk-tw">▾</span><span class="mk-scope">dut</span><span class="mk-path">tb.dut</span></div>
@@ -363,9 +436,14 @@ function panelVcd() {
     </div>`;
 }
 function panelTb() {
-  return `<div class="mk-toolrow"><button>自动生成</button><button>手动编辑</button>
-      <span class="mk-sep"></span><button>复制</button><button>导出 .sv</button>
-      <span class="mk-sep"></span><span class="mk-chip">只读 / 可编辑双态（#95 E1）</span></div>
+  return `<div class="mk-toolrow">
+      <div class="mk-tbg"><button>自动生成</button><button>手动编辑</button></div>
+      <div class="mk-tbg"><button>复制</button><button>导出 .sv</button></div>
+      <div class="mk-tbg mk-ovf">
+        <button type="button" class="tool-btn mk-ovf-btn" title="更多（本带放不下的整组控件收在这里）">⋯</button>
+        <div class="mk-ovf-menu"></div>
+      </div>
+    </div>
     <pre class="mk-pre">\`timescale 1ns/1ps
 module tb;
   reg         clk = 0;
@@ -399,8 +477,14 @@ function panelConsole() {
 }
 function panelFiles() {
   const f = (n, a) => `<span class="mk-file${a ? ' active' : ''}">${n}<span class="x">✕</span></span>`;
-  return `<div class="mk-toolrow"><button>添加文件</button><button>导入源码…</button><button>移除文件</button>
-      <span class="mk-sep"></span><button>解析 RTL</button><button>自动加信号</button><button class="primary">生成 TB</button></div>
+  return `<div class="mk-toolrow">
+      <div class="mk-tbg"><button>添加文件</button><button>导入源码…</button><button>移除文件</button></div>
+      <div class="mk-tbg" data-ovp="1"><button>解析 RTL</button><button>自动加信号</button><button>生成 TB</button></div>
+      <div class="mk-tbg mk-ovf">
+        <button type="button" class="tool-btn mk-ovf-btn" title="更多（本带放不下的整组控件收在这里）">⋯</button>
+        <div class="mk-ovf-menu"></div>
+      </div>
+    </div>
     <div class="mk-filelist">${f('fifo_ctrl.v', 1)}${f('fifo_core.v')}${f('tb_fifo.v')}</div>
     <div class="mk-table"><table>
       <tr><th>顶层候选</th><th>未被例化</th></tr>
@@ -410,8 +494,13 @@ function panelFiles() {
 }
 function panelProps() {
   const d = (k) => `<span class="mk-dir ${k}">${k === 'in' ? 'input' : k === 'out' ? 'output' : 'inout'}</span>`;
-  return `<div class="mk-toolrow"><span class="mk-chip">fifo_ctrl · 4 端口 / 2 参数</span>
-      <span class="mk-sep"></span><button>全部加入波形</button></div>
+  return `<div class="mk-toolrow">
+      <div class="mk-tbg"><button>全部加入波形</button></div>
+      <div class="mk-tbg mk-ovf">
+        <button type="button" class="tool-btn mk-ovf-btn" title="更多（本带放不下的整组控件收在这里）">⋯</button>
+        <div class="mk-ovf-menu"></div>
+      </div>
+    </div>
     <div class="mk-table"><table>
       <tr><th>端口</th><th>方向</th><th>位宽</th><th>类型</th></tr>
       <tr><td>clk</td><td>${d('in')}</td><td>1</td><td>wire</td></tr>
@@ -436,6 +525,7 @@ function render() {
   wb.insertBefore(buildNode(root), floatsLayer);
   renderFloats();
   updateStatus();
+  setupBands();
 }
 function buildNode(node) {
   if (node.kind === 'tabs') return buildGroup(node);
@@ -556,6 +646,80 @@ function afterWave(scope) {
     });
   });
 }
+
+/* ── 5.5 控件层（第二十四轮 U0：分层 / 刻度 / 溢出收集 / 假交互）──────────
+   规范见 memory/08-ROADMAP.md §7（R1~R9）：
+   · R5 组内 4px、组间 12px —— 全部由父容器 gap 给，组件不带 margin；
+   · R6 带子 flex-wrap:nowrap，放不下的「整组」按 data-ovp 优先级收进本带 ⋯；
+   · R2/R3 全应用唯一主按钮 = L1 的 #sim-run；
+   · R9 长文本只进状态栏 / 面板头，不进工具带。
+   本函数在每次 render() 与 resize 后重跑（幂等：先按出厂顺序还原，再测量）。 */
+function setupBands() {
+  document.querySelectorAll('#toolbar, .mk-toolrow').forEach((band) => {
+    if (!band.__order) band.__order = Array.from(band.children);
+    const order = band.__order;
+    const ovf = order.find((el) => el.classList && el.classList.contains('mk-ovf'));
+    if (!ovf) return;
+    // 1) 还原出厂顺序（把上次收进菜单的组放回带里），才能量到真实宽度
+    order.forEach((el) => band.appendChild(el));
+    ovf.style.display = '';                                   // 先显示 ⋯ 才能量到它的宽度
+    const groups = order.filter((el) => el.classList && el.classList.contains('mk-tbg') && el !== ovf);
+    const menu = ovf.querySelector('.mk-ovf-menu');
+    const GAP = 12;                                          // = --ui-gap-out
+    const cs = getComputedStyle(band);
+    const avail = band.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const ovfW = ovf.querySelector('.mk-ovf-btn').offsetWidth + GAP;
+    const widthOf = (list) => list.reduce((s, g) => s + g.offsetWidth, 0) + GAP * Math.max(0, list.length - 1);
+
+    let kept = groups.slice();
+    const moved = [];
+    if (widthOf(kept) > avail) {
+      const cand = groups.filter((g) => g.dataset.ovp).sort((a, b) => Number(a.dataset.ovp) - Number(b.dataset.ovp));
+      for (const g of cand) {
+        if (widthOf(kept) <= avail - ovfW) break;
+        kept = kept.filter((x) => x !== g);
+        moved.push(g);
+      }
+      // 若把全部候选都收走仍放不下（极端窄窗口），保持现状不硬塞
+      if (widthOf(kept) > avail - ovfW) { kept = groups.slice(); moved.length = 0; }
+    }
+    ovf.style.display = moved.length ? '' : 'none';
+    menu.innerHTML = '';
+    moved.sort((a, b) => order.indexOf(a) - order.indexOf(b)).forEach((g) => menu.appendChild(g));
+  });
+}
+
+/* 下拉（位状态 / 添加信号 / ⋯）：点外面/再点一次自动收起 */
+function setupFlyouts() {
+  document.addEventListener('click', (ev) => {
+    const host = ev.target.closest('.mk-dd, .mk-ovf');
+    document.querySelectorAll('.mk-dd.open, .mk-ovf.open').forEach((d) => { if (d !== host) d.classList.remove('open'); });
+    if (host && host.querySelector('.mk-dd-menu, .mk-ovf-menu').children.length) host.classList.toggle('open');
+  });
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') document.querySelectorAll('.mk-dd.open, .mk-ovf.open').forEach((d) => d.classList.remove('open'));
+  });
+}
+
+/* 分段控件（整步·子步 / Dec·Hex·Bin）与步进器 ±1：点了有反馈 */
+function setupCtlFeedback() {
+  document.addEventListener('click', (ev) => {
+    const segBtn = ev.target.closest('.mk-seg button');
+    if (segBtn) {
+      const seg = segBtn.closest('.mk-seg');
+      seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === segBtn));
+      return;
+    }
+    const arrow = ev.target.closest('.mk-stepper button');
+    if (arrow) {
+      const inp = arrow.closest('.mk-step-input').querySelector('input');
+      const dir = arrow.textContent.trim() === '▲' ? 1 : -1;
+      inp.value = String(Math.max(0, (parseInt(inp.value, 10) || 0) + dir));
+    }
+  });
+}
+setupFlyouts();
+setupCtlFeedback();
 
 /* ── 6. 分隔条拖拽 ──────────────────────────────────────────────────── */
 function startSplitDrag(ev, node, idx, splitEl) {
@@ -955,7 +1119,7 @@ document.getElementById('help-close').addEventListener('click', () => document.g
 document.getElementById('help-overlay').addEventListener('click', (ev) => {
   if (ev.target.id === 'help-overlay') ev.target.classList.add('hidden');
 });
-window.addEventListener('resize', () => { if (Object.keys(floats).length) renderFloats(); });
+window.addEventListener('resize', () => { if (Object.keys(floats).length) renderFloats(); setupBands(); });
 
 const restored = restore();
 render();
@@ -963,4 +1127,5 @@ if (!restored) persist();
 document.getElementById('st-text').textContent = restored ? '已恢复上次布局（localStorage）' : '就绪（原型演示）';
 window.__mock = { PANELS, get root() { return root; }, get floats() { return floats; }, visiblePanels,
   applyPreset, floatPanel, dockPanel, hidePanel, showPanel, render, hitTest, placePanel,
-  setRoot: (r) => { root = r; }, persistState: () => { persist(true); }, reset: () => applyPreset('sim', true) };
+  setRoot: (r) => { root = r; }, persistState: () => { persist(true); }, reset: () => applyPreset('sim', true),
+  setupBands };

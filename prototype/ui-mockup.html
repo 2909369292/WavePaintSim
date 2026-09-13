@@ -81,49 +81,43 @@
       </li>
     </ul>
     <span class="mk-spacer"></span>
-    <span class="mk-version">v0.4.0 · 原型 mock-1</span>
+    <span class="mk-version">v0.4.0 · 原型 mock-2（控件规范化 U0）</span>
   </div>
 
+  <!-- L1 应用工具带：只放「跨面板」动作 + 全应用唯一主按钮；组内 4px、组间 12px（R4/R5） -->
   <div id="toolbar">
-    <button type="button" class="tool-btn" title="打开"><img src="../img/folder.svg" alt="打开"></button>
-    <button type="button" class="tool-btn" title="保存"><img src="../img/save.svg" alt="保存"></button>
-    <span class="separator">|</span>
-    <button type="button" class="tool-btn" title="撤销"><img src="../img/undo.svg" alt="撤销"></button>
-    <button type="button" class="tool-btn" title="重做"><img src="../img/redo.svg" alt="重做"></button>
-    <span class="separator">|</span>
-    <button type="button" class="tool-btn" title="缩小"><img src="../img/zoom_out.svg" alt="缩小"></button>
-    <button type="button" class="tool-btn" title="放大"><img src="../img/zoom_in.svg" alt="放大"></button>
-    <button type="button" class="tool-btn" title="适应窗口"><img src="../img/zoom_fit.svg" alt="适应窗口"></button>
-    <span class="separator">|</span>
-    <button type="button" class="tool-btn" title="添加信号"><img src="../img/add_signal.svg" alt="添加信号"></button>
-    <span class="separator">|</span>
-    <button type="button" class="tool-btn" title="剪切"><img src="../img/cut.svg" alt="剪切"></button>
-    <button type="button" class="tool-btn" title="画笔"><img src="../img/paint.svg" alt="画笔"></button>
-    <button type="button" class="tool-btn" title="擦除"><img src="../img/erase.svg" alt="擦除"></button>
-    <button type="button" class="tool-btn" title="框选"><img src="../img/selection.svg" alt="框选"></button>
-    <button type="button" class="tool-btn" title="箭头"><img src="../img/arrow.svg" alt="箭头"></button>
-    <button type="button" class="tool-btn" title="标记"><img src="../img/marker.svg" alt="标记"></button>
-    <button type="button" class="tool-btn" title="文字标注"><img src="../img/text_annotation.svg" alt="文字标注"></button>
-    <span class="separator">|</span>
-    <button type="button" class="tool-btn" title="时间跳转"><img src="../img/time_jump.svg" alt="时间跳转"></button>
-    <button type="button" class="tool-btn" title="时间段"><img src="../img/time_span.svg" alt="时间段"></button>
-    <span class="separator">|</span>
-    <span class="mk-step-group">
-      <label>步长</label>
-      <span class="mk-step-input">
-        <input type="text" value="10" title="主步长">
-        <span class="mk-stepper"><button type="button">▲</button><button type="button">▼</button></span>
-      </span>
-    </span>
-    <span class="mk-step-group">
-      <label>子步数</label>
-      <span class="mk-step-input">
-        <input type="text" value="1" title="子步数">
-        <span class="mk-stepper"><button type="button">▲</button><button type="button">▼</button></span>
-      </span>
-    </span>
+    <div class="mk-tbg">
+      <button type="button" class="mk-run" id="sim-run" title="运行仿真（全应用唯一主按钮 · Ctrl+Alt+R）">运行仿真</button>
+    </div>
+    <div class="mk-tbg" data-ovp="3">
+      <button type="button" class="tool-btn" title="打开"><img src="../img/folder.svg" alt="打开"></button>
+      <button type="button" class="tool-btn" title="保存"><img src="../img/save.svg" alt="保存"></button>
+    </div>
+    <div class="mk-tbg" data-ovp="2">
+      <button type="button" class="tool-btn" title="撤销"><img src="../img/undo.svg" alt="撤销"></button>
+      <button type="button" class="tool-btn" title="重做"><img src="../img/redo.svg" alt="重做"></button>
+      <button type="button" class="tool-btn" title="剪切 (C)"><img src="../img/cut.svg" alt="剪切"></button>
+      <button type="button" class="tool-btn paint-color" title="画笔颜色"><span class="color-box"></span></button>
+    </div>
+    <div class="mk-tbg mk-ovf" id="tool-overflow">
+      <button type="button" class="tool-btn mk-ovf-btn" title="更多（本带放不下的整组控件收在这里）">⋯</button>
+      <div class="mk-ovf-menu"></div>
+    </div>
     <span class="mk-spacer"></span>
-    <span class="mk-hintbar">提示：拖动面板标题栏可停靠 / 分割 / 合并为 Tab；拖到窗口外缘可新建区；标题栏右侧 ⧉ 浮出</span>
+    <div class="mk-tbg mk-step-group" data-keep="1">
+      <label>步数:</label>
+      <span class="mk-step-input">
+        <input type="text" value="30" title="时间步数">
+        <span class="mk-stepper"><button type="button">▲</button><button type="button">▼</button></span>
+      </span>
+    </div>
+    <div class="mk-tbg mk-step-group" data-keep="1">
+      <label>子步数:</label>
+      <span class="mk-step-input">
+        <input type="text" value="1" title="每时间步的细分">
+        <span class="mk-stepper"><button type="button">▲</button><button type="button">▼</button></span>
+      </span>
+    </div>
   </div>
 </div>
 
@@ -133,9 +127,12 @@
   <div id="mk-floats"></div>
 </div>
 
+<!-- L4 状态栏：三段只读（左 服务与消息 / 中 当前上下文 / 右 布局与面板计数）；长提示一律收这里（R9） -->
 <div id="status-bar">
   <span class="mk-st-dot"></span>
   <span id="st-text">就绪（原型演示）</span>
+  <span class="mk-st-sep"></span>
+  <span id="st-ctx" title=""></span>
   <span class="mk-spacer"></span>
   <span id="st-layout"></span>
   <span id="st-panels"></span>
@@ -168,6 +165,14 @@
       <ul>
         <li>布局菜单：仿真 / 编辑 / 审阅 三套预设；<b>Ctrl+Alt+1/2/3</b> 快速切换，<b>Ctrl+Alt+0</b> 重置。</li>
         <li>布局默认只写 session/localStorage，不写 <code>.wp</code> 工程存档（按用户裁决）。</li>
+      </ul>
+      <h4>5. 控件分层（第二十四轮 U0 重排）</h4>
+      <ul>
+        <li><b>L1 应用工具带</b>（顶部）：只放跨面板动作 —— 运行仿真（唯一主按钮）｜打开 / 保存｜撤销 / 重做 / 剪切 / 画笔颜色｜步数 / 子步数。</li>
+        <li><b>L2 波形面板上下文带</b>：只对波形有意义的控件下沉到这里 —— 视图（缩小 / 放大 / 适应窗口 / 时间跳转）｜绘制（画笔 / 橡皮擦 / 选择）｜编辑状态（位状态 / 整步·子步 / Dec·Hex·Bin）｜标注（箭头 / 时间跨度 / 标记 / 文本标注）｜对象（添加信号 / 选择对象 / 属性）。</li>
+        <li><b>L3 源码面板上下文带</b>：打开… / 保存 ｜ 解析 RTL / 生成 TB（<b>不再重复「运行仿真」</b>）。</li>
+        <li><b>L4 状态栏</b>：左 服务与消息｜中 当前上下文（选中信号 / 当前文件 / 计数）｜右 布局与面板计数；长提示一律收在这里。</li>
+        <li>窄窗口时，整组控件按优先级收进工具带右侧的 <b>⋯</b>（不折行、不溢出）。</li>
       </ul>
       <p class="mk-note">本原型仅用于评审「形态」：所有面板内容是假数据，不连接仿真服务、不影响现有
         <code>index.html</code> 与 <code>js/</code>。</p>
