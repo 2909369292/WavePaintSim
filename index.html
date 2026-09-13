@@ -133,7 +133,12 @@
         #sim-panel {
             position: fixed;
             right: 0;
-            top: 92px;
+            /* 顶到工具带下缘：40px 菜单栏 + 工具带实测高（--wp-toolbar-h，由
+               js/sim/ui-bridge.js 的 syncToolbarHeight() 写入）+ 6px 间隙。
+               默认 46px ⇒ 92px，与第 37 轮之前的硬编码值逐像素一致。
+               ⚠ 不能写死：窄窗口下 #toolbar 允许换行（css/workspace.css §0.5），
+               工具带会变高，写死就会被侧栏盖住（e2e-ui I8 的历史复现路径）。 */
+            top: calc(40px + var(--wp-toolbar-h, 46px) + 6px);
             bottom: 0;
             width: var(--sim-panel-w, 328px);
             background: var(--toolbar-bg, #f8faf8);
@@ -274,6 +279,11 @@
         .source-toolbar { display: grid; gap: 8px; align-items: start; }
         .source-files { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
         .source-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+        /* ⚠ 上面这条 .source-actions{display:grid} 是作者样式，会盖掉 UA 的
+           [hidden]{display:none}（同特异性、作者样式优先）→ 元素必须补一条
+           带 [hidden] 的规则才真的隐藏。第 37 轮：这四个按钮（导入源码 / 移除文件 /
+           解析 RTL / 生成 TB）已按用户裁决移出界面，只保留 id 作契约面。 */
+        .source-actions[hidden] { display: none !important; }
         .source-actions button { width: 100%; }
         /* 主操作「运行仿真」独占整行，视觉上与次级操作区分 */
         .source-actions #sim-run { grid-column: 1 / -1; padding: 7px 10px; font-size: 13px; }
@@ -287,6 +297,77 @@
             cursor: pointer;
         }
         .source-chip.active { border-color: var(--accent, #4CAF50); background: var(--accent-soft, rgba(76,175,80,0.15)); color: var(--signal-color, #2e7d32); }
+        /* ── 文件标签条（浏览器式；第 37 轮）────────────────────────────────────
+           每个文件 = 一个标签：.source-chip（文本严格 = 文件名）+ 紧贴其右的
+           .source-chip-close（小「−」= 移除该文件）；标签条末尾 .source-add（「＋」）
+           = 新建源文件。作用域统一加 #source-tabs 前缀（带 id），既有足够特异性压过
+           `#sim-panel button` 的基础按钮样式，又能在「停靠面板」与「?dock=off 旧侧栏」
+           两种挂载位置下同样命中（#source-tabs 随卡片一起被搬走，始终是祖先）。 */
+        .source-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; }
+        .source-tab { display: inline-flex; align-items: stretch; }
+        #source-tabs .source-chip {
+            border-top-right-radius: 0;
+            border-bottom-right-radius: 0;
+            border-right: 0;
+            padding-right: 7px;
+            max-width: 220px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        #source-tabs .source-chip-close {
+            border: 1px solid var(--border-color, #d0dcd0);
+            border-left: 0;
+            border-radius: 0 999px 999px 0;
+            background: var(--input-bg, #fff);
+            color: var(--text-muted, #5a6a5a);
+            font-size: 11px;
+            line-height: 16px;
+            padding: 4px 8px 4px 5px;
+            cursor: pointer;
+        }
+        #source-tabs .source-chip-close:hover { background: #e05252; border-color: #e05252; color: #fff; }
+        #source-tabs .source-chip-close:disabled {
+            opacity: .35; cursor: default;
+            background: var(--input-bg, #fff);
+            border-color: var(--border-color, #d0dcd0);
+            color: var(--text-muted, #5a6a5a);
+        }
+        #source-tabs .source-tab.active .source-chip-close {
+            border-color: var(--accent, #4CAF50);
+            background: var(--accent-soft, rgba(76,175,80,0.15));
+            color: var(--signal-color, #2e7d32);
+        }
+        #source-tabs .source-tab.active .source-chip-close:hover { background: #e05252; border-color: #e05252; color: #fff; }
+        #source-tabs .source-add {
+            flex: 0 0 auto;
+            width: 26px; height: 26px; padding: 0;
+            border: 1px dashed var(--border-color, #d0dcd0);
+            border-radius: 999px;
+            background: transparent;
+            color: var(--text-muted, #5a6a5a);
+            font-size: 14px; line-height: 1; cursor: pointer;
+        }
+        #source-tabs .source-add:hover {
+            border-style: solid; border-color: var(--accent, #4CAF50);
+            color: var(--accent, #4CAF50); background: var(--hover-bg, #e8f0e8);
+        }
+        /* ── 编辑栏（#toolbar）末尾的仿真操作（第 37 轮自源码面板迁入）──────────
+           只含「自动加信号」+「运行仿真」。#sim-run 的绿色主按钮观感由上面那条
+           `#sim-panel button.primary-btn, #sim-run` 规则继续提供（id 选择器胜出）。 */
+        .sim-tool-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+        .sim-tool-actions button {
+            font-family: inherit; font-size: 12px; line-height: 16px; padding: 5px 10px;
+            color: var(--text-color, #1a1f1a); background: var(--input-bg, #fff);
+            border: 1px solid var(--border-color, #d0dcd0); border-radius: var(--radius-sm, 6px);
+            cursor: pointer; transition: background-color 120ms ease, border-color 120ms ease;
+        }
+        .sim-tool-actions button:hover { background: var(--hover-bg, #e8f0e8); border-color: var(--accent, #4CAF50); }
+        .sim-tool-actions button:active { background: var(--active-bg, #d0e0d0); }
+        .sim-tool-actions button:disabled { opacity: .5; cursor: default; }
+        /* TB 卡片内容区顶部的「复制」（从卡片标题行搬下来，第 37 轮） */
+        .tb-actions { display: flex; justify-content: flex-end; flex: 0 0 auto; }
+        .tb-actions #sim-tb-copy { padding: 3px 10px; font-size: 11px; }
         #verilog-source {
             width: 100%;
             box-sizing: border-box;
@@ -836,6 +917,15 @@
                 </div>
             </div>
         </div>
+        <span class="separator">|</span>
+        <!-- ── 仿真操作（第 37 轮用户裁决：自右侧源码面板整体迁入编辑栏末尾）──────
+             本栏只放这两个：① 自动加信号 ② 运行仿真。
+             id 未改（#sim-addsignals / #sim-run）⇒ ui-bridge 的绑定与既有的
+             e2e-rtl / e2e-ui 探针（按 id 点按钮）全部照旧。 -->
+        <div class="sim-tool-actions" id="sim-tool-actions">
+            <button type="button" id="sim-addsignals" title="按当前顶层模块的端口，在画布上建立激励（不加入 VCD 观察行；加波形请在代码里双击变量）">自动加信号</button>
+            <button type="button" id="sim-run" class="primary-btn" title="生成 testbench 并运行 iverilog 仿真">运行仿真</button>
+        </div>
         <div class="spacer"></div>
         <input type="color" id="signal-color" title="信号颜色" style="display: none;">
 
@@ -870,25 +960,37 @@
                 </div>
                 <div class="sim-card-body">
                     <div class="source-toolbar">
-                        <div id="source-files" class="source-files"></div>
-                        <div class="source-actions">
-                            <button id="sim-addfile" title="添加一个源文件标签页">添加文件</button>
+                        <!-- ── 文件标签条（浏览器式；第 37 轮用户裁决）────────────────────
+                             本栏只留两件东西：① 文件标签条 ② 下面的代码框。
+                             每个文件 = 一个标签（.source-chip，文本严格等于文件名）；
+                             标签右侧「−」= 移除该文件；标签条末尾「＋」= 新建源文件。
+                             ⇒ 原来的「添加文件 / 移除文件」两个按钮被这两个图标取代。
+                             ⚠ .source-chip 的 textContent 必须只有文件名本身
+                               （e2e-rtl E2 直接断言 chip==='sub.v'），因此关闭键
+                               （.source-chip-close）是它的**兄弟节点**，不是子节点。 -->
+                        <div class="source-tabs" id="source-tabs">
+                            <div id="source-files" class="source-files"></div>
+                            <button id="sim-addfile" type="button" class="source-add" title="添加源文件（新标签页）" aria-label="添加源文件">＋</button>
+                        </div>
+                        <!-- ── 已按用户裁决移出界面的控件（id 全部保留 = 契约面，见 memory/08 §2.5；
+                                 e2e-rtl E6 等按 id 断言存在性，故只 hidden、不删节点）────
+                                 · 导入源码 #sim-import      → 隐去（不再需要这个按钮）
+                                 · 移除文件 #sim-removefile  → 隐去（改由标签上的「−」实现）
+                                 · 解析 RTL #sim-parse       → 隐去（解析在编辑/运行时自动进行）
+                                 · 生成 TB  #sim-tb          → 隐去（运行仿真会自动生成 TB）
+                                 · 自动加信号 #sim-addsignals / 运行仿真 #sim-run
+                                   → 已整体搬到顶部编辑栏 #toolbar 末尾（见下方 toolbar） -->
+                        <div class="source-actions" hidden>
                             <button id="sim-import" title="从磁盘导入 .v/.sv 源码文件（可多选）">导入源码</button>
                             <button id="sim-removefile" title="移除当前源文件">移除文件</button>
                             <button id="sim-parse" title="解析 RTL，预览模块与端口">解析 RTL</button>
-                            <button id="sim-addsignals" title="按端口给画布建激励（不加入 VCD 观察行；加波形请在代码里双击变量）">自动加信号</button>
                             <button id="sim-tb" title="根据当前波形生成 testbench">生成 TB</button>
-                            <button id="sim-run" class="primary-btn" title="生成 TB 并运行 iverilog 仿真">运行仿真</button>
                         </div>
                     </div>
                     <textarea id="verilog-source" spellcheck="false"></textarea>
                     <!-- #75 P0：CodeMirror 6 宿主。可用时 ui-bridge 隐藏 textarea 并在此挂编辑器；
                          bundle 缺失（开发降级）时保持隐藏，textarea 照常工作。 -->
                     <div id="verilog-cm-host"></div>
-                    <div class="helper-box">
-                        <div id="port-preview" class="helper"></div>
-                        <div id="module-preview" class="helper"></div>
-                    </div>
                     <!-- 多文件/多模块设计：解析后自动填入全部 module，默认选「未被实例化」的顶层；
                          手动切换后生成 TB / 运行仿真都按选中的模块作为 DUT。 -->
                     <div id="sim-top-row" style="display:none;align-items:center;gap:8px;margin:2px 0;font-size:12px;">
@@ -924,11 +1026,15 @@
             <section class="sim-card" id="sim-card-tb" data-sim-card="tb">
                 <div class="sim-card-head" data-sim-card-toggle="tb" role="button" tabindex="0" aria-expanded="true" title="点击折叠 / 展开">
                     <span class="sim-sec-title">Testbench (TB)</span>
-                    <button id="sim-tb-copy" type="button" title="复制 testbench 到剪贴板">复制</button>
                     <span class="sim-card-chevron" aria-hidden="true">▾</span>
                 </div>
                 <div class="sim-card-body">
-                    <textarea id="tb-source" spellcheck="false" readonly placeholder="点击「生成 TB」生成 testbench，或点「运行仿真」后自动生成。"></textarea>
+                    <!-- 「复制」从卡片标题行搬进内容区顶部（第 37 轮）：停靠模式下卡片标题行
+                         （.sim-card-head）被隐藏（页签栏已经是标题），按钮留在这里才不会失效。 -->
+                    <div class="tb-actions">
+                        <button id="sim-tb-copy" type="button" title="复制 testbench 到剪贴板">复制</button>
+                    </div>
+                    <textarea id="tb-source" spellcheck="false" readonly placeholder="点顶部编辑栏的「运行仿真」后自动生成 testbench。"></textarea>
                 </div>
             </section>
             <!-- ── #sim-console = 「仿真状态」面板的宿主（停靠引擎的面板之一）────
@@ -940,6 +1046,16 @@
                  旧 UI 行为不变。 -->
             <div id="sim-console" class="sim-console">
                 <div id="sim-console-log" class="sim-console-log" role="log" aria-live="polite"></div>
+                <!-- ── 仿真提示框（原挂在源码卡片底部，第 37 轮用户裁决：搬到「仿真状态」面板）──
+                     两个 .helper 节点是**真机原生节点、只换父节点**（id / class 不动），
+                     ui-bridge 的 refs.portPreview / refs.modulePreview 照常写入：
+                       · #port-preview   —— 解析结果：顶层模块 + 端口清单
+                       · #module-preview —— 仿真提示框：完成摘要 / 结果诊断 / 失败原因 / 自愈进度
+                     `.helper:empty{display:none}` ⇒ 无内容时整块不占高度。 -->
+                <div class="helper-box" id="sim-console-notes">
+                    <div id="port-preview" class="helper"></div>
+                    <div id="module-preview" class="helper"></div>
+                </div>
                 <div id="sim-status" class="sim-status"></div>
                 <!-- 服务彻底死亡时的手动自愈入口（默认隐藏，ui-bridge 在自动恢复失败时显示）。
                      点击后用 wavepaint: 协议拉起 exe；首次浏览器会弹一次「是否允许打开

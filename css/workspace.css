@@ -8,7 +8,8 @@
  *   于是「真机 = 原型」共用同一份外壳样式，不再各养一份拷贝。
  *
  * 三条铁律：
- *   1) 作用域：除 :root 布局常量外，**所有**规则都挂在 body.wp-dock 之下。
+ *   1) 作用域：除 :root 布局常量、以及 §0.5 那条工具带换行规则（唯一显式例外，
+ *      两种挂载方式下都要生效）外，**所有**规则都挂在 body.wp-dock 之下。
  *      带 ?dock=off（逃生口，见 js/sim/dock/workspace.js 的 dockDisabled）
  *      时 body 上没有 wp-dock 类 → 本文件对旧侧栏 UI 零影响，旧 UI 照常工作。
  *   2) 不重绘真机：菜单栏 / 工具带 / 波形画布 / 源码卡片 / 结构树的**外观**一律
@@ -35,6 +36,20 @@
      · ?dock=off 时外壳完全不参与布局，旧侧栏 UI 与改动前逐像素一致；
      · 脚本执行前不会有半截状态栏闪一下（FOUC）。 */
 #workbench, #wp-status-bar { display: none; }
+
+/* ══ 0.5 工具带窄窗口换行（全局规则，本文件唯一的「非 wp-dock 作用域」例外）══
+   问题：真机 #toolbar 是 flex-wrap:nowrap + overflow:visible（见
+   css/wavepaint.e7b903ef.css），内容总宽约 1470px（宽屏基准）。窗口窄于这个宽度时
+   右端控件（曾为「适应窗口」，第 37 轮起末端是「自动加信号 / 运行仿真」）被推出
+   视口 → elementFromPoint 命中 null → 按钮「看得见但点不动」。
+   历史上这是「运行仿真点不动」的真凶（e2e-ui I8 在 750x485 下按坐标点它）。
+   修法：允许换行。宽屏下 flex 行不会提前断行（.spacer 的 flex-basis 为 0，
+   不占基准宽），所以 ≥1470px 时外观与改动前逐项一致；窄屏下工具栏变两三行，
+   所有控件始终留在视口内可点。
+   ⚠ 不能改成 overflow-x:auto：按 CSS 规范 overflow-x:auto 会把 overflow-y 变成
+   auto，从而**裁掉** .dropdown-content / .submenu-content 这类向下弹出的菜单
+   （添加信号、位状态、进制等全部失效）。 */
+#toolbar { flex-wrap: wrap; }
 
 /* 真机 body 原来的高度是 auto（内容决定），因为旧 UI 全靠 #main-area 的
    100vh 与 position:fixed 自己撑起来。改成 flex 列布局后必须显式给 body 一屏高，
@@ -68,6 +83,16 @@ body.wp-dock .mk-host > #main-area > #wave-view { min-height: 0; }
 /* 源码 / RTL / VCD / TB 四张真机卡片：直接当面板内容（.sim-card 自带
    纵向 flex 与内部滚动，这里只把它从「侧栏里的一份子」改成「占满面板」）。 */
 body.wp-dock .mk-host > .sim-card { flex: 1 1 auto; min-height: 0; }
+
+/* 卡片自带的标题行（.sim-card-head）= 与面板页签栏（.mk-tab）重复的「第二层标题栏」。
+   第 37 轮用户点名：右侧源码/TB 面板里出现「块里套块、双层标题栏」，要求直接去掉。
+   停靠模式下页签栏就是唯一标题 → 隐藏卡片标题行；配套解除 .collapsed（旧侧栏的
+   「点标题折叠」状态存在 sessionStorage 里，若不解除，折叠卡片搬进面板后会变成
+   「没有标题行、也没有内容」的空面板）。
+   ⚠ ?dock=off 旧侧栏 UI 不隐藏：那里的折叠交互完全依赖这一行。 */
+body.wp-dock .mk-host > .sim-card > .sim-card-head { display: none !important; }
+body.wp-dock .mk-host > .sim-card.collapsed { flex: 1 1 auto; }
+body.wp-dock .mk-host > .sim-card.collapsed > .sim-card-body { display: flex; }
 
 /* 被隐藏 / 被并成页签 / 停在别处的真机节点暂存区：
    display:none → 不参与布局，也不触发画布重排（但节点仍在文档里，
@@ -279,6 +304,15 @@ body.wp-dock #sim-console-log {
     white-space: pre-wrap; word-break: break-all;
 }
 body.wp-dock #sim-console-log .mk-cline { color: #d5e6d5; }
+/* 仿真提示框（#sim-console-notes）：原来挂在源码卡片底部的 .helper-box，
+   第 37 轮用户裁决「运行完仿真后底下的提示框直接放到仿真状态的 log 框里」，
+   于是整块（含 #port-preview / #module-preview 两个真机 .helper 节点）搬到
+   #sim-console 内：日志区之下、状态行之上。两个 .helper 都为空时整块收起。 */
+body.wp-dock #sim-console > #sim-console-notes {
+    flex: 0 1 auto; min-height: 0; max-height: 40%; overflow: auto;
+    margin: 6px 8px 0;
+}
+body.wp-dock #sim-console > #sim-console-notes:not(:has(.helper:not(:empty))) { display: none; }
 body.wp-dock #sim-console > #sim-status {
     flex: 0 0 auto; margin: 0; padding: 5px 8px; min-height: 24px;
     background: var(--toolbar-bg, #f8faf8); border-top: 1px solid var(--section-border, #e0e8e0);
@@ -302,6 +336,7 @@ body.wp-dock #sim-console > #sim-recover {
    这里补回等价观感，让逃生口下的侧栏与改动前完全一致（回归脚本按此口径断言）。 */
 body:not(.wp-dock) #sim-console { flex: 0 0 auto; display: flex; flex-direction: column; }
 body:not(.wp-dock) #sim-console-log { display: none; }
+body:not(.wp-dock) #sim-console > #sim-console-notes { flex: 0 0 auto; max-height: 40%; overflow: auto; }
 body:not(.wp-dock) #sim-console > #sim-status {
     flex: 0 0 auto; position: sticky; bottom: 0; z-index: 2;
     background: var(--toolbar-bg, #f8faf8);

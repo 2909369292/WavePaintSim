@@ -1553,17 +1553,37 @@ function setStatus(text) {
 function renderFileTabs() {
   if (!refs.sourceFiles) return;
   refs.sourceFiles.replaceChildren(...state.files.map((file, index) => {
+    const label = file.name || `file_${index + 1}`;
+    // 标签 = .source-tab 容器（.source-chip 文本 + .source-chip-close 关闭键）。
+    // ⚠ 关闭键是 chip 的**兄弟**而不是子节点：e2e-rtl E2 断言
+    //   document.querySelector('#source-files .source-chip.active').textContent === 'sub.v'，
+    //   若把「−」塞进 chip 里，chip 文本就会变成 'sub.v−' 而破坏该契约。
+    const tab = document.createElement("div");
+    tab.className = "source-tab" + (index === state.active ? " active" : "");
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = "source-chip" + (index === state.active ? " active" : "");
-    chip.textContent = file.name || `file_${index + 1}`;
+    chip.textContent = label;
+    chip.title = label;
     chip.addEventListener("click", () => {
       syncEditor();
       state.active = index;
       setEditorText(currentFile()?.content || "");
       renderFileTabs();
     });
-    return chip;
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "source-chip-close";
+    close.textContent = "−"; // 用户点名的「小减号」：点它移除这一个文件
+    close.disabled = state.files.length <= 1;
+    close.title = close.disabled ? "至少保留一个源文件" : `移除 ${label}`;
+    close.setAttribute("aria-label", close.title);
+    close.addEventListener("click", (event) => {
+      event.stopPropagation();
+      removeFileAt(index);
+    });
+    tab.append(chip, close);
+    return tab;
   }));
   setEditorText(currentFile()?.content || "");
   scheduleRtlTreeRefresh();
@@ -1581,12 +1601,24 @@ function addFile() {
 }
 
 function removeFile() {
-  if (state.files.length <= 1) return;
+  removeFileAt(state.active);
+}
+
+// 按索引移除（第 37 轮）：文件标签上的「−」直接点谁删谁，不再只能删「当前」文件。
+// 活动标签的收敛规则：
+//   · 删的是活动标签左边的文件 → 活动索引左移一位（内容不变，仍停在同一文件上）；
+//   · 删的就是活动标签         → 活动索引原地不动（自动落到后一个；越界时退到最后一个）；
+//   · 删的是活动标签右边的文件 → 活动索引不变。
+function removeFileAt(index) {
+  const count = state.files.length;
+  if (count <= 1) return;                      // 护栏：至少保留一个源文件
+  const at = Math.max(0, Math.min(Number(index) || 0, count - 1));
   syncEditor();
-  state.files.splice(state.active, 1);
-  state.active = Math.max(0, state.active - 1);
+  state.files.splice(at, 1);
+  if (state.active > at) state.active -= 1;
+  state.active = Math.max(0, Math.min(state.active, state.files.length - 1));
   renderFileTabs();
-  setStatus("已移除当前文件。");
+  setStatus(`已移除文件（剩 ${state.files.length} 个）。`);
   render();
 }
 
@@ -2019,6 +2051,31 @@ function showAppVersion() {
 // #86 A4：存档桥必须尽早安装 —— 分享链接（#d=/#j=）的自动载入发生在核心初始化阶段，
 // 装晚了就会漏掉那一次「载入 → 恢复源码集合」。模块求值时机早于 DOMContentLoaded。
 installProjectArchiveBridge();
+
+// ── 工具带实测高度 → CSS 变量 --wp-toolbar-h（第 37 轮）──────────────────────
+// 用途：旧侧栏 #sim-panel 是 position:fixed，index.html 里用
+//   top: calc(40px + var(--wp-toolbar-h, 46px) + 6px)
+// 贴到工具带下缘。工具带在窄窗口下允许换行（css/workspace.css §0.5），高度不再是
+// 恒定的 46px —— 写死的话侧栏会反过来盖住工具带末端的「自动加信号 / 运行仿真」
+// （e2e-ui I8 在 750x485 下按坐标点它时命中 #sim-panel-header 就是这个原因）。
+// 停靠模式（body.wp-dock）下侧栏 display:none，写这个变量同样无害：只改一个 CSS
+// 变量，不碰任何布局状态、不重绘真机节点。
+function syncToolbarHeight() {
+  const bar = document.getElementById("toolbar");
+  if (!bar) return;
+  const h = Math.round(bar.getBoundingClientRect().height);
+  const root = document.documentElement;
+  if (h > 0 && root && root.style && typeof root.style.setProperty === "function") {
+    root.style.setProperty("--wp-toolbar-h", h + "px");
+  }
+}
+syncToolbarHeight();
+if (typeof window.addEventListener === "function") window.addEventListener("resize", syncToolbarHeight);
+if (typeof document.addEventListener === "function") document.addEventListener("DOMContentLoaded", syncToolbarHeight);
+if (typeof ResizeObserver === "function") {
+  const bar = document.getElementById("toolbar");
+  if (bar) new ResizeObserver(() => syncToolbarHeight()).observe(bar);
+}
 
 // 调试 / 自动化测试入口（e2e 探针用；不参与产品逻辑，不写入全局状态）。
 window.__wpsim = {
