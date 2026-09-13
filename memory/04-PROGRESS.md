@@ -5,7 +5,7 @@
 
 ---
 
-## 1. 当前状态快照（2026-09-13）
+## 1. 当前状态快照（2026-09-13，第二十三轮后）
 
 | 项 | 状态 |
 |---|---|
@@ -16,9 +16,10 @@
 | 最近完成需求 | **#87②：模块/实例全部接口一键入波形（2026-09-10 第十九轮落地，见 §4.17）**；**第二十一轮新增「UI 形态拍板」：可拖拽多面板 + 侧栏保持右侧 + 层次树暂不左置（见 §4.19 / 08 §2.2）**。此前 **#76 已收口**：B5（第十八轮，§4.16）、B3（第十七轮）、B4（第十六轮）、B1（第十五轮）、**#86 A1~A4**（第十四轮）、**#86 服务在线性**（第十三轮）、**#85**（第十轮）、第十二轮 RTL 树瘦身、第六轮 5 项 + #93 收官 |
 | 最近完成文档 | **第二十一轮记忆同步**（2026-09-11）：新增 §4.19（可拖拽多面板落地全记录 + 矮窗口工具栏裁剪修复）、08 §2.2/§2.6 把三条取舍写成**已拍板结论**并重写分期（本轮一次落地原 P2 核心）、07 D20 升级为「**已采纳：可拖拽多面板**」+ 新增 **D21**、09 §3 切第二十一轮、当日日志「第二十一轮」、`05-LOGS.md` 索引、`INDEX.md` 页脚、03「其它规划」段。叠加生效的仍是**第十二轮澄清**：加信号主路径 = 代码内点/选中变量（“中追”式 = #87①/#76 B4，**已落地**）；RTL 结构树为纯代码层级浏览（文件→模块→实例），不显示接口信号、不承载加信号交互（原 #76 B2 撤销）。见 §4.10 / 03 表 F/H / 08 §1.2/§2 |
 | 最近一轮（第二十一轮，2026-09-11） | **侧栏「可拖拽多面板」落地（用户拍板后首轮 UI 实施，详见 §4.19）**。用户三条裁决：① 面板形态 = **可拖拽多面板**（splitter）；② 侧栏**保持右侧**、`#main-area` 骨架不动；③ 层次树**暂不左置**；实施步骤授权 AI 自定 → **当轮一次落地（原 P2 核心，不再远期）**。① `index.html`：`#main-area` padding-right 与 `#sim-panel` width 改读 `var(--sim-panel-w,328px)`；新增 `.sim-panel-body`（纵向 flex + `overflow-y:auto`）/`.sim-card*`（卡片+折叠头）/`.sim-split`（10px 纵向拖拽条 + `.disabled`）/`#sim-resize-x`（左缘 7px 宽度条）/`body.sim-resizing`；**`#sim-status` 加 `position:sticky;bottom:0`**；DOM 重排为 4 个 `<section class="sim-card" data-sim-card>` + 3 个 `<div class="sim-split" data-sim-split>`，新增 `#sim-panel-body`/`#sim-resize-x`，**所有既有 id/class 一个未改**；`#sim-tb-copy` 移进 TB 卡片头；`#sim-addsignals` 的 `title` 降级说明。② `js/sim/panel-layout.js`（新增约 520 行）：`installSimPanelLayout({panel,body,handle,storageKey,onLayout})` —— 折叠（标题行内 button/a/input/select/textarea/label 点击不折叠，保护 `#sim-tb-copy`）、像素权重高度（`flex-grow=权重/总权重*100`+`flex-basis:0`，默认 `{source:300,rtl:245,vcd:245,tb:190}`）、**`measureMinHeight`/`applyMinHeights`**（固定块按实测高、弹性块按自身 min-height，`min-height=min(实测, 面板可视高*0.8)`）、splitter 拖拽（`resizePair` 重分配 + `body.sim-resizing` + 折叠则 `.disabled`）、`setWidth` clamp 280~min(760,视口*60%) + rAF 节流派发 `window resize`、**仅 `sessionStorage`**（`wavepaint.sim-panel-layout.v1`，`{v,w,c,width}`，220ms 防抖）、键盘可达（splitter `ArrowUp/Down` ±16px、`#sim-resize-x` `ArrowLeft/Right`）、导出 `{getState,setWidth,reset,destroy}`。③ `js/sim/ui-bridge.js`：接入 `installSimPanelLayout` + `initPanelLayout()`（`bindEvents()` 后）、`refs.panelBody`/`refs.resizeHandle`、**删死引用 `el("sim-collapse")`**、`__wpsim` 增 `panelLayout`/`setPanelWidth`/`resetPanelLayout` 探针。④ `js/sim/rtl-panel.js`：`installCodeEditor` 返回值加 `remeasure()`（CM6 ResizeObserver <75ms 跳过保护会导致拖 splitter 漏重排）。⑤ `tools/e2e-ui.mjs` +**I0~I8（13 条）→ 86/86**。**本轮真 bug 修复**：headless Edge 视口 750×485 下源码卡只剩 80px、其 `.source-toolbar` 实测 170px → 工具栏被裁 → `#sim-run` 坐标点击落到 VCD 卡、仿真不触发（= 用户反复报的「点仿真无响应」又一根因）；`verify-recovery2` D1/D1b 首跑即复现，修复后 17/17。exe 重建（22,012,416 B / 2026-09-11 00:15:01）。**未改 `wavepaint.clean.js` 与 `sim/engine.js` 一行**（C9） |
-| 最新一轮（第二十二轮，2026-09-13，**纯规划 / 零产品代码改动**） | **面板系统重构方案成文 + 后端能力盘点**（用户要求「确认现在完成的功能 + 汇报后端支持如何 + 做出详细项目安排」）。落盘 **08 §6**：§6.1 后端能力表（传输/仿真/解析/激励/回显/存档/快照/可用性，全部带文件行号证据）/ §6.2 后端缺口 **G1~G8**（G1 TB 只读=最大缺口、G2 无日志与进度、G3 编译选项不可配、G4 无取消、G5 VCD 全量文本、G6 `/api/snapshot` 未接线、G7 单顶层、G8 解析器是 SV 子集）/ §6.3 前端面板现状 / §6.4 差距表 / §6.5 选型（**自研 dock 引擎为主**，Lumino/golden-layout 备选，React 系与 iframe 多窗否决）/ §6.6 目标架构（PanelRegistry + LayoutTree + DockDnD 三层，左/中/右/下四区 + 页内浮动层）/ §6.7 契约面与 e2e 影响面 / §6.8 分期 **#94 D0~D4 + #95 E1~E5 + #96 W1~W3** / §6.9 验收与回滚 / §6.10 四条待拍板 / §6.11 与远期关系。**本轮不重建 exe**（C1 未触发）。详见 04 §4.20、03 表 K、07 D22、日志 2026-09-13。**下一步 = 用户对 08 §6.10 四条拍板后才开工（D20「先方案后实施」）** |
-| 当前阻塞 | 无（**唯一门禁 = 用户对 08 §6.10 四条待拍板项的裁决**） |
-| 下一步主线 | **① 等用户拍板 08 §6.10**（是否解除「侧栏保持右侧」/是否解除「层次树暂不左置」/浮出窗口边界=页内浮动 vs 真独立窗口/布局是否写进 `.wp`）；拍板后按 **08 §6.8** 开工：**#94 D0（面板注册表 + 宿主容器抽象，零视觉变化，关键闸门）→ D1 停靠引擎 → D2 浮动/最大化 → D3 布局持久化与预设 → D4 打磨**；**#95 E1（TB 可编辑）+ E2（日志/进度/取消）** 与 #94 正交、建议并行优先（这是用户「通用仿真器」诉求的最小充分集）。**08 §2.6 的三项剩余（VCD 树移入波形区 / TB 控制带收敛 / 层次树左置）直接并入 #94 D1**，不再单独排期。**#84 波形查看增强 / #77 Active Annotation / #78 仍为远期**（08 §3）；RTL 树仍只做代码层级浏览；服务自愈（§4.11）是独立专项（C19 不变量） |
+| 上一轮（第二十二轮，2026-09-13，**纯规划 / 零产品代码改动**） | **面板系统重构方案成文 + 后端能力盘点**（用户要求「确认现在完成的功能 + 汇报后端支持如何 + 做出详细项目安排」）。落盘 **08 §6**：§6.1 后端能力表（传输/仿真/解析/激励/回显/存档/快照/可用性，全部带文件行号证据）/ §6.2 后端缺口 **G1~G8**（G1 TB 只读=最大缺口、G2 无日志与进度、G3 编译选项不可配、G4 无取消、G5 VCD 全量文本、G6 `/api/snapshot` 未接线、G7 单顶层、G8 解析器是 SV 子集）/ §6.3 前端面板现状 / §6.4 差距表 / §6.5 选型（**自研 dock 引擎为主**，Lumino/golden-layout 备选，React 系与 iframe 多窗否决）/ §6.6 目标架构（PanelRegistry + LayoutTree + DockDnD 三层，左/中/右/下四区 + 页内浮动层）/ §6.7 契约面与 e2e 影响面 / §6.8 分期 **#94 D0~D4 + #95 E1~E5 + #96 W1~W3** / §6.9 验收与回滚 / §6.10 四条待拍板 / §6.11 与远期关系。**本轮不重建 exe**（C1 未触发）。详见 04 §4.20、03 表 K、07 D22、日志 2026-09-13。**下一步 = 用户对 08 §6.10 四条拍板后才开工（D20「先方案后实施」）** |
+| 最新一轮（第二十三轮，2026-09-13） | **用户四条拍板（全部通过）+ 交付零后端纯前端 UI 原型**（详见 §4.21）。拍板：① 面板形态 = **页内浮动面板**（不做真独立 OS 窗口）；② **解除**「侧栏保持右侧」；③ **解除**「层次树暂不左置」；④ 布局**暂不写 `.wp`**。另令：**G1~G8 全部暂不实现**（#95 整线后延）、**布局/预设/手感可先不做**，先只交付「假界面」给用户 review。产出：新增 `prototype/`（`ui-mockup.html` 9,625 B + `ui-mockup.css` 19,279 B + `ui-mockup.js` 45,656 B ≈960 行）= **完整轻量停靠引擎原型**（`split`/`tabs` 布局树、8 面板、3 预设、四向停靠 + Tab 合并 + 最外环新建区、浮出/最大化/收回、分隔条像素→比例、`Ctrl+Alt+1/2/3/0`、`localStorage['wavepaint.mock.layout.v1']` 400ms 防抖、`window.__mock` 探针）；主题变量逐条抄自真机 `:root`、类名统一 `mk-` 前缀、**与真前端零命名冲突**。验收：新增 `tools/mock-probe.mjs`（真实 Edge headless + CDP + dev-server）**34/34 全通过**，含真实鼠标拖拽、浮窗拖动、布局体检 F1~F10（无裁切/无溢出/图片全加载）。**原型内修掉 4 个真缺陷**（忽略 `opts.x/y` / `applyPreset` 忽略预设名 / 浮窗拖动无落点提示 / `pointerup` 无坐标）。**C1 未触发、未重建 exe**，`prototype/` 与 `tools/` 均不进 `resources.txt` |
+| 当前阻塞 | 无（**唯一门禁 = 用户 review `prototype/ui-mockup.html` 的原型形态**；这是 D-1 闸门，通过后才做 D0/D1 真接线） |
+| 下一步主线 | **D-1 原型评审（进行中）**：用户打开 `http://127.0.0.1:8951/prototype/ui-mockup.html`（先 `node tools/dev-server.mjs 8951`）看形态 → 提修改 → 我改原型（零风险沙盘）。**review 通过后**按 **08 §6.8** 开工：**#94 D0（面板注册表 + 宿主容器抽象，零视觉变化，关键闸门）→ D1 停靠引擎（把原型的 `split`/`tabs` 模型 + `hitTest` + 落点框搬进 `js/sim/dock/*.js`）→ D2 页内浮动 + 最大化 → D3 布局持久化（sessionStorage 保底 + localStorage 跨会话 + 3 预设 + reset）→ D4 打磨**。**#95（G1~G8）已由用户明确暂不实现**，方案保留在 08 §6.2，恢复前须重新确认意图。**08 §2.6 的三项剩余（VCD 树移入波形区 / TB 控制带收敛 / 层次树左置）直接并入 #94 D1**，不再单独排期。**#84 波形查看增强 / #77 Active Annotation / #78 仍为远期**（08 §3）；RTL 树仍只做代码层级浏览；服务自愈（§4.11）是独立专项（C19 不变量） |
 | 测试基线 | regression **79/79**；e2e-rtl **61/61**；**e2e-ui 86/86**（第二十一轮新增 **I0~I8 共 13 条**：可拖拽多面板装配 / flex-grow 归一 / 折叠展开 / splitter 键盘调高 / 宽度 clamp / sessionStorage 落盘 / reset / 矮窗口 `#sim-run` 命中）；e2e-sim 0 失败；probe-param 全过；**2026-09-11 第二十一轮实测复跑（全部实测）：regression 79/79、e2e-ui 86/86、e2e-rtl 61/61、e2e-sim 0 失败、probe-param 全过、真 exe 冒烟通过、`verify-recovery2` 17/17**（B4 起「仿真后不全量灌信号」的 e2e-sim 断言仍在守） |
 | UI 基线 | e2e-rtl **61/61**（含 #85 D1~D6 + 第十二轮 B3 RTL 树纯层级浏览 + 第十四轮 E1~E6 + 第十五轮 F1~F9 + 第十六轮 G1~G7 + 第十七轮 H1/H2/H3/H4/H4b/H5/H6 + 第十八轮 I1~I6 + 第十九轮 J0~J7）；**e2e-ui 86/86**（真实 Edge；第二十一轮新增 **I0~I8：4 卡 + 3 splitter 装配 / `flex-grow` 归一化 100 且 `flex-basis:0px` / 折叠 `.collapsed`+`display:none`+相邻 splitter disabled+aria / 展开还原 / `ArrowDown` `source=原高+16`·`rtl=原高-16` / 宽度 420·下限 280·上限 760 / sessionStorage v1 落盘 / reset 回 328+展开+300-245-245-190 / 矮窗口 750×485 下 `#sim-run` 命中自身**）；probe-tutorial / probe-addbtn / probe-simfail 全过；真 exe 冒烟通过（端口 17817、core/wpf/doc/canvas/汉化全在、无异常）；第十三轮自愈专测 `verify-recovery2.mjs` 17/17 + 真实 Edge 协议探针 `probe-protocol.mjs` |
 | 交付提醒 | 重启应用、从唯一路径启动、面板版本号自查（应显示 `v0.4.0 build 2026-09-11 00:15:01 69b84d0`；⚠ `69b84d0` = **构建时 HEAD**（第二十轮方案 commit），承载第二十一轮多面板代码的 commit 是它的**下一个** —— **别误判 exe 落后**，口径见 05/09 第十六轮补记）；本次 exe 内置第二十一轮 **可拖拽多面板（卡片折叠 + 纵向 splitter + 侧栏宽度 + session 级持久化 + 矮窗口工具栏裁剪修复）**、第十九轮 #87②（`Ctrl+Alt+4`）、第十八轮 #76 B5、第十七轮 #76 B3、第十六轮 #76 B4（+ 不再仿真后全量灌信号）、第十五轮 #76 B1、第十四轮 #86 A1~A4、第十三轮服务自愈（端口 17817 + `WPServiceGuard` + `#sim-recover` 按钮）、第十二轮 RTL 树瘦身、#85 与第六轮收官 clean.js。**首次**自愈时浏览器会弹一次「是否允许打开 wavepaint:」，勾选「始终允许」后无感（浏览器安全策略，无法绕过） |
@@ -57,6 +58,7 @@
 | 2026-09-10 | 第二十轮：**侧栏 / 整体 UI 重构设计方案交付（纯规划文档，本轮唯一交付物）** | 用户指令「按照规划继续」（承接第十九轮，其下一项 = 侧栏 / 整体 UI 重构设计方案）。**只出方案、未动任何受版本控制代码** → 不触发 C1、**本轮不重建 exe**。先做只读调研并建临时审计脚本 `.e2e-tmp/ui-audit.mjs`（`.gitignore` 覆盖，不入库），实测：`index.html` 904 行 / 静态 id 82 个 /「js 引用但 DOM 无 id」31 个 / 内联 `<style>` L26~L471 / 侧栏 DOM L733~L803 / 仿真栏 24 个 id 全部由 `ui-bridge.js` `el(...)` 抓取；顺带**纠正上一轮两处口径**（e2e-rtl 实为 28 处 CSS 选择器依赖；侧栏已无「收起」按钮，`el("sim-collapse")` 是死引用）。方案落盘 `08-ROADMAP.md` §2.1~§2.9：现状问题清单（P1 空间 / P2 数量 / P3 语义遗留 / P4 结构 / P5 CSS 双轨）+ 仿 Verdi「三区 + 一条控制带」目标布局 + 面板归位表 + 三条取舍选项 + 六条主线衔接点 + **契约面冻结清单**（24 id / class-dataset / `title` 全路径 / 状态类）+ P0/P1/P2 分期 +「UI 设计交给其它 AI」评估 + 交互清单。**状态 = 待用户 review**；用户拍板后按 08 §2.6 P0 开工（P0 起才动代码，届时须 C1 重建 exe + C8 核验 + 全量测试 + C17 记忆同步 + C2/C3 commit/push）。详见 04 §4.18、08 §2、07 D20、日志 2026-09-10 第二十轮 |
 | 2026-09-11 | 第二十一轮：**侧栏「可拖拽多面板」落地（用户拍板后首轮 UI 实施）** | 用户拍板：① 面板形态 = **可拖拽多面板**；② 侧栏**保持右侧**、`#main-area` 骨架不动；③ 层次树**暂不左置**；实施步骤授权 AI 自定 → **当轮一次落地（原 P2 核心，不再远期）**。`index.html` 4 卡改 `<section class="sim-card">` + `.sim-card-head`（可折叠）+ 3 条纵向 `.sim-split` 拖拽条 + 侧栏左缘 `#sim-resize-x` 改宽度（clamp 280~min(760,视口*60%)）；新增 `js/sim/panel-layout.js`（约 520 行 `installSimPanelLayout`：折叠 / 像素权重高度 / splitter / 宽度 / 键盘可达，**只存 sessionStorage**）；`ui-bridge.js` 接线 + 删 `sim-collapse` 死引用 + 探针；`rtl-panel.js` `installCodeEditor` 加 `remeasure()`。**所有既有 id/class 一个未改**（契约面全数保住）。**顺带修掉一个真 bug（= 用户反复报「点仿真无响应」的又一根因）**：矮窗口 750×485 下源码卡只剩 80px、170px 工具栏被裁 → `#sim-run` 坐标点击落到 VCD 卡、仿真不触发 → `measureMinHeight`/`applyMinHeights` + `.sim-panel-body{overflow-y:auto}` + `#sim-status` 吸底修复。`tools/e2e-ui.mjs` +I0~I8（13 条）→ 86/86。验证：regression 79/79、e2e-ui 86/86、e2e-rtl 61/61、e2e-sim 0 失败、probe-param 全过、真 exe 冒烟通过、`verify-recovery2` 17/17；exe 重建（22,012,416 B / 2026-09-11 00:15:01）；**未改 `wavepaint.clean.js` 与 `sim/engine.js` 一行**（C9） |
 | 2026-09-13 | 第二十二轮：**面板系统重构方案成文 + 后端能力盘点（纯规划文档，零产品代码改动）** | 用户要求「确认现在完成的功能 + 汇报后端支持如何 + 做出详细项目安排」，并给出终局目标 = **Verdi 式波形/代码/代码树等窗口的 Word 式自由排列组合与自由拖拽**。本轮交付 **08 §6**（§6.1 后端能力表 / §6.2 缺口 G1~G8 / §6.3 前端现状 / §6.4 差距表 / §6.5 选型 / §6.6 目标架构 / §6.7 契约面与 e2e 影响面 / §6.8 分期 #94 D0~D4 + #95 E1~E5 + #96 W1~W3 / §6.9 验收与回滚 / §6.10 四条待拍板 / §6.11 与远期关系）。**关键实测结论**：① 后端闭环已通（画布→自动 TB→iverilog→VCD→观察行），但只覆盖「单顶层 + 画布即激励」；关键常量 `ProcessTimeoutMs=30000`、`MaxBodyBytes=8 MiB`、`MaxSnapshots=20`；② **最大缺口 G1 = TB 只读**（`#tb-source` readonly，`ui-bridge.js:1305` 只能自动生成），其次 G2 无日志/进度、G3 无编译选项、G4 无取消、G5 VCD 全量文本、G6 `/api/snapshot` 未接线、G7 单顶层、G8 解析器为 SV 子集；③ 选型建议**自研轻量 dock 引擎**（`js/sim/dock/*.js`，契约面可控 + 复用 D21 `remeasure()` 经验），Lumino/golden-layout 备选，React 系与 iframe 多窗否决（后者重踩 #82 老坑）；④ 架构三层 = `PanelRegistry`（复用现有 DOM 节点、只搬父容器 → id 天然不变）+ `LayoutTree` + `DockDnD`，四区 + 页内浮动层；⑤ 分期 **D0 零视觉变化是关键闸门**（回滚=1 commit）；**#95 E1+E2 与 #94 正交、建议并行优先**；⑥ 门禁 = 用户对 §6.10 四条拍板（解除「侧栏保持右侧」/解除「层次树暂不左置」/浮出=页内浮动 vs 真独立窗口/布局是否进 `.wp`）。本轮不触发 C1、不重建 exe；见 04 §4.20、03 表 K、07 D22、日志 2026-09-13 |
+| 2026-09-13 | 第二十三轮：**四条拍板 + 零后端纯前端 UI 原型交付（D-1 闸门）** | 用户拍板 §6.10 四条**全部通过**（页内浮动面板 / 解除「侧栏保持右侧」/ 解除「层次树暂不左置」/ 布局暂不写 `.wp`），并下令 **G1~G8 全部暂不实现**、**布局与预设可先不做**，要求先做**不连后端、无功能的假界面**供 review。本轮交付 `prototype/ui-mockup.{html,css,js}`（≈960 行轻量停靠引擎：`split`/`tabs` 布局树 + 8 面板 + 3 预设 + 四向停靠/Tab 合并/最外环新建区 + 浮出/最大化/收回 + 分隔条像素↔比例 + `Ctrl+Alt+1/2/3/0` + `localStorage` 400ms 防抖 + `window.__mock` 探针；主题变量抄自真机 `:root`，类名 `mk-` 前缀零冲突）。验收：`tools/mock-probe.mjs`（真实 Edge headless + CDP + dev-server）**34/34 全通过**（含真实鼠标拖拽 B0~B3、浮窗拖动 C 组、布局体检 F1~F10）。原型内修 4 个真缺陷。**C1 未触发、未重建 exe**（`prototype/`、`tools/` 均不进 `resources.txt`）。**下一步 = 等用户 review 原型形态**，通过后进 D0/D1 真接线。详见 §4.21 / 07 D22 / 08 §6.10 / 日志 2026-09-13 |
 
 ---
 
@@ -1216,6 +1218,104 @@ Verdi 式左右分栏）；② 是否**解除「层次树暂不左置」**（不
 **本轮零产品代码改动** → 无 exe 重建；新增/更新记忆：08 **§6**（新增，约 200 行）、03 表 K
 （#94/#95/#96）、本 §4.20、§1 快照（日期 + 最新一轮行 + 下一步主线行）、07 D22、09 §1/§3、
 `05-LOGS.md` 索引、`memory/logs/2026-09-13.md`。
+
+---
+
+### 4.21 ✅ 已完成（原型，零后端）：纯前端 UI 原型 `prototype/ui-mockup.*`（第二十三轮 2026-09-13）
+
+> **本节的成品 = 给用户 review 的「假界面」**：可停靠 / 可拖拽 / 可浮出的多面板工作台外观，
+> **完全假数据、零后端、零功能**。目的：在动真前端（`index.html` / `js/` / `css/`）之前，
+> 先让用户对**形态**拍板，避免大改后返工。**本轮 C1 未触发**（见下「不做的事」）。
+>
+> 用户原话：「G1 到 G8 暂不实现，可以解除侧栏解除层次树暂不左置，页内浮动面板，布局可以暂时不写。
+> 由于此项改动对于前端页面的改动比较大，为了减少工作量，可以先做一个**虚假的纯前端界面**，
+> 也就是不连接后端没有任何功能的前端界面。做出这样一个前端界面之后，给我看，我 review 完了、
+> 确认完了之后再进行后端连接的工作。」
+
+**① 用户本轮四条拍板（承接第二十二轮 08 §6.10，全部通过 —— 见 07 D22 / 08 §6.10）**
+
+| # | 条目 | 结论 |
+|---|------|------|
+| 1 | 面板形态 | **页内浮动面板**（**不做**真独立 OS 窗口）—— 与 08 §6.6「浮动层」一致 |
+| 2 | 「侧栏保持右侧」 | **解除**（原 08 §2.2 约束作废，可做 Verdi 式左右分栏） |
+| 3 | 「层次树暂不左置」 | **解除**（原 08 §2.2 约束作废，树可独立成区、可左置） |
+| 4 | 布局写进 `.wp` | **暂不写**（`.wp` 保持纯激励语义；原型阶段持久化只用 `localStorage`） |
+
+**另加两条本轮指令**：⑤ **G1~G8 全部暂不实现**（`#95` 整线后延，方案保留在 08 §6.2）；
+⑥ **布局 / 预设 / 拖拽手感可先不做**，本阶段只交付「能看」的原型。
+→ 实施路径落盘为 **D-1（原型评审闸门）**：**D-1 用户 review 通过 → 才做 D0/D1 接线**。
+
+**② 交付物（新增 `prototype/`，3 个文件，全部纯静态）**
+
+| 文件 | 体量 | 内容 |
+|------|------|------|
+| `prototype/ui-mockup.html` | 9,625 B | 原型横幅 + 菜单栏（文件/编辑/视图/**布局/面板/窗口**/帮助）+ 工具栏（**复用 `../img/*.svg` 真图标**）+ `#workbench` + `#mk-drop`/`#mk-caret` + `#mk-floats` + 状态栏（`#st-text`/`#st-layout`/`#st-panels`）+ 交互说明浮层 |
+| `prototype/ui-mockup.css` | 19,279 B | 主题变量**逐条抄自** `css/wavepaint.e7b903ef.css` 的 `:root`（浅色绿，视觉与真机一致）；全部类名统一 `mk-` 前缀，**与真前端零命名冲突** |
+| `prototype/ui-mockup.js` | 45,656 B（≈960 行） | 完整**轻量停靠引擎原型**（见下 ③） |
+| `tools/mock-probe.mjs` | 19,923 B | 真实 Edge headless + CDP 自动化验收探针（见下 ⑤） |
+
+**③ 原型引擎能力（`ui-mockup.js`）**
+
+- **模型**：`split{kind:"split",dir:"row"|"col",sizes[],children[]}` / `tabs{kind:"tabs",id,panels[],active}`
+  —— 与 08 §6.6 目标架构的 `LayoutTree` **同构**，将来可 1:1 搬到 `js/sim/dock/layout-tree.js`。
+- **8 个面板**：`wave`（波形画布，含**真实绘制**的 7 行信号 + 总线标签）/ `source`（代码）/ `rtl`（层次树）
+  / `vcd`（VCD 树）/ `tb`（激励）/ `console`（控制台）/ `files`（工程文件）/ `props`（属性）。
+  `PANEL_ORDER` 定序 + `HOME_ZONE` 定默认区。
+- **3 套预设**：`presetSim`（仿真态：波形居中最大 / 树在左 / 代码在右 / 控制台在下）/ `presetEdit`（编辑态）
+  / `presetReview`（审阅态，**预置 2 个浮动窗**）。
+- **命中测试** `hitTest()` → `tab` / `split` / `edge`：拖到**中心** = 合并为 Tab；拖到**四边** = 同区切分；
+  拖到**最外环** = 新建区。
+- **交互**：拖拽停靠（ghost + 蓝色落点框 + 插入光标 caret）/ 分隔条像素→比例双向换算 / Tab 切换 /
+  **中键或双击浮出** / ✕ 关闭 / 浮动窗**拖动 + 右下角 resize + ▣ 最大化 + ⤓ 收回** /
+  键盘 `Ctrl+Alt+1|2|3` 切预设、`Ctrl+Alt+0` 重置。
+- **持久化**：`localStorage['wavepaint.mock.layout.v1']`，400 ms 防抖 —— **明确不写 `.wp`**（用户第 4 条拍板）。
+- **探针**：`window.__mock` 暴露 `root`/`floats`/`visiblePanels`/`applyPreset`/`floatPanel`/`dockPanel`/
+  `hidePanel`/`showPanel`/`render`/`hitTest`/`placePanel`/`persistState`/`reset`（供自动化与将来接线复用）。
+
+**④ 本轮修掉的 4 个原型真实缺陷**（都通过探针实测发现，非纸上推演）
+
+1. `floatPanel(id, opts)` **忽略** `opts.x/opts.y` → `presetReview` 预置浮窗坐标丢失。**已修**：读取 opts。
+2. `applyPreset(name, hard)` 的 `hard` 分支**直接返回 `presetSim()`**，忽略传入预设名 →
+   `__mock.reset()` 与 `Ctrl+Alt+0` 语义混乱。**已修**：统一走 `PRESETS[name]`。
+3. **浮动窗拖动时不显示落点提示**（与停靠拖拽体验不一致）。**已修**：`startFloatDrag` 的 `move` 补
+   `showIndicator(hitTest(...))`，`up` 补 `hideIndicator()`。
+4. 浮动窗拖动松手时 `pointerup` 可能**无坐标** → 落点不更新。**已修**：`if (typeof e.clientX === 'number') move(e)`。
+
+**⑤ 验证：`node tools/mock-probe.mjs` → 34/34 全通过（退出码 0）**
+
+- 环境写法**照抄 `tools/e2e-ui.mjs`**：真实 Edge headless + CDP 9532 + `tools/dev-server.mjs 8951`，
+  `--disable-component-update`、`TEMP/TMP/TMPDIR` → `.e2e-tmp/system-tmp`、唯一 `--user-data-dir`、
+  `Emulation.setDeviceMetricsOverride 1680x1000`。
+- 断言分组：**A 结构** M0~M10 / **B 真实鼠标拖拽** TB→波形合并 Tab B0~B3 / **C 浮出 + 拖动 + 收回**
+  C1/C2a/C2b/C3 / **D 预设切换 + 隐藏恢复 + localStorage** D1~D3 / **E 无 JS 异常 + 无资源加载失败**
+  E1/E2 / **F 布局体检** F1~F10（无横向溢出 / 三段不重叠 / 工作区 875 of 1000 / 四窗格尺寸 /
+  波形 7 行路径与总线标签 / **无裁切文本** / 图片全加载 / 浅色主题生效 / 审阅预设 2 浮窗 / 帮助浮层）。
+- 实测布局：窗口 1680×1000；`#chrome` y=24 h=75；工具栏底=98；工作区 y=99 h=875（99→974）；
+  状态栏 974→1000；四组 = `rtl+vcd` 314×633 / `wave` 910×633 / `source+tb` 430×633 / `console` 1668×223。
+- 截图产物（`.e2e-tmp/`，已 gitignore）：`mock-1-sim.png` / `mock-2-drag.png` / `mock-3-merged.png` /
+  `mock-4-floats.png` / `mock-5-floats-dragged.png` / `mock-6-sim-clean.png` / `mock-7-edit-preset.png` /
+  `mock-8-review-preset.png` / `mock-9-help.png`。
+
+**⑥ 本轮「不做的事」（重要，防下一位 AI 误判）**
+
+- **未改** `index.html` / `js/**` / `css/**` / `img/**` / `lib/**` / `WavePaintLauncher.cs` / `build.ps1`
+  → **C1 未触发，未重建 exe**（exe 基线仍为 22,012,416 B / 2026-09-11 00:15:01）。
+- `prototype/` **不进 `resources.txt`**（`tools/gen-resources.mjs` 只扫 `index.html` + `css/js/img/lib` + `ivl.zip`），
+  即**不参与 exe 内嵌**；`tools/` 同理。评审后可删、可转正，均不影响产品产物。
+- **未实现 G1~G8 任何一条**；未接任何后端；原型里所有信号/波形/日志都是**假数据常量**。
+
+**⑦ 如何跑给用户看**
+
+```powershell
+node tools/dev-server.mjs 8951
+# 浏览器打开 http://127.0.0.1:8951/prototype/ui-mockup.html
+```
+
+**必须是 `http://`（经 dev-server）**：`file://` 下 `../img/*.svg` 受同源策略限制，图标会全丢。
+
+**⑧ 下一步（门禁）**：**等用户 review 原型形态**。通过后按 08 §6.8 开工 **D0**（面板注册表 + 宿主容器
+抽象，**零视觉变化**）→ **D1**（停靠引擎，把本原型的模型/命中测试/落点框搬进 `js/sim/dock/*.js`）。
+用户若要求调预设默认值 / 分区归属 / 视觉细节，**先改原型再接线**（原型是零风险沙盘）。
 
 ---
 

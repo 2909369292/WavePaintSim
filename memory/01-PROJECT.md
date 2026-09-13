@@ -124,6 +124,7 @@ VCD 结果回填画布，实现“画波形即可仿真 RTL”。
 | `js/util/id.js` | 通用工具：uid、deepClone、clamp |
 | `tools/` | 构建、回归、e2e、探针、开发服务器 |
 | `memory/` | 项目唯一记忆目录（本文件所在） |
+| `prototype/` | **UI 原型沙盘（第二十三轮新增）**：`ui-mockup.{html,css,js}` = 零后端纯前端界面，用于在动真前端前给用户 review **形态**。**不参与 exe 内嵌**（`tools/gen-resources.mjs` 只扫 `index.html` + `css/js/img/lib` + `ivl.zip`），评审后可删或转正。跑法见 `04 §4.21` |
 | `WavePaintLauncher.cs` | C# 壳：资源解压、HTTP、仿真、Edge 启动、自愈 |
 | `build.ps1` | 构建脚本，必须 UTF-8 BOM |
 | `ivl.zip` | iverilog 便携包 |

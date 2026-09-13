@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WavePaint UI 原型（假界面 · 未连接后端）</title>
+<link rel="icon" type="image/svg+xml" href="../img/favicon.svg">
+<link rel="stylesheet" href="ui-mockup.css">
+</head>
+<body class="mk">
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     WavePaint 目标 UI 原型（mock）
+     · 目的：给用户 review「Verdi 式四区停靠 + Word 式自由拖拽」的形态。
+     · 本文件**没有任何后端/仿真/画布功能**，面板内容全部是演示假数据。
+     · 独立目录 prototype/，不在 exe 内嵌资源清单里（不触发 C1）。
+     ══════════════════════════════════════════════════════════════════ -->
+
+<div id="mock-banner">
+  <b>UI 原型</b>·假数据·未连接后端
+  <button id="mock-help-btn" type="button">交互说明</button>
+</div>
+
+<div id="chrome">
+  <div id="menu-bar">
+    <img id="logo" src="../img/logo.webp" alt="WavePaint">
+    <ul id="menus">
+      <li class="mk-menu" data-menu="file">文件
+        <div class="mk-sub">
+          <div class="mk-mi" data-noop="1">新建<span class="mk-key">Ctrl+N</span></div>
+          <div class="mk-mi" data-noop="1">打开…<span class="mk-key">Ctrl+O</span></div>
+          <div class="mk-mi" data-noop="1">载入示例</div>
+          <div class="mk-mi" data-noop="1">另存为…<span class="mk-key">Ctrl+S</span></div>
+          <div class="mk-sep"></div>
+          <div class="mk-mi" data-noop="1">导入为 · VCD…</div>
+          <div class="mk-mi" data-noop="1">导出为 · PNG / SVG / CSV…</div>
+        </div>
+      </li>
+      <li class="mk-menu" data-menu="edit">编辑
+        <div class="mk-sub">
+          <div class="mk-mi" data-noop="1">撤销<span class="mk-key">Ctrl+Z</span></div>
+          <div class="mk-mi" data-noop="1">重做<span class="mk-key">Ctrl+Y</span></div>
+          <div class="mk-sep"></div>
+          <div class="mk-mi" data-noop="1">清除所有信号</div>
+          <div class="mk-mi" data-noop="1">编辑选中值<span class="mk-key">Enter</span></div>
+        </div>
+      </li>
+      <li class="mk-menu" data-menu="view">视图
+        <div class="mk-sub">
+          <div class="mk-mi" data-noop="1">主题</div>
+          <div class="mk-mi" data-noop="1">时间轴</div>
+          <div class="mk-mi" data-noop="1">VCD 信号面板</div>
+        </div>
+      </li>
+      <li class="mk-menu" data-menu="layout">布局
+        <div class="mk-sub">
+          <div class="mk-mi" data-preset="sim">仿真预设（默认）<span class="mk-key">Ctrl+Alt+1</span></div>
+          <div class="mk-mi" data-preset="edit">编辑预设<span class="mk-key">Ctrl+Alt+2</span></div>
+          <div class="mk-mi" data-preset="review">审阅预设<span class="mk-key">Ctrl+Alt+3</span></div>
+          <div class="mk-sep"></div>
+          <div class="mk-mi" data-act="reset">重置布局<span class="mk-key">Ctrl+Alt+0</span></div>
+          <div class="mk-mi" data-act="save">保存布局（localStorage）</div>
+          <div class="mk-mi" data-act="clear">清除已保存布局</div>
+        </div>
+      </li>
+      <li class="mk-menu" data-menu="panels">面板
+        <div class="mk-sub" id="panel-menu"></div>
+      </li>
+      <li class="mk-menu" data-menu="window">窗口
+        <div class="mk-sub">
+          <div class="mk-mi" data-act="float-all">全部浮出</div>
+          <div class="mk-mi" data-act="dock-all">全部收回停靠</div>
+          <div class="mk-mi" data-act="cascade">浮动窗口层叠</div>
+        </div>
+      </li>
+      <li class="mk-menu" data-menu="help">帮助
+        <div class="mk-sub">
+          <div class="mk-mi" data-act="help">交互说明…</div>
+          <div class="mk-mi" data-noop="1">关于（原型）</div>
+        </div>
+      </li>
+    </ul>
+    <span class="mk-spacer"></span>
+    <span class="mk-version">v0.4.0 · 原型 mock-1</span>
+  </div>
+
+  <div id="toolbar">
+    <button type="button" class="tool-btn" title="打开"><img src="../img/folder.svg" alt="打开"></button>
+    <button type="button" class="tool-btn" title="保存"><img src="../img/save.svg" alt="保存"></button>
+    <span class="separator">|</span>
+    <button type="button" class="tool-btn" title="撤销"><img src="../img/undo.svg" alt="撤销"></button>
+    <button type="button" class="tool-btn" title="重做"><img src="../img/redo.svg" alt="重做"></button>
+    <span class="separator">|</span>
+    <button type="button" class="tool-btn" title="缩小"><img src="../img/zoom_out.svg" alt="缩小"></button>
+    <button type="button" class="tool-btn" title="放大"><img src="../img/zoom_in.svg" alt="放大"></button>
+    <button type="button" class="tool-btn" title="适应窗口"><img src="../img/zoom_fit.svg" alt="适应窗口"></button>
+    <span class="separator">|</span>
+    <button type="button" class="tool-btn" title="添加信号"><img src="../img/add_signal.svg" alt="添加信号"></button>
+    <span class="separator">|</span>
+    <button type="button" class="tool-btn" title="剪切"><img src="../img/cut.svg" alt="剪切"></button>
+    <button type="button" class="tool-btn" title="画笔"><img src="../img/paint.svg" alt="画笔"></button>
+    <button type="button" class="tool-btn" title="擦除"><img src="../img/erase.svg" alt="擦除"></button>
+    <button type="button" class="tool-btn" title="框选"><img src="../img/selection.svg" alt="框选"></button>
+    <button type="button" class="tool-btn" title="箭头"><img src="../img/arrow.svg" alt="箭头"></button>
+    <button type="button" class="tool-btn" title="标记"><img src="../img/marker.svg" alt="标记"></button>
+    <button type="button" class="tool-btn" title="文字标注"><img src="../img/text_annotation.svg" alt="文字标注"></button>
+    <span class="separator">|</span>
+    <button type="button" class="tool-btn" title="时间跳转"><img src="../img/time_jump.svg" alt="时间跳转"></button>
+    <button type="button" class="tool-btn" title="时间段"><img src="../img/time_span.svg" alt="时间段"></button>
+    <span class="separator">|</span>
+    <span class="mk-step-group">
+      <label>步长</label>
+      <span class="mk-step-input">
+        <input type="text" value="10" title="主步长">
+        <span class="mk-stepper"><button type="button">▲</button><button type="button">▼</button></span>
+      </span>
+    </span>
+    <span class="mk-step-group">
+      <label>子步数</label>
+      <span class="mk-step-input">
+        <input type="text" value="1" title="子步数">
+        <span class="mk-stepper"><button type="button">▲</button><button type="button">▼</button></span>
+      </span>
+    </span>
+    <span class="mk-spacer"></span>
+    <span class="mk-hintbar">提示：拖动面板标题栏可停靠 / 分割 / 合并为 Tab；拖到窗口外缘可新建区；标题栏右侧 ⧉ 浮出</span>
+  </div>
+</div>
+
+<!-- 工作区：布局树由 ui-mockup.js 渲染 -->
+<div id="workbench">
+  <div id="mk-drop"><div id="mk-caret"></div></div>
+  <div id="mk-floats"></div>
+</div>
+
+<div id="status-bar">
+  <span class="mk-st-dot"></span>
+  <span id="st-text">就绪（原型演示）</span>
+  <span class="mk-spacer"></span>
+  <span id="st-layout"></span>
+  <span id="st-panels"></span>
+</div>
+
+<div id="help-overlay" class="hidden">
+  <div id="help-box">
+    <div id="help-head"><b>原型交互说明</b><button type="button" id="help-close">✕</button></div>
+    <div id="help-body">
+      <h4>1. 停靠（Dock）</h4>
+      <ul>
+        <li>按住<b>面板标题栏</b>拖动 → 出现蓝色落点框。</li>
+        <li>拖到某个面板的<b>上缘 / 下缘 / 左缘 / 右缘</b>（约 26% 带宽）→ 在那一侧<b>切分</b>出新窗格。</li>
+        <li>拖到某个面板的<b>标题栏/Tab 栏</b>或<b>正中间</b> → 与之<b>合并为 Tab 组</b>。</li>
+        <li>拖到整窗<b>最外缘</b>（22px 环带）→ 在工作区边缘<b>新建一个区</b>。</li>
+        <li>按 <b>Esc</b> 取消拖动。</li>
+      </ul>
+      <h4>2. 尺寸</h4>
+      <ul>
+        <li>拖两个窗格之间的<b>分隔条</b>调整比例（有最小尺寸保护）。</li>
+        <li>波形面板内：拖「信号名列 / 波形区」之间的竖分隔条，可调名列宽度。</li>
+      </ul>
+      <h4>3. Tab 与浮出</h4>
+      <ul>
+        <li>点 Tab 切换；Tab 上按<b>中键 / 双击</b>可浮出该面板。</li>
+        <li>标题栏右侧按钮：<b>⧉ 浮出</b> / <b>▣ 最大化</b> / <b>✕ 关闭</b>。</li>
+        <li>浮动窗可拖动、右下角可缩放、▣ 最大化到整个工作区、⤓ 收回停靠。</li>
+      </ul>
+      <h4>4. 布局预设与持久化</h4>
+      <ul>
+        <li>布局菜单：仿真 / 编辑 / 审阅 三套预设；<b>Ctrl+Alt+1/2/3</b> 快速切换，<b>Ctrl+Alt+0</b> 重置。</li>
+        <li>布局默认只写 session/localStorage，不写 <code>.wp</code> 工程存档（按用户裁决）。</li>
+      </ul>
+      <p class="mk-note">本原型仅用于评审「形态」：所有面板内容是假数据，不连接仿真服务、不影响现有
+        <code>index.html</code> 与 <code>js/</code>。</p>
+    </div>
+  </div>
+</div>
+
+<script src="ui-mockup.js"></script>
+</body>
+</html>
