@@ -9321,15 +9321,15 @@ function openWpModal(item) {
     v2.select();
 }, 0)) : setTimeout(() => v3.focus(), 0);
   // [PATCH-A5] 快速录入模式的清理钩子：关闭弹窗时统一解绑（由下面的关闭流程调用）
-  let _0x_wpfQuickCleanup = null;
+  let wpfQuickCleanup = null;
     const fn = v9 => {
             if (!wpModalState.isOpen)
         return;
             wpModalState.isOpen = false;
       el.classList.add(('hidden'));
       document.removeEventListener('keydown', v8);
-      _0x_wpfQuickCleanup && _0x_wpfQuickCleanup();
-      _0x_wpfQuickCleanup = null;
+      wpfQuickCleanup && wpfQuickCleanup();
+      wpfQuickCleanup = null;
       const v10 = item.showInput ? v2.value : null;
             wpModalState.resolve && wpModalState.resolve({
         ok: v9,
@@ -9350,21 +9350,21 @@ function openWpModal(item) {
   //   · 点遮罩 / 点 X：取消（mousedown 先于 blur，用标志位避免误提交）
   //   · invalid：以红框态打开，首次键入即清除（非法输入重开时用）
   if (item.quickCommit && item.showInput) {
-    let _0x_wpfSuppressBlur = false;
-        const _0x_wpfMarkSuppress = () => {
-      _0x_wpfSuppressBlur = true;
+    let wpfSuppressBlur = false;
+        const wpfMarkSuppress = () => {
+      wpfSuppressBlur = true;
     };
-    const _0x_wpfClearError = () => {
+    const wpfClearError = () => {
       v2.classList.remove('wp-modal-error');
     };
-    const _0x_wpfOnBlur = () => {
-      if (_0x_wpfSuppressBlur) {
-        _0x_wpfSuppressBlur = false;
+    const wpfOnBlur = () => {
+      if (wpfSuppressBlur) {
+        wpfSuppressBlur = false;
         return;
       }
-      const _0x_wpfText = String(v2.value || '').trim();
-      v2.value = _0x_wpfText;
-      _0x_wpfText ? v6() : v7();
+      const wpfText = String(v2.value || '').trim();
+      v2.value = wpfText;
+      wpfText ? v6() : v7();
     };
         v3.style.display = 'none';
     v4.style.display = 'none';
@@ -9372,23 +9372,23 @@ function openWpModal(item) {
     // [PATCH-A5/R6] 实时预览钩子：options.onPreview(当前输入串) 随每次键入触发
     //   （先清红框）。供 editor/value-input.js 在写值前预览目标范围的新值；
     //   预览副作用（撤销快照/恢复）由调用方自理，这里只负责转发输入。
-    const _0x_wpfOnInput = () => {
-      _0x_wpfClearError();
+    const wpfOnInput = () => {
+      wpfClearError();
       try {
-        const _0x_wpfOpts = wpModalState.options;
-        _0x_wpfOpts && typeof _0x_wpfOpts.onPreview === 'function'
-          && _0x_wpfOpts.onPreview(String(v2.value || ''));
+        const wpfOpts = wpModalState.options;
+        wpfOpts && typeof wpfOpts.onPreview === 'function'
+          && wpfOpts.onPreview(String(v2.value || ''));
       } catch (e) { /* 预览失败不阻断输入 */ }
     };
-        el.addEventListener('mousedown', _0x_wpfMarkSuppress, true);
-    v5.addEventListener('mousedown', _0x_wpfMarkSuppress, true);
-        v2.addEventListener('blur', _0x_wpfOnBlur);
-    v2.addEventListener('input', _0x_wpfOnInput);
-    _0x_wpfQuickCleanup = () => {
-            el.removeEventListener('mousedown', _0x_wpfMarkSuppress, true);
-      v5.removeEventListener('mousedown', _0x_wpfMarkSuppress, true);
-            v2.removeEventListener('blur', _0x_wpfOnBlur);
-      v2.removeEventListener('input', _0x_wpfOnInput);
+        el.addEventListener('mousedown', wpfMarkSuppress, true);
+    v5.addEventListener('mousedown', wpfMarkSuppress, true);
+        v2.addEventListener('blur', wpfOnBlur);
+    v2.addEventListener('input', wpfOnInput);
+    wpfQuickCleanup = () => {
+            el.removeEventListener('mousedown', wpfMarkSuppress, true);
+      v5.removeEventListener('mousedown', wpfMarkSuppress, true);
+            v2.removeEventListener('blur', wpfOnBlur);
+      v2.removeEventListener('input', wpfOnInput);
             v3.style.display = '';
       v4.style.display = '';
     };
@@ -9432,7 +9432,7 @@ function wpPrompt(item, val = '', tmp = 'Input') {
 // [PATCH-A5] 快速录入弹窗（位值 / 矢量值等高频输入）：
 // 回车或失焦即写入、无输入失焦即取消、Esc 取消；隐藏自带确定/取消、保留右上角 X。
 // 参数：message、defaultValue、title、invalid（是否以「非法输入」红框态打开）。
-function wpQuickPrompt(item, val = '', tmp = 'Input', v0 = false, _0x_wpfOnPreview = null) {
+function wpQuickPrompt(item, val = '', tmp = 'Input', v0 = false, wpfOnPreview = null) {
   return openWpModal({
       title: tmp,
       message: item,
@@ -9443,7 +9443,7 @@ function wpQuickPrompt(item, val = '', tmp = 'Input', v0 = false, _0x_wpfOnPrevi
       cancelText: 'Cancel',
       quickCommit: true,
       invalid: !!v0,
-      onPreview: typeof _0x_wpfOnPreview === 'function' ? _0x_wpfOnPreview : null
+      onPreview: typeof wpfOnPreview === 'function' ? wpfOnPreview : null
     }).then(cur => cur.ok ? String(cur.value ?? '').trim() : null);
 }
 function wpConfirm(item, val = 'Confirm') {

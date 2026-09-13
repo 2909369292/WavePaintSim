@@ -81,23 +81,85 @@
       </li>
     </ul>
     <span class="mk-spacer"></span>
-    <span class="mk-version">v0.4.0 · 原型 mock-2（控件规范化 U0）</span>
+    <span class="mk-version">v0.4.0 · 原型 mock-3（顶栏统一 U0-R）</span>
   </div>
 
-  <!-- L1 应用工具带：只放「跨面板」动作 + 全应用唯一主按钮；组内 4px、组间 12px（R4/R5） -->
+  <!-- L1 统一工具带（U0-R）：全应用唯一一条功能栏，所有图标工具都在这里；
+       波形等面板内部不再有子工具带（用户第二十五轮拍板，回退第二十四轮 D-UI-A）；
+       组内 4px、组间 12px（R4/R5），放不下的整组按 data-ovp 收进 ⋯（R6） -->
   <div id="toolbar">
     <div class="mk-tbg">
       <button type="button" class="mk-run" id="sim-run" title="运行仿真（全应用唯一主按钮 · Ctrl+Alt+R）">运行仿真</button>
     </div>
-    <div class="mk-tbg" data-ovp="3">
+    <div class="mk-tbg" data-ovp="5">
       <button type="button" class="tool-btn" title="打开"><img src="../img/folder.svg" alt="打开"></button>
       <button type="button" class="tool-btn" title="保存"><img src="../img/save.svg" alt="保存"></button>
     </div>
-    <div class="mk-tbg" data-ovp="2">
+    <div class="mk-tbg" data-ovp="4">
       <button type="button" class="tool-btn" title="撤销"><img src="../img/undo.svg" alt="撤销"></button>
       <button type="button" class="tool-btn" title="重做"><img src="../img/redo.svg" alt="重做"></button>
       <button type="button" class="tool-btn" title="剪切 (C)"><img src="../img/cut.svg" alt="剪切"></button>
       <button type="button" class="tool-btn paint-color" title="画笔颜色"><span class="color-box"></span></button>
+    </div>
+    <div class="mk-tbg" data-ovp="1">
+      <button type="button" class="tool-btn" title="缩小"><img src="../img/zoom_out.svg" alt="缩小"></button>
+      <button type="button" class="tool-btn" title="放大"><img src="../img/zoom_in.svg" alt="放大"></button>
+      <button type="button" class="tool-btn" title="适应窗口"><img src="../img/zoom_fit.svg" alt="适应窗口"></button>
+      <button type="button" class="tool-btn" title="时间跳转 / 游标 (J)"><img src="../img/time_jump.svg" alt="时间跳转"></button>
+    </div>
+    <div class="mk-tbg" data-ovp="3">
+      <button type="button" class="tool-btn" title="画笔 (P)"><img src="../img/paint.svg" alt="画笔"></button>
+      <button type="button" class="tool-btn" title="橡皮擦 (E)"><img src="../img/erase.svg" alt="橡皮擦"></button>
+      <button type="button" class="tool-btn" title="选择 / 框选 (S)"><img src="../img/selection.svg" alt="选择"></button>
+    </div>
+    <div class="mk-tbg" data-ovp="2">
+      <div class="mk-dd">
+        <button type="button" class="tool-btn has-caret" title="位状态（点击切换 1 / 0 / z / x / u / d）">
+          <svg width="14" height="14" viewBox="0 0 16 16"><line x1="2" y1="4" x2="14" y2="4" stroke="currentColor" stroke-width="2"/></svg>
+          <span class="mk-caret">▼</span>
+        </button>
+        <div class="mk-dd-menu">
+          <div class="mk-dd-h">位状态（写 1 bit）</div>
+          <div class="mk-dd-i">高电平 (1)<span class="mk-key">1</span></div>
+          <div class="mk-dd-i">低电平 (0)<span class="mk-key">0</span></div>
+          <div class="mk-dd-i">高阻 (z)<span class="mk-key">Z</span></div>
+          <div class="mk-dd-i">未定义 (x)<span class="mk-key">X</span></div>
+          <div class="mk-dd-i">上拉 (u)<span class="mk-key">U</span></div>
+          <div class="mk-dd-i">下拉 (d)<span class="mk-key">D</span></div>
+        </div>
+      </div>
+      <div class="mk-seg" title="编辑力度：整步 = 一次改整个主步（仿真采样正确）；子步 = 一次只改一个子格（画时钟沿用）">
+        <button type="button" class="on">整步</button><button type="button">子步</button>
+      </div>
+      <div class="mk-seg" title="总线（矢量信号）显示进制：切换即重算标签">
+        <button type="button" class="on">Dec</button><button type="button">Hex</button><button type="button">Bin</button>
+      </div>
+    </div>
+    <div class="mk-tbg" data-ovp="2">
+      <button type="button" class="tool-btn" title="箭头 (A)"><img src="../img/arrow.svg" alt="箭头"></button>
+      <button type="button" class="tool-btn" title="时间跨度 (R)"><img src="../img/time_span.svg" alt="时间跨度"></button>
+      <button type="button" class="tool-btn" title="标记 (M)"><img src="../img/marker.svg" alt="标记"></button>
+      <button type="button" class="tool-btn" title="文本标注 (T)"><img src="../img/text_annotation.svg" alt="文本标注"></button>
+    </div>
+    <div class="mk-tbg" data-ovp="1">
+      <div class="mk-dd">
+        <button type="button" class="tool-btn has-caret" title="添加信号（位 / 矢量 / 预定义 / 波形生成器 / 协议模板）">
+          <img src="../img/add_signal.svg" alt="添加信号"><span class="mk-caret">▼</span>
+        </button>
+        <div class="mk-dd-menu">
+          <div class="mk-dd-i">位信号</div>
+          <div class="mk-dd-i">矢量信号</div>
+          <div class="mk-dd-h">预定义信号 ▸</div>
+          <div class="mk-dd-i">时钟 / 计数器 / 复位 / 脉冲</div>
+          <div class="mk-dd-h">波形生成器 ▸</div>
+          <div class="mk-dd-i">正弦 / 三角 / 锯齿 / 随机 / 带毛刺</div>
+          <div class="mk-dd-h">协议模板 ▸</div>
+          <div class="mk-dd-i">SPI / I2C / UART（读 · 写）</div>
+          <div class="mk-dd-i">空白行</div>
+        </div>
+      </div>
+      <button type="button" class="tool-btn" title="选择对象 (V)"><img src="../img/cursor.svg" alt="选择对象"></button>
+      <button type="button" class="tool-btn disabled" title="属性（请先选择对象）" disabled><img src="../img/properties.svg" alt="属性"></button>
     </div>
     <div class="mk-tbg mk-ovf" id="tool-overflow">
       <button type="button" class="tool-btn mk-ovf-btn" title="更多（本带放不下的整组控件收在这里）">⋯</button>
@@ -166,11 +228,11 @@
         <li>布局菜单：仿真 / 编辑 / 审阅 三套预设；<b>Ctrl+Alt+1/2/3</b> 快速切换，<b>Ctrl+Alt+0</b> 重置。</li>
         <li>布局默认只写 session/localStorage，不写 <code>.wp</code> 工程存档（按用户裁决）。</li>
       </ul>
-      <h4>5. 控件分层（第二十四轮 U0 重排）</h4>
+      <h4>5. 控件分层（第二十五轮 U0-R：顶栏统一）</h4>
       <ul>
-        <li><b>L1 应用工具带</b>（顶部）：只放跨面板动作 —— 运行仿真（唯一主按钮）｜打开 / 保存｜撤销 / 重做 / 剪切 / 画笔颜色｜步数 / 子步数。</li>
-        <li><b>L2 波形面板上下文带</b>：只对波形有意义的控件下沉到这里 —— 视图（缩小 / 放大 / 适应窗口 / 时间跳转）｜绘制（画笔 / 橡皮擦 / 选择）｜编辑状态（位状态 / 整步·子步 / Dec·Hex·Bin）｜标注（箭头 / 时间跨度 / 标记 / 文本标注）｜对象（添加信号 / 选择对象 / 属性）。</li>
-        <li><b>L3 源码面板上下文带</b>：打开… / 保存 ｜ 解析 RTL / 生成 TB（<b>不再重复「运行仿真」</b>）。</li>
+        <li><b>L1 统一工具带</b>（顶部，全应用唯一一条功能栏）：运行仿真（唯一主按钮）｜打开 / 保存｜撤销 / 重做 / 剪切 / 画笔颜色｜视图（缩小 / 放大 / 适应窗口 / 时间跳转）｜绘制（画笔 / 橡皮擦 / 选择）｜编辑状态（位状态 / 整步·子步 / Dec·Hex·Bin）｜标注（箭头 / 时间跨度 / 标记 / 文本标注）｜对象（添加信号 / 选择对象 / 属性）｜步数 / 子步数。</li>
+        <li><b>波形面板内不再有子工具带</b>：波形区的功能栏一律回到 L1 顶栏（第二十五轮拍板，回退第二十四轮的「面板上下文带」方案）。</li>
+        <li><b>其余面板内的子栏</b>只保留「本面板专属」动作（源码窗的打开 / 保存 / 解析 RTL / 生成 TB，层次树的展开 / 折叠，文件列表的添加 / 移除 等），不与 L1 重复。</li>
         <li><b>L4 状态栏</b>：左 服务与消息｜中 当前上下文（选中信号 / 当前文件 / 计数）｜右 布局与面板计数；长提示一律收在这里。</li>
         <li>窄窗口时，整组控件按优先级收进工具带右侧的 <b>⋯</b>（不折行、不溢出）。</li>
       </ul>

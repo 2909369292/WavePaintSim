@@ -245,8 +245,8 @@ body.mk{
   font-size:10px;color:var(--text-muted);display:flex;align-items:center;padding:0 8px}
 .mk-taxis .mk-taxis-scroll{flex:1 1 auto;min-width:0;overflow:hidden;position:relative}
 .mk-taxis-inner{position:relative;width:1040px;height:100%}
-.mk-tick{position:absolute;top:0;bottom:0;border-left:1px solid var(--timeaxis-tick);opacity:.45}
-.mk-tick span{position:absolute;left:3px;top:4px;font-size:10px;color:var(--timeaxis-text);opacity:.9}
+.mk-wave-tick{position:absolute;top:0;bottom:0;border-left:1px solid var(--timeaxis-tick);opacity:.45}
+.mk-wave-tick span{position:absolute;left:3px;top:4px;font-size:10px;color:var(--timeaxis-text);opacity:.9}
 .mk-cursor{position:absolute;top:0;bottom:0;width:1px;background:var(--arrow-color);z-index:5;cursor:ew-resize}
 .mk-cursor::before{content:attr(data-t);position:absolute;top:-1px;left:2px;font-size:10px;
   background:var(--arrow-color);color:#fff;padding:0 4px;border-radius:3px;white-space:nowrap}
@@ -254,7 +254,7 @@ body.mk{
 /* 源码窗 */
 .mk-code{flex:1 1 auto;min-height:0;display:flex;overflow:auto;background:#fbfdfb;
   font-family:Consolas,"Courier New",monospace;font-size:12px;line-height:18px}
-.mk-gutter{flex:0 0 auto;padding:8px 8px 8px 10px;text-align:right;color:#9bb09b;
+.mk-gutter{flex:0 0 auto;padding:8px 8px 8px 10px;text-align:right;color:#9bb09b;white-space:pre;
   background:var(--side-bg);border-right:1px solid var(--section-border);user-select:none}
 .mk-code-body{flex:1 1 auto;min-width:0;padding:8px 10px;white-space:pre;position:relative}
 .mk-kw{color:#0b6ea8;font-weight:600}

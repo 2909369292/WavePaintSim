@@ -1163,6 +1163,8 @@ try {
       st, cardKeys: cards.map((el) => el.dataset.simCard),
       grows: cards.map((el) => Number(el.style.flexGrow)),
       bases: cards.map((el) => el.style.flexBasis),
+      mins: cards.map((el) => el.style.minHeight),
+      shrinks: cards.map((el) => el.style.flexShrink),
       heights: cards.map((el) => el.offsetHeight),
       splitCount: splits.length
     });
@@ -1174,10 +1176,14 @@ try {
       && ['source', 'rtl', 'vcd', 'tb'].every((k) => I0.cardKeys.includes(k)),
     i0);
   const growSum = I0.grows.reduce((s, v) => s + (Number.isFinite(v) ? v : 0), 0);
-  check('I1: 展开态 flex-grow 归一化到 100、flex-basis=0（窗口缩放按比例自适应）',
-    Math.abs(growSum - 100) < 0.5 && I0.bases.every((b) => b === '0px' || b === '0')
+  // 第二十五轮高度模型变更（修「拖拽和鼠标坐标对不上」）：flex-basis 不再是 0，
+  // 而是「内容最小高基线」（= min-height），弹性空间按 flex-grow 权重分配、flex-shrink=0。
+  // 这样 渲染高_i = 基线_i + 弹性空间·权重_i/Σ权重，拖分隔条时 px↔权重 是仿射可逆 → 1:1 跟手。
+  const basisOk = I0.bases.every((b, i) => b === I0.mins[i] && /px$/.test(b));
+  check('I1: 展开态 flex-grow 归一化到 100、flex-basis = 内容最小高基线、flex-shrink=0',
+    Math.abs(growSum - 100) < 0.5 && basisOk && I0.shrinks.every((s) => s === '0')
       && I0.heights.every((h) => h > 0),
-    JSON.stringify({ growSum, bases: I0.bases, heights: I0.heights }));
+    JSON.stringify({ growSum, bases: I0.bases, mins: I0.mins, shrinks: I0.shrinks, heights: I0.heights }));
 
   // ---- I2. 折叠 source 卡：高度塌到标题行 + source:rtl splitter 禁用 ----
   const hBefore = await ev(`document.getElementById('sim-card-source').offsetHeight`);
@@ -1237,13 +1243,75 @@ try {
   const i4b = await ev(`(() => {
     const st = window.__wpsim.panelLayout;
     const w = {}; for (const c of st.cards) w[c.key] = c.weight;
-    return JSON.stringify(w);
+    return JSON.stringify({ w,
+      hA: document.getElementById('sim-card-source').offsetHeight,
+      hB: document.getElementById('sim-card-rtl').offsetHeight });
   })()`);
   const I4b = JSON.parse(i4b);
-  check('I4: splitter 键盘 ArrowDown → source = 原高+16 / rtl = 原高-16（相邻两卡总高守恒）',
-    I4b.source === I4a.hA + 16 && I4b.rtl === I4a.hB - 16
-      && Math.abs((I4b.source + I4b.rtl) - (I4a.hA + I4a.hB)) < 1.01,
+  // 第二十五轮：断言口径从「权重」改为「渲染高」——权重是内部记账单位（基线模型下 ≠ px），
+  // 用户能感知的只有「分隔条是否跟着手势走」。键盘一步 16px → 两卡渲染高各变 16px。
+  check('I4: splitter 键盘 ArrowDown → source 增高 16px / rtl 减矮 16px（相邻两卡总高守恒）',
+    Math.abs((I4b.hA - I4a.hA) - 16) <= 2 && Math.abs((I4a.hB - I4b.hB) - 16) <= 2
+      && Math.abs((I4b.hA + I4b.hB) - (I4a.hA + I4a.hB)) < 1.01,
     JSON.stringify({ before: I4a, after: I4b }));
+
+  // ---- I4c. 纵向 splitter 指针拖拽：分隔条必须与鼠标位移 1:1，且往返可逆
+  //          （历史 bug：onMove 把「相对按下点的累计位移」当增量反复叠加 →
+  //           每帧在**当前**高度上再加整段位移，拖 24px 实际飞 100+px，
+  //           手感「和鼠标坐标对不上」；拖过去再拖回来也回不到原位）----
+  {
+    await ev(`window.__wpsim.resetPanelLayout()`);
+    await sleep(150);
+    const i4c0 = await ev(`(() => {
+      const sp = document.querySelector('[data-sim-split="source:rtl"]');
+      const r = sp.getBoundingClientRect();
+      const cardA = document.getElementById('sim-card-source');
+      const cardB = document.getElementById('sim-card-rtl');
+      const hA = cardA.offsetHeight, hB = cardB.offsetHeight;
+      const baseB = parseFloat(cardB.style.minHeight) || 0;
+      // A 卡最多能长到「B 只剩自己的基线」，据此算出本对还允许往下拖多少
+      const room = Math.max(0, hB - baseB);
+      return JSON.stringify({
+        cx: Math.round(r.left + r.width / 2), cy: Math.round(r.top + r.height / 2),
+        splitH: Math.round(r.height), hA, hB, room
+      });
+    })()`);
+    const I4c0 = JSON.parse(i4c0);
+    // 留 2px 余量，避免正好顶到 B 的基线（触底会 clamp，量到的位移小于手势位移）
+    const DY = Math.max(8, Math.min(24, Math.floor(I4c0.room) - 2));
+    const drag = async (fromY, toY, frames) => {
+      for (let i = 1; i <= frames; i += 1) {
+        await send('Input.dispatchMouseEvent', {
+          type: 'mouseMoved', x: I4c0.cx,
+          y: Math.round(fromY + (toY - fromY) * i / frames), button: 'left', buttons: 1
+        });
+        await sleep(14);
+      }
+    };
+    const probe = () => ev(`(() => {
+      return JSON.stringify({
+        hA: document.getElementById('sim-card-source').offsetHeight,
+        hB: document.getElementById('sim-card-rtl').offsetHeight });
+    })()`).then(JSON.parse);
+    await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: I4c0.cx, y: I4c0.cy, button: 'left', buttons: 1, clickCount: 1 });
+    await sleep(40);
+    await drag(I4c0.cy, I4c0.cy + DY, 6);
+    await sleep(80);
+    const I4c1 = await probe();
+    await drag(I4c0.cy + DY, I4c0.cy, 6);   // 同一手势里拖回原点
+    await sleep(80);
+    const I4c2 = await probe();
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: I4c0.cx, y: I4c0.cy, button: 'left', buttons: 0, clickCount: 1 });
+    await sleep(60);
+    const dA = I4c1.hA - I4c0.hA, dB = I4c0.hB - I4c1.hB;
+    check('I4c: splitter 指针拖拽 ' + DY + 'px → 分隔条 1:1 跟手（source +' + dA + ' / rtl −' + dB + '）',
+      Math.abs(dA - DY) <= 2.5 && Math.abs(dB - DY) <= 2.5
+        && Math.abs((I4c1.hA + I4c1.hB) - (I4c0.hA + I4c0.hB)) < 1.01,
+      JSON.stringify({ before: I4c0, after: I4c1, dA, dB }));
+    check('I4c: 同一手势拖回原点 → 高度可逆回到出发值（不累积、不飞走）',
+      Math.abs(I4c2.hA - I4c0.hA) <= 2.5 && Math.abs(I4c2.hB - I4c0.hB) <= 2.5,
+      JSON.stringify({ before: I4c0, back: I4c2 }));
+  }
 
   // ---- I5. 侧栏宽度：直设 + 上下限 clamp ----
   const widthProbe = (px) => ev(`(() => {

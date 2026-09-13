@@ -146,7 +146,27 @@ export function installSimPanelLayout(options = {}) {
     }, 220);
   }
 
-  // ── 高度：按权重写 flex-grow（归一化到合计 100，保证窗口缩放时按比例自适应）──
+  // ── 高度模型：「内容最小高」为基线 + 把剩余弹性空间按权重分配 ──
+  // 渲染高 = 基线_i + 弹性空间 * 权重_i / Σ权重。
+  // 为什么不是「flex-basis:0 + 权重当占比」？—— 旧模型下「权重」是**整块面板**的比例，
+  // 一旦某张卡触到 min-height（源码卡的工具栏换行后基线可达 ~294px），权重与像素就脱钩，
+  // 而且弹性空间还要按比例补偿赤字，权重差 Δw 与位移 Δpx 之间没有恒定系数：
+  // 于是拖分隔条时「分隔条不动、别的卡乱动」→ 用户反馈「拖拽和鼠标坐标对不上」。
+  // 基线模型下两者是仿射关系（Δpx = k·Δw，k = 弹性空间 / Σ权重），拖拽可精确反解 → 1:1 跟手。
+  // 卡片弹性基线 = 内容最小高（applyMinHeights 写入的 minHeight）
+  function cardBaseline(card) {
+    return Number.parseFloat(card.el.style.minHeight) || MIN_CARD_PX;
+  }
+
+  function pairSlackPx() {
+    let free = 0;
+    for (const card of cards) {
+      if (state.collapsed[card.key]) continue;
+      free += Math.max(0, card.el.offsetHeight - cardBaseline(card));
+    }
+    return free;
+  }
+
   function applyWeights() {
     const visible = cards.filter((card) => !state.collapsed[card.key]);
     const total = visible.reduce((sum, card) => sum + state.weights[card.key], 0) || 1;
@@ -154,10 +174,14 @@ export function installSimPanelLayout(options = {}) {
       if (state.collapsed[card.key]) {
         card.el.style.flexGrow = "0";
         card.el.style.flexBasis = "auto";
+        card.el.style.flexShrink = "";
         continue;
       }
+      // 基线 = 内容最小高（applyMinHeights 已写入 minHeight，且 commit() 保证先于本函数执行）
+      card.el.style.flexBasis = cardBaseline(card) + "px";
       card.el.style.flexGrow = String((state.weights[card.key] / total) * 100);
-      card.el.style.flexBasis = "0";
+      // 空间不够时不许压缩（min-height 也会兜住）：整体溢出交给 .sim-panel-body 纵向滚动
+      card.el.style.flexShrink = "0";
     }
   }
 
@@ -216,7 +240,12 @@ export function installSimPanelLayout(options = {}) {
         card.el.style.minHeight = "";
         continue;
       }
-      card.el.style.minHeight = Math.min(measureMinHeight(card), cap) + "px";
+      const px = Math.min(measureMinHeight(card), cap) + "px";
+      card.el.style.minHeight = px;
+      // 基线与弹性基线必须同源：flex-basis 直接跟 min-height 一起写。
+      // 否则「窗口 resize 只重算 min-height」会把 flex-basis 留在旧值上，
+      // pairSlackPx() 就会把这段差当成弹性空间 → px↔权重 换算失真 → 拖拽又「和鼠标坐标对不上」。
+      card.el.style.flexBasis = px;
     }
   }
 
@@ -314,20 +343,41 @@ export function installSimPanelLayout(options = {}) {
   const dragCleanups = [];
   let activeDragCleanup = null; // 正在进行的拖拽（同一时刻最多一个）
 
-  function resizePair(pair, deltaPx) {
+  // 目标高度语义：把 A 卡的**渲染高**设为 targetAPx（绝对值），B 卡吃掉本对的剩余弹性。
+  // 拖拽必须走这条路径：pointermove 给的是「相对按下点的累计位移」，
+  // 若把它当增量反复叠加（旧实现），每帧都会在**当前**高度上再加整段位移 → 越拖越飞。
+  function resizePairTo(pair, targetAPx) {
     const [keyA, keyB] = pair;
     const cardA = byKey.get(keyA);
     const cardB = byKey.get(keyB);
     if (!cardA || !cardB || state.collapsed[keyA] || state.collapsed[keyB]) return false;
+    const baseA = cardBaseline(cardA);
+    const baseB = cardBaseline(cardB);
     const heightA = cardA.el.offsetHeight;
     const heightB = cardB.el.offsetHeight;
     const total = heightA + heightB;
-    if (total <= MIN_CARD_PX * 2) return false;
-    const nextA = clamp(heightA + deltaPx, MIN_CARD_PX, total - MIN_CARD_PX);
-    state.weights[keyA] = nextA;
-    state.weights[keyB] = total - nextA;
+    if (total <= baseA + baseB) return false;
+    // 本对能给的极限：A 最大长到「B 只剩自己的基线」
+    const nextA = clamp(targetAPx, baseA, total - baseB);
+    // px → 权重的反解：k = 弹性空间 / Σ权重（px per 权重单位）
+    const visible = cards.filter((card) => !state.collapsed[card.key]);
+    const wSum = visible.reduce((sum, card) => sum + (state.weights[card.key] || 0), 0) || 1;
+    const free = pairSlackPx();
+    if (free <= 0) return false;
+    const k = free / wSum;
+    const pairWeight = (state.weights[keyA] || 0) + (state.weights[keyB] || 0);
+    const nextWA = clamp((nextA - baseA) / k, 0, pairWeight);
+    state.weights[keyA] = nextWA;
+    state.weights[keyB] = pairWeight - nextWA;
     applyWeights();
     return true;
+  }
+
+  // 增量语义：键盘 ↑/↓ 每按一次改 KEY_STEP_PX。
+  function resizePair(pair, deltaPx) {
+    const cardA = byKey.get(pair[0]);
+    if (!cardA) return false;
+    return resizePairTo(pair, cardA.el.offsetHeight + deltaPx);
   }
 
   for (const split of splits) {
@@ -341,16 +391,17 @@ export function installSimPanelLayout(options = {}) {
       const heightA = cardA.el.offsetHeight;
       const heightB = cardB.el.offsetHeight;
       const total = heightA + heightB;
-      if (total <= MIN_CARD_PX * 2) return;
+      if (total <= cardBaseline(cardA) + cardBaseline(cardB)) return;
       event.preventDefault();
       const startY = Number(event.clientY) || 0;
+      const startHeightA = heightA;
       split.el.classList.add("dragging");
       doc.body.classList.add("sim-resizing");
       split.el.setPointerCapture?.(event.pointerId);
 
       const onMove = (moveEvent) => {
         const delta = (Number(moveEvent.clientY) || 0) - startY;
-        if (resizePair(split.pair, delta)) notify("split");
+        if (resizePairTo(split.pair, startHeightA + delta)) notify("split");
       };
       const removeDragListeners = () => {
         doc.removeEventListener("pointermove", onMove, true);
