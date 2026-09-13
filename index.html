@@ -215,7 +215,8 @@
         /* 卡片内「吃满剩余高度」的内容区（原先把 180 / 240 / 160px 写死，改为自适应） */
         .sim-card-body > #verilog-cm-host,
         .sim-card-body > #verilog-source { flex: 1 1 auto; min-height: 64px; height: auto; resize: none; }
-        .sim-card-body > #tb-source { flex: 1 1 auto; min-height: 56px; height: auto; resize: none; }
+        .sim-card-body > #tb-source,
+        .sim-card-body > #tb-cm-host { flex: 1 1 auto; min-height: 56px; height: auto; resize: none; }
         .sim-card-body > .rtl-tree,
         .sim-card-body > .vcd-tree { flex: 1 1 auto; min-height: 40px; max-height: none; }
         /* ── 卡片之间的 splitter（拖拽调高）── */
@@ -394,6 +395,19 @@
             resize: vertical;
         }
         #tb-source { height: 160px; }
+        /* 第 46 轮：TB 与源码区统一成"同一个 CodeMirror 代码框"（只读 + 同款语法高亮）。
+           ⚠ #tb-source 仍是**隐藏的数据镜像**（.value 恒等于当前 TB 文本）：
+             e2e 契约（editorVisible / copyTb 旧读路径）与无 bundle 时的降级路径都读它。 */
+        #tb-cm-host {
+            display: none; /* CodeMirror 可用时由 ui-bridge 打开 */
+            height: 160px;
+            border: 1px solid var(--input-border, #c0d0c0);
+            border-radius: var(--radius-sm, 6px);
+            overflow: hidden;
+            background: var(--input-bg, #fff);
+        }
+        #tb-cm-host .cm-editor { height: 100%; }
+        #tb-cm-host .cm-editor.cm-focused { outline: none; }
         /* ⚠ 第 39 轮：原来的 .helper-box / .helper 提示框样式已随
            #sim-console-notes / #port-preview / #module-preview 一并退役 ——
            这些文本现在直接进「仿真状态」的日志流（css/workspace.css §5）。 */
@@ -1019,6 +1033,9 @@
                         <button id="sim-tb-copy" type="button" title="复制 testbench 到剪贴板">复制</button>
                     </div>
                     <textarea id="tb-source" spellcheck="false" readonly placeholder="点顶部编辑栏的「运行仿真」后自动生成 testbench。"></textarea>
+                    <!-- 第 46 轮：TB 也用 CodeMirror 6 只读代码框显示（与源码区同款高亮）。
+                         bundle 缺失（开发降级）时本宿主保持隐藏，textarea 照常工作。 -->
+                    <div id="tb-cm-host"></div>
                 </div>
             </section>
             <!-- ── #sim-console = 「仿真状态」面板的宿主（停靠引擎的面板之一）────

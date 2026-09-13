@@ -124,13 +124,20 @@ body.wp-dock #workbench .mk-handle::before {
 }
 body.wp-dock #workbench .mk-handle.v::before { width: 2px; height: 34px; }
 body.wp-dock #workbench .mk-handle.h::before { width: 34px; height: 2px; }
+/* ⚠ 第 46 轮修 Bug：悬停/拖动态把基线那条 `top:50% + transform: translate(-50%,-50%)`
+   换成 `top/bottom`（或 left/right）撑满写法后，**必须同时覆盖 transform**，
+   否则 translate 仍按"新高度"平移一半 —— 视觉上那条 34px 小长条会在鼠标按下的
+   瞬间变成"非常非常长、还跑偏"的绿条（用户报"拖动时小长条突然变得非常长"）。
+   口径：竖向条只保留 translateX(-50%)（水平居中），横向条只保留 translateY(-50%)。 */
 body.wp-dock #workbench .mk-handle.v:hover::before,
 body.wp-dock #workbench .mk-handle.v.active::before {
     background: var(--accent, #4CAF50); width: 3px; height: auto; top: 6px; bottom: 6px;
+    transform: translateX(-50%);
 }
 body.wp-dock #workbench .mk-handle.h:hover::before,
 body.wp-dock #workbench .mk-handle.h.active::before {
     background: var(--accent, #4CAF50); height: 3px; width: auto; left: 6px; right: 6px; top: 50%;
+    transform: translateY(-50%);
 }
 
 /* 面板组 = 一个页签组 / 一个窗格 */

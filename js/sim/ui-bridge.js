@@ -36,6 +36,7 @@ const state = {
 
 const refs = {};
 let sourceCodeView = null;      // #75 P0：CodeMirror 6 控制器（installCodeEditor 返回值）
+let tbCodeView = null;          // 第 46 轮：TB 面板的只读 CodeMirror 6 控制器（同款高亮）
 let panelLayout = null;         // 第二十一轮：侧栏「可拖拽多面板」布局控制器（panel-layout.js）
 let rtlRefreshTimer = null;     // 编辑后防抖刷新 RTL 树
 let activeSyncTimer = null;     // #76 B3：光标移动 → 反向高亮的防抖（索引是全量解析，别每键都算）
@@ -437,16 +438,23 @@ function initRefs() {
   refs.runBtn = el("sim-run");
   refs.tbSource = el("tb-source");
   refs.tbCopy = el("sim-tb-copy");
+  refs.tbCmHost = el("tb-cm-host");
 }
 
+// TB 文本的唯一写入口：textarea（数据镜像）与 CM 只读代码框**同时**更新。
+// ⚠ 两处都要写：textarea.value 是旧读路径与 e2e 契约的取值口，CM 视图才是用户看到的。
 function updateTbViewer() {
+  const text = state.lastTestbench || "";
+  if (tbCodeView?.active) tbCodeView.setText(text);
   if (refs.tbSource) {
-    refs.tbSource.value = state.lastTestbench || "";
+    refs.tbSource.value = text;
   }
 }
 
 function copyTb() {
-  const text = state.lastTestbench || (refs.tbSource && refs.tbSource.value) || "";
+  const text = state.lastTestbench
+    || (tbCodeView?.active ? tbCodeView.getText() : "")
+    || (refs.tbSource && refs.tbSource.value) || "";
   if (!text) {
     setStatus("没有可复制的 testbench，请先点「生成 TB」或「运行仿真」。");
     return;
@@ -476,6 +484,22 @@ function syncEditor() {
 
 // #75 P0：把 CodeMirror 6 挂到 .cm-host。可用时隐藏 textarea（仍保留为数据镜像，
 // syncEditor 等旧读路径继续读 .value）；bundle 缺失则降级回纯 textarea。
+// 第 46 轮：TB 面板与源码区共用同一套 CodeMirror 视图（installCodeEditor），
+// 只是 readonly=true（可聚焦 / 选中 / 复制，不能改）。可用时隐藏 textarea 镜像，
+// 不可用（bundle 缺失）时保持隐藏宿主 + 原样使用 textarea。
+function initTbCodeView() {
+  if (!refs.tbCmHost || !refs.tbSource) return;
+  tbCodeView = installCodeEditor({
+    host: refs.tbCmHost,
+    textarea: refs.tbSource,
+    doc: state.lastTestbench || "",
+    readonly: true
+  });
+  const usingCm = !!tbCodeView.active;
+  refs.tbCmHost.style.display = usingCm ? "block" : "none";
+  refs.tbSource.style.display = usingCm ? "none" : "";
+}
+
 function initSourceCodeView() {
   if (!refs.cmHost || !refs.sourceEditor) return;
   sourceCodeView = installCodeEditor({
@@ -2048,6 +2072,7 @@ function init() {
   initRefs();
   if (!refs.panel || !refs.sourceEditor) return;
   initSourceCodeView();
+  initTbCodeView();
   bindEvents();
   initPanelLayout();
   renderFileTabs();
@@ -2154,6 +2179,34 @@ window.__wpsim = {
   },
   // 直接按 VCD 全路径批量入波形（返回 {ready,added,existed,missing}）；e2e 核验批量语义用。
   addVcdPathsToWave,
+  // 第 46 轮：TB 面板改成 CM 只读代码框后，探针需要一条「塞入 TB 文本」的等价入口
+  // （等价于跑完一次仿真），以及一份 TB 视图实况（是否 CM / 是否只读 / 高亮 token 配色）。
+  setTestbench(text) {
+    state.lastTestbench = String(text == null ? "" : text);
+    updateTbViewer();
+    return tbCodeView?.getText?.() || "";
+  },
+  get testbenchView() {
+    const host = refs.tbCmHost || null;
+    const editor = host ? host.querySelector(".cm-editor") : null;
+    const content = editor ? editor.querySelector(".cm-content") : null;
+    const styles = new Set();
+    if (content) {
+      content.querySelectorAll("span").forEach((span) => {
+        const cls = String(span.className || "");
+        if (!cls) return;
+        styles.add(cls + " | " + getComputedStyle(span).color);
+      });
+    }
+    return {
+      cm: !!editor,
+      hostVisible: !!host && getComputedStyle(host).display !== "none",
+      textareaHidden: !!refs.tbSource && refs.tbSource.style.display === "none",
+      editable: content ? content.getAttribute("contenteditable") : null,
+      text: tbCodeView?.getText?.() || "",
+      tokenStyles: [...styles]
+    };
+  },
   // 与代码区取词口径一致（光标/选区 → 符号名）；无 CM 时读 textarea。
   get codeContext() {
     return sourceCodeView?.getContext?.() || { name: "", line: 0, selection: "", exact: false, source: "none" };

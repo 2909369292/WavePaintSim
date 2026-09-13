@@ -240,7 +240,7 @@ export function highlightVcdSignal(container, path) {
 // 由 ui-bridge 负责「符号 → VCD 路径 → 画布观察行」；rtl-panel 只负责取词与触发。
 // onAddScope(同形 context)：#87② 入口 —— 同一份取词结果，但语义是
 // 「光标所在模块/实例的全部接口」（Ctrl+Alt+4）。
-export function installCodeEditor({ host, textarea, doc = "", onChange, onAddSymbol, onCursorMove, onAddScope }) {
+export function installCodeEditor({ host, textarea, doc = "", readonly = false, onChange, onAddSymbol, onCursorMove, onAddScope }) {
   const cm = globalThis.WPCm;
   const canUseCm = !!(host && textarea && cm && typeof cm.createVerilogEditor === "function");
   // 归一成「函数或 null」，让两个入口可以共用一套监听（缺哪个就忽略哪个手势）。
@@ -261,7 +261,7 @@ export function installCodeEditor({ host, textarea, doc = "", onChange, onAddSym
       lastText = text;
       notifyUserChange(text);
     };
-    view = cm.createVerilogEditor(host, { doc: lastText, onChange: userChanged });
+    view = cm.createVerilogEditor(host, { doc: lastText, onChange: userChanged, readonly });
   }
 
   // 当前光标/选区处的符号上下文（B4 加信号 + B3 反向定位都用它取词）。
@@ -398,6 +398,7 @@ export function installCodeEditor({ host, textarea, doc = "", onChange, onAddSym
       if (view) view.destroy();
       view = cm.createVerilogEditor(host, {
         doc: next,
+        readonly,
         onChange: (changed) => {
           textarea.value = changed;
           lastText = changed;
