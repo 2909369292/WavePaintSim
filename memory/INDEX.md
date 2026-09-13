@@ -63,25 +63,19 @@
 - 禁止重做已完成的解混淆、重构、批次1~10。
 
 ---
-*最后更新：2026-09-11（第二十一轮：**侧栏「可拖拽多面板」落地 —— 用户对第二十轮 UI 方案拍板后
-的首轮 UI 实施**）。三条裁决：① 面板形态 = **可拖拽多面板**（splitter）；② 侧栏**保持右侧**
-（`#main-area` 骨架不动）；③ 层次树**暂不左置**。**一次性落地 08 §2.6 的 P0+P1+P2 核心**：
-新增 `js/sim/panel-layout.js`（卡片折叠 / 像素权重高度 / `measureMinHeight` 保护 / 纵向 splitter /
-宽度 clamp `280~min(760,视口*60%)` / **持久化只走 sessionStorage**（key
-`wavepaint.sim-panel-layout.v1`，**绝不进 `.wp`**）/ 键盘可达）+ `index.html`（CSS `--sim-panel-w`
-+ DOM 卡片化：4 个 `section.sim-card[data-sim-card]` + 3 个 `.sim-split[data-sim-split]` +
-`#sim-resize-x`；`#sim-status` 吸底；`#sim-tb-copy` 移进 TB 卡片头）+ `ui-bridge.js`（接线 +
-删 `refs.collapseBtn` 死引用与 `bindEvents` 死分支 + `initPanelLayout()` + `__wpsim` 探针）+
-`rtl-panel.js`（`installCodeEditor` 增 `remeasure()`）。**契约面 24 个 id / class / dataset / 状态类
-一个未改**。**修掉一个真 bug**：矮视口 `750x485` 下源码卡只剩 80px、`.source-toolbar`（170px）
-被 overflow 裁掉 → 坐标点击 `#sim-run` 落到 VCD 卡 → **「点仿真无响应」**；修复 = `measureMinHeight`
-（`min(实测内容高, 面板可视高*0.8)`）+ `.sim-panel-body{overflow-y:auto}` + `#sim-status` 吸底
-（`.e2e-tmp/verify-recovery2.mjs` **17/17**）。验证全绿：regression **79/79**、e2e-ui **86/86**
-（+I0~I8 共 13 条，404=0/异常无）、e2e-rtl **61/61**（404=0/异常无）、e2e-sim 0 失败、probe-param 全过、
-真 exe 冒烟通过、`build.ps1` `csc exit: 0`+`res count: 52`（仍 UTF-8 BOM）；exe 重建 **22,012,416 B /
-2026-09-11 00:15:01**、`version.txt` = `v0.4.0 build 2026-09-11 00:15:01 69b84d0`（`69b84d0` =
-**构建时 HEAD**，承载本轮代码的 commit 是它的下一个）；C8 特征串全 >0。
-新增/更新记忆：04 §4.19 + §1/§2 快照、08 §2.2/§2.6、07 **D20 升级 + D21 新增**、09 §3 全篇切
-第二十一轮、03「其它规划 / 侧栏 UI 重构」段、`05-LOGS.md` 索引、`memory/logs/2026-09-11.md`。
-**下一项 = 08 §2.6「⏳ 剩余（可选/暂缓）」**（VCD 树移入波形区 / TB 控制带收敛 / 层次树左置），
-**开工前先与用户确认范围与优先级**；#84/#77 仍为远期。维护者：任何接手的 AI。*
+*最后更新：2026-09-13（第二十二轮：**面板系统重构方案成文 + 后端能力盘点 —— 纯规划，零产品代码改动**）。
+用户问：① 现在后端到底支持到什么程度；② 要模仿 Verdi 实现「波形窗口 + 代码窗口 + 代码树窗口 + 其他窗口」
+像 Word 一样自由排列组合与自由拖拽（意味着现有 UI 要大改），并要一份详细项目安排。
+**本轮交付 `08-ROADMAP.md` §6（约 200 行）**：§6.1 后端能力表（逐条带 `WavePaintLauncher.cs` 行号证据）/ §6.2 后端缺口
+**G1~G8** / §6.3 前端面板现状 / §6.4 与 Verdi 的差距表（4 项「大」）/ §6.5 选型对比 / §6.6 目标架构 /
+§6.7 契约面与 e2e 影响面 / §6.8 分期 **#94 D0~D4（面板系统）+ #95 E1~E5（真·通用仿真器）+ #96 W1~W3（工程化）** /
+§6.9 验收与回滚 / §6.10 **四条待拍板** / §6.11 与远期项关系。同步 `03` 表 K、`04 §4.20`、`07 D22`、`09 §3`。
+**核心结论**：后端闭环（`/api/sim` → iverilog → vvp → VCD 整文本回传）已通，但范式单一（单顶层 + 画布即激励）；
+**最大缺口 G1 = TB 只读**（`#tb-source` 是 readonly textarea，TB 只能由 `buildAutoTestbench` 生成）→ `#95 E1/E2` 是
+「通用仿真器」的最小充分集，建议与 #94 并行优先；**G6** = `/api/snapshot` 后端已实现但前端全仓未接线（→ `#96 W2`）；
+**选型建议 = 自研轻量 dock 引擎**（`js/sim/dock/*.js`：`PanelRegistry` + `LayoutTree` + `DockDnD`，面板只是已存在 DOM 节点换父容器
+→ 24 个契约 id / class / dataset 天然不变），备选 Lumino / golden-layout，否决 React 系与 iframe 多窗（会重踩 #82 多窗口抢端口老坑）；
+**#94 关键闸门 = D0 必须像素级零视觉变化**（回滚 = 1 commit）；08 §2.6 的三项剩余直接并入 #94 D1；#84/#77/#78 仍为远期。
+**四条待拍板（08 §6.10 / 07 D22）**：① 是否解除「侧栏保持右侧」（AI 建议**解除**）② 是否解除「层次树暂不左置」
+（AI 建议**解除**）③ 浮出 = 页内浮动面板（AI 建议）vs 真独立窗口 ④ 布局是否写进 `.wp`（AI 建议**不写**，只做
+sessionStorage + localStorage）。验证：`regression` **79/79**；**C1 未触发、未重建 exe**。维护者：任何接手的 AI。*

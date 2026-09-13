@@ -555,3 +555,251 @@ P0 完成前不启动 P1 的旧节奏**已作废**（本轮已合并完成）。
   不引入扫盘逻辑。
 - **不做自动整页跳转（服务自愈场景）**：本应用无自动保存，跳转 = 丢用户未保存画布；恢复一律
   「改 `simApiBase` / 同端口重拉」（07 D15、06 P30）。`wavepaint:` 协议只用隐藏 iframe 触发。
+
+---
+
+## 6. 面板系统重构（dockable 多窗口 / Word 式自由拖拽）—— 方案 + 分期
+
+> **2026-09-13 第二十二轮**。用户原话：「请确认现在完成的功能，我最终想实现的就是一个画波形的，
+> 可以直接进行仿真的这样一个仿真器。请汇报现在具体后端功能支持的如何？我最终的目标是模仿 Verdi
+> 一样可以实现波形窗口、代码窗口、代码树窗口以及其他等窗口的类似 Word 一样的自由排列组合，以及
+> 自由拖拽，也就是说目前的 UI 可能要大改。请确认现在的情况，并对此计划做出详细的项目安排。」
+>
+> 本轮 = **现状盘点 + 方案 + 分期 + 后端能力汇报，零产品代码改动**（不触发 C1、不重建 exe；
+> 与第二十轮同规格）。按 **D20「先方案后实施」**：用户对 §6.10 的四条待裁决项拍板后才开工。
+> 本节的**上位目标**：把 WavePaint 从「波形编辑器 + 附属仿真侧栏」重构成
+> **「波形 / 代码 / 层次 / 控制台 四类面板可自由停靠、拖拽、浮出、组合的仿真工作台」**。
+
+### 6.1 后端能力盘点（2026-09-13 实测，证据可复算）
+
+**一句话结论**：后端**已经打通「画布波形 → 激励 → 自动 testbench → iverilog 编译 → vvp 运行 →
+VCD 回传 → 解析回画布观察行」的完整闭环**，是"可画可仿"的真闭环，不是演示壳。但**只覆盖
+「单顶层 + 画布即激励」这一种仿真范式**；离"通用仿真器"还差 **TB 可编辑 / 日志与进度 / 编译选项 /
+大波形处理** 四块（见 §6.2）。
+
+| 层次 | 能力 | 现状（实测） | 证据 |
+|---|---|---|---|
+| 传输 | 本地 HTTP 服务 | C# 单文件 `HttpListener`；固定首选端口 **17817**（被占才回退随机 + 写发现文件） | `WavePaintLauncher.cs:28` |
+| 传输 | 身份判活 | `/api/ping` 返回 `PING_TAG`（`WAVEPAINT-SERVICE`）+ 监听端口 + 构建戳 | `:31`、`:397` |
+| 传输 | 请求体上限 | `MaxBodyBytes = 8 MiB`（`/api/sim` 与 `/api/snapshot` 共用） | `:18` |
+| 传输 | 子进程超时 | **单次 30 s**（编译、运行各 30 s）；超时 `KillTree` 杀整棵进程树（含 `ivlpp` 孤儿） | `:17`、`Run()` |
+| 传输 | 单实例 / 收窗 | 互斥体单实例；开新窗前收拢全部同名旧 Edge 窗口 | D13、04 §4.2 |
+| 仿真 | 源码接收 | 前端 `@@FILE:<名>` / `@@END` 文本协议拼包 → 服务端拆包落 `%TEMP%\ivl_work_<guid>\` | `ui-bridge.js:1326`、`:457` |
+| 仿真 | iverilog 自愈 | 每轮 `EnsureIvlReady`：exe 内嵌 `ivl.zip` 解到临时目录，缺/坏自动补齐 | `:443~:455` |
+| 仿真 | 编译 | `iverilog -g2012 -s tb -o sim.vvp <files>`；含 `.sv/.svh` 时追加 fallback 批（`.sv→.v` 别名重编） | `BuildCompileBatches` |
+| 仿真 | 运行 | `vvp sim.vvp`（TB 内 `$dumpfile("wave_out.vcd")` + `$dumpvars(0, tb)`） | `:519`、`engine.js:825` |
+| 仿真 | 波形回传 | 读 `wave_out.vcd` **整文件文本**，`text/plain` 一次性返回（无分片、无流式、无进度） | `:529~:535` |
+| 解析 | RTL 解析 | 自研 `parseVerilogDesign`（module / port / param / 位宽 / ANSI 风格） | `engine.js:381` |
+| 解析 | 结构导航 | `scanInstances`（源码级例化扫描）/ `collectModuleDefs` / `resolveModuleDef` / `scanModuleSymbols`（体内 `wire/reg/param/inst` + 行号 + 位宽）/ `buildInstancePaths` / 符号→VCD 全路径 | `rtl-nav.js`（40 KB） |
+| 激励 | 自动 TB | `buildAutoTestbench`：内嵌参数定义、端口声明、DUT 例化、**1 格子 ≡ 1 时间单位**、同刻先 clock 后数据、未绑定输入给「无效电平」、低有效复位给释放电平 | `engine.js:758~920` |
+| 回显 | VCD → 画布 | `parseVcd` / `vcdToProjectOutputs` / `diagnoseSimulation`（中文诊断） | `engine.js:938/1021/636` |
+| 存档 | 工程 | `.wp` JSON 存档 / 恢复（源码集合 + 观察行元数据 + 信号组，旧工程向后兼容） | #76 B5、`clean.js` `buildDocumentJson` |
+| 快照 | `/api/snapshot` | 服务端**已实现**（`%TEMP%\...\wave_*.json` + `latest.json`，保留 20 份） | `:580` |
+| 可用性 | 前端自愈 | `service-guard.js`：`alive / restarted / elsewhere / dead` 四态，**绝不自动跳转**，失败自动重试一次 | C19、D15 |
+| 边界 | 明确不做 | 无 Verilator、无 FSDB/FST、无增量仿真、无覆盖率、无波形 diff（远期项，§6.11） | `08 §5` |
+
+### 6.2 后端缺口清单（按「对用户目标的影响」排序）
+
+| ID | 缺口 | 影响 | 现状证据 | 归宿 |
+|---|---|---|---|---|
+| G1 | **TB 只读**（`#tb-source` 是 `readonly` textarea，内容只能由 `buildAutoTestbench` 生成） | 用户无法写自定义 `initial` / `$readmemh` / 多时钟域 / 定向激励 → **只能测「画布能画出来的激励」** | `index.html` L926、`ui-bridge.js:1305` | #95 E1 |
+| G2 | **无编译/仿真日志与进度回显**（stdout/stderr 只在失败时随错误串返回；成功后丢弃） | 仿真要等 30 s 超时才知道出事；看不到 `$display` 输出 | `RunSimulationCore` 仅失败分支返回 `err1/err2` | #95 E2 |
+| G3 | **编译选项不可配**（`-D` 宏 / `-I` include 目录 / `-y` 库目录 / filelist / `+define+` plusargs） | 带 `` `include`` / 宏开关 / 多目录工程的 RTL 直接编不过 | `BuildCompileBatches` 硬编码 | #95 E3 |
+| G4 | **无请求取消 / 无进度**（30 s 硬超时，用户无法中止） | 长仿真只能干等；想改参数得等超时 | `:17` | #95 E2 |
+| G5 | **VCD 全量文本一次性回传** | 大设计 VCD 可能几十 MB → 内存/解析尖峰；无按需取数、无时间窗裁剪 | `:529` | #95 E4（可选） |
+| G6 | **`/api/snapshot` 前端未接线** | 已实现的「工程快照 + latest.json」白放着；本应用无自动保存，崩溃即丢画布 | 全仓 `rg api/snapshot` 仅 README + launcher | #96 W2（可选） |
+| G7 | **单顶层**（`-s tb` 固定；`#sim-top-select` 只选 DUT 顶层，不选 TB） | 多顶层 / 多 TB 场景不支持 | `BuildCompileBatches`、`index.html` `#sim-top-row` | #95 E5（可选） |
+| G8 | **解析器是 SV 子集**（无 generate 展开、无 package/interface/class、无 `` `include`` 递归、无 `` `ifdef`` 展开） | 复杂工程的符号索引/位宽会退化（不崩，但结果保守） | `parseVerilogDesign` / `scanModuleSymbols` | 远期（#95 附注） |
+
+> **重要边界**：G1~G5 全部属于**「后端能力」**，与 §6 的面板重构**正交**，可并行推进；
+> 面板重构不需要等后端。但用户要的「直接可以进行仿真的仿真器」**最终要靠 #95 补齐**。
+
+### 6.3 前端现状（面板形态，2026-09-13 实测）
+
+- `index.html` **1038 行**；顶层骨架：`#app-loader` → `#menu-bar` → `#toolbar` → 编辑工具条 →
+  **`#main-area`(L838)** → `#wave-view`(L839) / `#wave-canvas`(L840) → `#sim-toggle-btn`(L845)
+  → **`#sim-panel`(L846)**（右侧固定侧栏）。
+- `#sim-panel` 内部 = **单列 4 张可折叠卡片**（源码 `source` / RTL 树 `rtl` / VCD 树 `vcd` /
+  Testbench `tb`）+ 卡片间 **3 条纵向 `.sim-split`** + 左缘 **`#sim-resize-x`** 拖宽
+  （clamp `280 ~ min(760, 视口*60%)`）+ 底部 `#sim-status`（吸底）/ `#sim-recover`。
+- 布局状态只存 **`sessionStorage`**（`wavepaint.sim-panel-layout.v1`），**绝不进 `.wp`**。
+- 代码编辑器 = 侧栏第 1 张卡内的 CM6 单实例（`#verilog-cm-host`）；画布 = 全屏单实例
+  （`#wave-canvas`，`#wave-view` 内）。
+- 已有雏形能力（第二十一轮）：**卡片折叠 / 卡片间纵向拖高 / 侧栏左缘拖宽 / session 持久化**。
+  **缺的**：跨区域停靠、左右重排、横向切分、浮出、Tab 页签、最大化、多实例、布局预设。
+
+### 6.4 差距分析：现状 vs 「Verdi 式四区 + Word 式自由排布」
+
+| 能力 | Verdi / Word 语义 | WavePaint 现状 | 差距等级 |
+|---|---|---|---|
+| 区域划分 | nTrace（源码+层次树）/ nWave（波形）/ 控制台 / 控制带 | 全部挤在右侧单栏 4 卡 | **大** |
+| 面板停靠 | 可在左右下任意停靠区之间拖动 | 只能在同一列内上下调高 | **大** |
+| 横向切分 | 同一区域可左右分栏 | 无（`#main-area` 只有「画布 + 右 padding」） | **大** |
+| 浮出窗口 | 面板可浮出为独立小窗（Word 式） | 无 | **大** |
+| Tab 页签 | 多文档/多视图以页签聚合 | 无（画布与代码各只有一份） | 中 |
+| 最大化/还原 | 单面板一键最大化 | 无（只有整栏折叠） | 中 |
+| 布局持久化 | 会话/工程级布局记忆 | 仅 sessionStorage（刷新即丢，工程里不存） | 中 |
+| 布局预设 | 多套工作区（如 debug / review） | 无 | 小 |
+| 拖拽反馈 | 停靠预览框 / 吸附指示 | 无 | 中 |
+| 面板实例 | 同一面板可开多份 | 每面板唯一实例（可接受，见 §6.10） | 小 |
+
+### 6.5 技术选型：自研 dock 引擎 vs 引入第三方库
+
+**硬约束（决定选型）**：
+1. 应用是 **Edge `--app` 里的普通网页**，**无 Electron / WebView2**（`08 §5` 明确不引入）；
+2. **契约面冻结**（§6.6）：24 个 id / class / dataset 必须存活 → 任何库都必须能「**接管容器、
+   不改被包裹元素 id**」；
+3. 应用代码是**原生 ES Module 直接跑**（`js/**.js` 不经打包）；但仓库**已有 esbuild 打包先例**
+   （`tools/cm6-entry.js` → `lib/codemirror.bundle.js`），所以「引入库并打包进 `lib/`」在
+   工程上是**可行的**，不是禁区；
+4. e2e 基线重（86 + 61 + 79）→ 库的 DOM 自由度越少、越可控。
+
+| 方案 | 代表 | 优点 | 风险 / 代价 | 结论 |
+|---|---|---|---|---|
+| **A. 自研轻量 dock 引擎** | 本项目 `js/sim/dock/*.js` | 契约面 100% 可控；无新依赖；可精确控制 CM6/canvas 重排时机（D21 的 `remeasure()` 经验可直接复用）；体量可控（≈800~1200 行） | 工作量大（约 3~4 轮）；拖拽手感/边界场景要自己磨 | ✅ **推荐主路径** |
+| B. Lumino `DockPanel` | `@lumino/widgets`（JupyterLab 同款，MIT） | 语义最贴「Word 式停靠」：split / tab / 拖拽 / 浮出全有；成熟 | ~100 KB+CSS；**自带 DOM 壳与拖拽层**，需适配 `#wave-canvas` 尺寸与 CM6 `ResizeObserver`；主题需重写；e2e 坐标断言可能整段失效 | ⚠ 备选（若自研拖拽手感不达标，D1 后评估切换） |
+| C. golden-layout v2 | `golden-layout`（MIT） | 轻、经典停靠 + 浮出、API 简洁 | 生态偏旧；仍需适配层 + 同样的契约/主题问题 | ⚠ 备选 |
+| D. dockview / rc-dock / flexlayout | React/Vue 系 | 功能强 | **本项目无前端框架** → 需引入框架或大量适配，得不偿失 | ❌ 否决 |
+| E. iframe 多窗口 | 原生 `window.open` | 真·独立窗口 | Edge `--app` 下多窗口 = 又回到「多窗口抢端口/收窗」的 #82 老坑；跨窗通信成本高 | ❌ 否决（浮出只做**页内浮动层**，不做 OS 窗口） |
+
+> **选型结论（建议，待用户确认）**：**A 为主**，按 D0 先抽出「面板注册表 + 宿主容器」这一层——
+> 该层与具体 dock 实现解耦，若 D1/D2 发现自研拖拽手感不足，**可在 D3 前整体换成 B/C**，
+> 前面的抽象层不白做。
+
+### 6.6 目标架构蓝本（自研方案）
+
+```
+┌─ #menu-bar ────────────────────────────────────────────────────────────┐
+├─ #toolbar（绘图工具，非 dockable）─────────────────────────────────────┤
+├─ #sim-toolbar（仿真控制带：文件/解析/生成 TB/运行/顶层/状态，非 dockable）┤
+├─ #dock-root ───────────────────────────────────────────────────────────┤
+│  ┌──────────┬──────────────────────────────┬──────────┐               │
+│  │ LEFT     │ CENTER                       │ RIGHT    │               │
+│  │ [层次树] │  ┌────────────────────────┐  │ [源码]   │               │
+│  │  RTL 树  │  │ 主视图（Tab 组）        │  │  编辑器  │               │
+│  │  VCD 树  │  │ 波形画布 | 属性 | ...   │  │          │               │
+│  │  (同组)  │  └────────────────────────┘  │          │               │
+│  ├──────────┴──────────────────────────────┴──────────┤               │
+│  │ BOTTOM（Tab 组）：控制台 / 日志 / TB / 状态          │               │
+│  └────────────────────────────────────────────────────┘               │
+│  ┌─ float layer（#dock-floats）：可拖出的浮动面板，绝对定位 ─┐         │
+└───────────────────────────────────────────────────────────────────────┘
+```
+
+**三层模型（建议）**：
+1. **面板注册表 `PanelRegistry`**：`{ key, title, icon, element(现有 DOM 节点), defaultZone,
+   minSize, canFloat }`；**每个面板 = 一个已存在的 DOM 节点**（`#wave-view`、`#rtl-tree` 卡片体、
+   `#verilog-source` 卡、`#tb-source` 卡、`#sim-status`…），**注册时不复制、不重建节点，只搬父容器**
+   → **id 天然不变**（这正是第二十一轮验证过的路径）。
+2. **布局树 `LayoutTree`**：`split(orientation, ratio, [a,b]) | leaf(panelKeys[], activeKey)`；
+   序列化为 `{v:1, root:{...}, floats:[{key,x,y,w,h}]}`。所有渲染由 `render(tree)` 单向下发。
+3. **停靠交互 `DockDnD`**：`pointerdown` on `.dock-tab` / `.dock-header` → 生成 **drag ghost**
+   → 命中测试出 **drop 目标**（zone 的 上/下/左/右/中心 五向）→ 半透明预览框 → `pointerup` 提交
+   布局树变更。拖出到 `#dock-floats` = 浮出。键盘可达（`Alt+方向` 移动活动面板）。
+
+**必须遵守的三条**（沿用 D21 教训）：
+- 搬动父容器后**必须重排 `#wave-canvas`**（`resize` + 画布自身 resize 钩子）与 **CM6 `remeasure()`**
+  （D21 已证明 CM6 `ResizeObserver` 有 <75 ms 跳过保护，漏重排会错位）；
+- 面板 DOM 移动**不得改 id / class / dataset / title**（§6.7）；
+- 布局渲染**必须幂等**，`render(tree)` 可重复调用（e2e 与自愈重放都依赖这一点）。
+
+### 6.7 契约面与 e2e 影响面（重构的验收底线）
+
+**冻结面（D20/§2.5，本轮继续有效，一个不许改名/移除）**：
+- id 24 个：`sim-toggle-btn`、`sim-panel`、`sim-panel-header`、`source-files`、`sim-addfile`、
+  `sim-import`、`sim-removefile`、`sim-parse`、`sim-addsignals`、`sim-tb`、`sim-run`、
+  `verilog-source`、`verilog-cm-host`、`port-preview`、`module-preview`、`sim-top-row`、
+  `sim-top-select`、`rtl-tree`、`vcd-tree`、`sim-tb-copy`、`tb-source`、`sim-status`、
+  `sim-recover`、`app-version`；
+- class / dataset：`.rtl-inst`、`.rtl-active`、`.vcd-signal-row`、`.vcd-active`、
+  `[data-rtl-kind]`、`[data-vcd-path]`、`.tool-btn[data-tool]`、`.sim-symbol-picker-item`；
+- 状态类：`body.sim-open`、`#sim-panel.collapsed`、`wavedrom-debug-open`；
+- 属性：VCD 信号行 `title` = 全路径；**`#sim-status` 必须始终可见**（`sticky` 语义保活）；
+  **`#sim-run` 必须始终可点**（D21 的真 bug 就是它被裁 → 别让新布局重演）。
+
+**e2e 影响面（重构前必须预估，重构后必须全绿）**：
+
+| 套件 | 条数 | 对 DOM 的依赖 | 重构风险 | 对策 |
+|---|---|---|---|---|
+| `regression` | 79 | 纯 Node，无 DOM | 无 | 保持 |
+| `e2e-ui` | 86 | 侧栏 4 卡 / splitter / clamp / sessionStorage / 矮窗口命中 | **高**（I0~I8 13 条直指布局） | 允许**改断言**以匹配新布局，但 **I 段语义（折叠/拖拽/持久化/`#sim-run` 命中）必须逐条有等价新断言** |
+| `e2e-rtl` | 61 | 28 处选择器（`.rtl-inst`/`.vcd-signal-row`/`title` 全路径…） | **中**（只要 id/class 不变则安全） | 冻结面保活即可零改 |
+| `e2e-sim` | 0 失败 | 仿真链路 | **低** | 仿真控制带只搬家不改语义 |
+| `probe-*` / `exe-smoke` | 全过 | 端口/身份/汉化 | 低 | C19 不变量不动 |
+
+**允许**：新增 `.dock-*` 结构（新容器、新 class、新 dataset）。
+**禁止**：把冻结 id 换成 `.dock-*`；把 `#wave-canvas` 换成新 canvas；改 `#sim-status` 的存在性。
+
+### 6.8 分期计划（建议编号 #94 / #95 / #96）
+
+#### #94 面板系统重构（dockable / 自由拖拽）—— 主线
+
+| 期 | 名称 | 范围（做什么） | 交付物 / 验收口径 |
+|---|---|---|---|
+| **D0** | **面板注册表 + 宿主容器抽象（零视觉变化）** | 抽出 `js/sim/dock/registry.js`：把 6 个面板（波形画布 / 源码 / RTL 树 / VCD 树 / TB / 控制台状态）登记为 `{key,title,element,minSize}`；`#sim-panel` 与 `#main-area` 现有结构**原样保留**，只把「谁在哪个容器里」改成查表驱动；`render()` 幂等 | **页面像素级不变**；e2e-ui/e2e-rtl/e2e-sim 全绿；新增 §6.7 冻结面自检（id 存在性 + 卡在正确父容器） |
+| **D1** | **停靠引擎（区域 + 拖拽重排 + Tab）** | `dock/layout.js`（布局树 split/leaf 模型）+ `dock/render.js`（渲染）+ `dock/dnd.js`（拖拽 + drop 预览）；引入 `#dock-root` 与左/中/右/下四区；**画布进 CENTER、源码进 RIGHT、RTL/VCD 进 LEFT、TB/状态进 BOTTOM**；面板头部可拖 → 换区/换序/切分；同区多面板 = Tab 页签 | 真实 Edge e2e 新增 **K 段**（≥12 条：拖拽换区 / 拖拽排序 / 切分 / Tab 切换 / 冻结 id 全部存活 / 画布与 CM6 尺寸正确 / `#sim-run` 命中）；旧 I 段改写为等价新断言；**不追求像素还原**，追求「操作可复现 + 契约面完整」 |
+| **D2** | **浮动窗口 + 最大化 + 键盘** | `dock/float.js`：拖出到浮动层（页内绝对定位，非 OS 窗口）、浮动面板可拖/可缩放/可吸附回区；单面板最大化/还原；键盘可达（`Alt+方向` 换区、`Alt+Tab` 组内切换、`Esc` 取消拖拽） | e2e 新增 **K2 段**（浮出 / 吸回 / 最大化还原 / 键盘换区 / 焦点不丢） |
+| **D3** | **布局持久化 + 预设 + 复位** | 布局状态升级为 `{v:1,root,floats,active}`：**sessionStorage 保底**（刷新复位）+ `localStorage` 记忆**跨会话默认布局**；内置 3 套预设（`sim` 仿真态 / `edit` 编码态 / `review` 波形审阅态）+ 一键复位；**默认不进 `.wp`**（除非用户在 §6.10 拍板要） | e2e 新增 **K3 段**（预设切换 / reset / 跨会话 localStorage / session 与 local 优先级） |
+| **D4** | **打磨（可选）** | 拖拽手感（吸附阈值/动画/阴影）、面板空态、`#sim-status` 常驻形态、a11y（`role="tablist"` / `aria-grabbed`）、拖拽时暂停画布重绘 | e2e 回归全绿 + 手工验收清单 |
+
+> **D0 是关键闸门**：D0 完成时**视觉零变化**却已换好骨架 —— 若此时用户反悔，回滚成本 = 一个 commit。
+
+#### #95 仿真后端能力增强（与 #94 正交，可并行）
+
+| 期 | 名称 | 范围 | 验收 |
+|---|---|---|---|
+| **E1** | **TB 可编辑（最大缺口）** | `#tb-source` 去 `readonly`，加「自动生成 / 手动编辑」双态：手动态下 `#sim-run` 直接用用户文本（不再 `buildAutoTestbench` 覆盖）；`#sim-tb` = 「重新生成并覆盖」（需确认弹窗，C10）；TB 文本随 `.wp` 存档 | e2e-sim 新断言：手写 TB 生效 / 自动生成仍走原路径 / 覆盖前有确认 / 手写 TB 里 `$display` 能被 E2 捕获 |
+| **E2** | **编译 / 仿真日志与进度回显** | launcher：`/api/sim` 成功路径也返回 `stdout/stderr` 分段载荷（用现有「文本协议 + 前缀段」扩展，如 `@@LOG:` / `@@VCD:`，**保持失败时旧格式兼容**）；前端：控制台面板显示编译命令、警告、`$display` 输出、耗时；请求可取消（AbortController + 服务端 `simActive` 已有的中断钩子） | e2e-sim + 手工：有 `$display` 的 TB 输出可见；编译告警可见；点「取消」能在 30 s 前终止 |
+| **E3** | **编译选项可配** | 控制带加「编译选项」入口：`-D 宏`、`+define+`、`-I` include 目录、`-y` 库目录、filelist（`.f`）导入；选项随 `.wp` 存档；不做全盘扫盘 | 带 `` `include`` 与 `` `ifdef`` 的最小工程能编过；选项往返存档 |
+| **E4** | **大 VCD 处理（可选）** | 超阈值时改为「服务端截断到时间窗 / 前端分片请求 + 增量索引」；至少做到**解析不卡 UI**（Web Worker 或分片 `parseVcd`） | 用大 VCD（≥10 MB）实测：解析有进度、UI 不冻结 |
+| **E5** | **多顶层 / 多 TB（可选）** | `#sim-top-select` 扩展为「DUT 顶层 + TB 顶层」；支持用户手写的多 TB 切换 | 双 TB 工程可分别运行 |
+
+> **E1 + E2 是用户"通用仿真器"诉求的最小充分集**，建议与 #94 并行优先。
+
+#### #96 工作区与持久化（配套）
+
+| 期 | 名称 | 范围 | 验收 |
+|---|---|---|---|
+| **W1** | 布局随会话记忆 | D3 的 sessionStorage 版（本就是 D3 内容） | e2e K3 |
+| **W2** | **工程自动存档 / 崩溃恢复（可选）** | 复用**已实现但未接线**的 `/api/snapshot`：定时把 `buildDocumentJson` 结果 POST 过去，重开页面时提示「恢复上次画布」；**恢复必须是用户点选，绝不自动覆盖**（D12/无自动保存的红线） | 手工：杀进程 → 重开 → 提示可恢复；点取消则丢弃 |
+| **W3** | 布局进 `.wp`（**待拍板**） | 若用户要"工程级布局"，把 D3 布局写进 `.wp` 新字段（旧工程向后兼容） | 存档往返 + 旧 `.wp` 仍可读 |
+
+### 6.9 验收口径与回滚
+
+- **每期验收**：C1 重建 exe + C8 特征串核验 + 全量测试（regression / e2e-ui / e2e-rtl /
+  e2e-sim / probe-param / exe-smoke）+ C17 记忆同步 + C2/C3 独立 commit + push `main`。
+- **D0 专项验收**：**像素级零变化**（用 headless Edge 截图对比 D0 前后 `#sim-panel` /
+  `#main-area` 的 `getBoundingClientRect` 与 24 个 id 的存在性/父容器）。
+- **回滚**：布局引擎全部在**新增文件** `js/sim/dock/*.js` 内；`index.html` 的改动限于「新增容器 +
+  搬父节点」。任一期出问题，可只 revert 该期 commit 而不影响仿真链路（#95 独立 commit）。
+- **性能红线**：拖拽期间不得触发画布全量重绘（`body.dock-dragging` 时挂起重绘，pointerup 后
+  单次重排），否则大工程掉帧。
+
+### 6.10 待用户拍板（开工前必须回答；这四条会决定 D1 的形态）
+
+1. **是否解除「侧栏保持右侧」**（D21②）？
+   → 若解除：#94 D1 采用完整四区 dock；**不解除**：则 LEFT/BOTTOM 只能通过与侧栏等价的
+   「右侧区内分栏」近似实现，**无法做到 Verdi 式左右分栏**。
+   *建议：解除（否则 §6.4 的「大」级差距至少还留 3 项）。*
+2. **是否解除「层次树暂不左置」**（D21③）？
+   → 若解除：RTL/VCD 树默认落 **LEFT**；不解除：树仍与代码同侧。
+   *建议：解除 —— 这是「代码树窗口独立成区」的前提。*
+3. **浮动窗口的边界**：接受「**页内浮动面板**」（推荐，无 OS 窗口、无多窗口抢端口风险）
+   还是要求「**真·独立窗口**」？（后者会碰 #82 收窗 / 端口自愈的老坑，成本高，不建议。）
+4. **布局是否写进 `.wp` 工程**？
+   → 建议 **默认只做会话 + 跨会话记忆，不写 `.wp`**（保持存档契约干净）；若用户要工程级布局，
+   走 #96 W3。
+
+> 另有两条**默认已定**（如无异议按此执行）：① 每类面板**保持唯一实例**（不做「同一面板开多份」，
+> 与 Verdi 的有限差异，成本/收益更优）；② **首次进入默认布局 = `sim` 预设**（波形居中最大、
+> 树在左、代码在右、控制台在下），保证与现有用户习惯的连续性。
+
+### 6.11 与远期项的关系
+
+- **#84 波形查看增强**（reload / 完整路径开关 / 游标移首末）、**#77 Active Annotation**、
+  **#78 X 追溯 / 波形 diff / VSCode 扩展**：**仍为远期**，不因 §6 上马而提前；
+  #94 D1 的「多 Tab 主视图」为它们**预留了位置**（波形窗口可作为主视图 Tab 之一）。
+- **#87④ / 波形 diff** 依赖 #95 E4（大 VCD）先落地，顺序上排在 #94/#95 之后。
+- **§6 与 §2（侧栏重构）的关系**：§2 = 「右侧单栏内的卡片化」已交付；**§6 = 把面板升级为
+  可停靠窗口系统**，是 §2 的**上位替代**。§2.6 的三项剩余（VCD 树移入波形区 / TB 控制带收敛 /
+  层次树左置）**直接并入 §6 D1**（D1 一旦落地，这三项自然完成，无需单独排期）。
