@@ -243,5 +243,17 @@
 </div>
 
 <script src="ui-mockup.js"></script>
+<script>
+// 构建戳（仅打包版 WavePaintMockup.exe 提供 /mockup-version.txt）：把「这条横条是哪个
+// 构建」印在顶部，方便确认打开的是最新 exe。dev-server 下该请求 404 → 静默跳过，不影响原型。
+fetch('/mockup-version.txt').then(function (r) { return r.ok ? r.text() : ''; }).then(function (t) {
+  t = (t || '').trim(); if (!t) return;
+  var banner = document.getElementById('mock-banner'); if (!banner) return;
+  var span = document.createElement('span');
+  span.id = 'mock-version';
+  span.textContent = ' · ' + t;
+  banner.appendChild(span);
+}).catch(function () { /* dev-server 下静默 */ });
+</script>
 </body>
 </html>

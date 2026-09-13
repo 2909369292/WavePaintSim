@@ -4,7 +4,15 @@
 import { spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 
-const PORT = 8951, CDP = 9532;
+// MOCK_BASE：直接打「已在运行的原型服务」（例如打包产物 WavePaintMockup.exe），
+// 此时不自己起 dev-server（= 用同一套 34 项断言验证 exe 内嵌快照）。
+//   node tools/mock-probe.mjs                          → 源码 + dev-server 8951
+//   起 WavePaintMockup.exe /nolaunch /port=17899 后：
+//   $env:MOCK_BASE='http://127.0.0.1:17899'; node tools/mock-probe.mjs
+const MOCK_BASE = (process.env.MOCK_BASE || process.argv[2] || '').replace(/\/+$/, '');
+const PORT = MOCK_BASE ? Number(new URL(MOCK_BASE).port) : 8951;
+const BASE = MOCK_BASE || ('http://127.0.0.1:' + PORT);
+const CDP = 9532;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const root = 'D:/Files/Code/波形';
 const e2eRoot = root + '/.e2e-tmp';
@@ -12,9 +20,10 @@ const sysTmp = e2eRoot + '/system-tmp';
 mkdirSync(sysTmp, { recursive: true });
 const profile = e2eRoot + '/edge-mock-' + Date.now();
 
-const server = spawn(process.execPath, ['tools/dev-server.mjs', String(PORT)], { cwd: root, stdio: 'ignore' });
+const server = MOCK_BASE ? { kill() { /* 外部服务，不关 */ } }
+  : spawn(process.execPath, ['tools/dev-server.mjs', String(PORT)], { cwd: root, stdio: 'ignore' });
 for (let i = 0; i < 30; i++) {
-  try { const r = await fetch('http://127.0.0.1:' + PORT + '/prototype/ui-mockup.html'); if (r.ok) break; } catch (e) { /* retry */ }
+  try { const r = await fetch(BASE + '/prototype/ui-mockup.html'); if (r.ok) break; } catch (e) { /* retry */ }
   await sleep(300);
 }
 
@@ -22,7 +31,7 @@ const edgeEnv = { ...process.env, TEMP: sysTmp, TMP: sysTmp, TMPDIR: sysTmp };
 spawn('C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
   ['--headless=new', '--disable-gpu', '--disable-component-update', '--disable-features=msEdgeComponentUpdate',
     '--remote-debugging-port=' + CDP, '--user-data-dir=' + profile, '--no-first-run',
-    '--window-size=1680,1000', 'http://127.0.0.1:' + PORT + '/prototype/ui-mockup.html'],
+    '--window-size=1680,1000', BASE + '/prototype/ui-mockup.html'],
   { stdio: 'ignore', env: edgeEnv });
 
 let target = null;
@@ -69,7 +78,7 @@ await send('Network.enable', {});
 await send('Network.setCacheDisabled', { cacheDisabled: true });
 await send('Page.enable', {});
 await send('Emulation.setDeviceMetricsOverride', { width: 1680, height: 1000, deviceScaleFactor: 1, mobile: false });
-await send('Page.navigate', { url: 'http://127.0.0.1:' + PORT + '/prototype/ui-mockup.html' });
+await send('Page.navigate', { url: BASE + '/prototype/ui-mockup.html' });
 await sleep(3500);
 
 /* ── A. 页面级结构断言 ─────────────────────────────────────────────── */
