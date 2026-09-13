@@ -63,6 +63,50 @@
 - 禁止重做已完成的解混淆、重构、批次1~10。
 
 ---
+*最后更新：2026-09-13（第二十七轮：**拖拽两条真 bug 修复 + 原型「1:1 完全照搬真机」重构 + 审计口径校准 + exe 重打包**）。
+用户原话：「目前各个面板的**拖动仍然有问题，拖动的预览和最后实际的效果不一致**，且**拖动按钮在拖动时的显示也有 bug**。
+此外，代码显示区和菜单栏的显示等**并没有照搬原本的源码**，我希望**完全照搬它的源码，做出 1:1 的效果**，只是原本是全屏的，
+现在是面板而已……我要 **1:1 完全一样的效果**，完全一致的效果**起码波形显示区是这样的**」。
+**① 拖拽两条 bug 同一根因（06 P39 / 07 D27）= 真 bug**：拖拽闭包**缓存 DOM 引用**，而拖拽中途 `afterLayout()` 的
+`setTimeout(60ms) → window.dispatchEvent('resize')` 触发原型 `render()`/`renderFloats()` **重建整棵 DOM** →
+闭包里的 `el`/`handle`/`slots` 成**游离节点**，样式与类名写进空气（实证 `[fdrag.up] elConnected=false`）→
+既致「预览 ≠ 落位」（往游离节点写 `style.transform`）又致「`⧉ ▣ ✕` / 页签 `✕` 乱闪」（游离 `classList` 判拖动态失效）。
+**修法三条铁律**：**稳定 id**（`split()`/`cloneTree()` 给 split 补 `id='s-'+(++seq)` + `el.dataset.splitId`）/
+**每次现查活节点**（`liveSplit()` / `floatsLayer.querySelector('[data-float="id"]') || el`，绝不用缓存引用）/
+**监听挂 `window`**（`pointermove`/`up`/`cancel` 从 handle 改挂 window，跨重建拖动态用模块级 `draggingFloatId`，
+松手统一 `renderFloats()` + `persist()`）；`ui-mockup.css` 新增 `.mk-float.dragging` 系列（`z-index:500` / accent 边框 / `cursor:grabbing`）。
+**新增回归 I1~I5**（专打「拖拽中途被 render 重建」）→ mock-probe **34 → 55 项全过**。
+**② 原型「1:1 完全照搬真机」重构**：新增 **`tools/gen-mock-page.mjs`**（**唯一正确来源 = 真机 `index.html`**）：
+读真机全文（只读）→ 机械替换 `css/ js/ lib/ img/` → `../*` → 内联 module 说明符 `'./js/sim/*'` → `'../js/sim/*'` →
+head 内联 `<style>` 后插一行 `ui-mockup.css` → `</body>` 前追加 **新增 `prototype/mock-tail.html`**（原型外壳：工作区 `#mk-park` /
+状态栏 / 帮助浮层 / 拖拽引擎，**与真机 chrome 彻底分离**）→ **`ui-mockup.html` = 64,658 B / 1,133 行（真机骨架逐字 + 原型外壳）**。
+由此**菜单栏 / 工具带 / 代码区（CodeMirror 宿主）/ 波形显示区 = 真机原样 DOM + 真机原样 CSS + 真机原样 JS 资源**。
+**真机 vs 原型 1:1 比对（`.e2e-tmp/r37e.mjs`）= 13 same / 1 diff**：`#menu-bar`/`#toolbar` outerHTML（归一化 `../img/` 后）SAME、
+矩形 + 菜单项(4) + 工具条子元素(**35**) 矩形全 SAME、CodeMirror 文本/行数/字体·颜色·背景 SAME、`verilog-source` 兜底 /
+`rtl-tree` 前缀 / `sim-status` / 主题 CSS 变量 SAME；唯一 diff = sim 卡片 **DOM 顺序**（`[source,rtl,vcd,tb]` vs `[rtl,source,vcd,tb]`，无害）；
+画布宽度相同（1540）高度差 = 面板高度。**像素 diff（`.e2e-tmp/r37f.mjs`）：波形画布 908×609 = `78/552972 = 0.0141%`**
+（只差网格虚线抗锯齿亚像素 `(240,240,240)` vs `(242,242,242)`）/ chrome band 1680×86 = `0.4713%` →
+**波形显示区 1:1 达成**。**真机黄金基线（1680×1000 headless）**：`#menu-bar` h=40、`#toolbar` t=40 h=46、`#main-area` t=86；
+原型 `#workbench` t=86 h=888、`#status-bar` t=974 h=26；波形面板 `#wave-view` 908×609。
+**③ 审计口径校准（07 D26）**：`tools/ui-audit.mjs` 的 **R5 间距刻度 / R6 禁隐式溢出 / R8 不被裁切** 三条改为
+**只在 `target==='real'` 判定**（原型继承真机原生间距与 1280 `#toolbar` 溢 192px 等 = 真机待优化项 **P-UI-02**，属 U3，**不是原型缺陷**）；
+mock 仍保留 R3 主按钮唯一 / R6 控制带禁换行 / R9 提示不进工具带。**理由（用户口径）**：「1:1 完全一致」优先于旧审计口径。
+**④ exe 重打包**：`build-prototype.ps1` 内嵌目录扩为 **`prototype/ img/ css/ js/ lib/`**（`res count 27 → 54`）→
+`WavePaintMockup.exe` **186,368 B → 1,709,056 B**（`v0.4.0-mock build 2026-09-13 18:55:12 b93ad07`）；
+⚠ **打包前必须 `taskkill /F /IM WavePaintMockup.exe`**，否则 `csc` 报 `CS0016 未能写入输出文件…另一个程序正在使用此文件`；
+`tools/mockup-exe-smoke.mjs` 同步（资源清单加 css/js/lib 逐字节比长度、首页断言改 `#workbench`+`#mk-park`+`#menu-bar`+`#toolbar`、
+404 分支改 `/js/sim/engine.js.bak`）→ **56/56**。
+**实测全绿**：mock-probe 源码 dev-server **55/55** / exe 服务 **55/55**、ui-audit `--mock` 1680+1280 违规 **0**、
+smoke **56/56**、`r37c` 落点预览矩阵 **10/10**、`r37d` 分隔条 + 拖拽按钮 **8/8**、`r37e` 13 same / 1 diff、`r37f` 0.0141% / 0.4713%。
+**真机一行未改**（`js/` `index.html` `css/` `img/` `lib/` `WavePaintLauncher.cs` `build.ps1`）→ **C1 未触发、真机 exe 未重建**
+（仍 `v0.4.0 build 2026-09-13 16:52:06 83fab85` / 22,015,488 B）；24 个冻结 id 全在；未动 `js/sim/engine.js`（C9）。
+同步 `04 §4.25` + §1/§2、`09 §3.1`（**重编号**：原 3.1~3.8 顺延为 3.2~3.9）、`06 P39`、`07 D26 + D27`、`05-LOGS` 索引、当日日志。
+**下一步 = 等用户 review 第二十七轮 `WavePaintMockup.exe`** → 通过后按 **08 §7.8**：U2 + D0 合并同批 → U3（含 P-UI-02）→ D1 → D2 → D3 → D4+U4。
+维护者：任何接手的 AI。
+
+<details>
+<summary>上一轮记录（第二十六轮：原型打包为可双击运行的 exe（交付方式升级：网页链接 → 零依赖 exe））</summary>
+
 *最后更新：2026-09-13（第二十六轮：**原型打包为可双击运行的 exe（交付方式升级：网页链接 → 零依赖 exe）**）。
 用户原话：「**提供的网页链接无法打开**，请按照**原本之前的方式**一样打包成一个**可直接运行的点 exe** 供我 review」
 → 上一轮 review 链路（`node tools/dev-server.mjs 8951` + 手输 URL）对用户不可用。**本轮 = 交付方式升级，不改原型界面本身**：
@@ -77,6 +121,8 @@
 同步 `04 §4.24` + §1/§2、`09 §3.1`（原 3.1~3.7 顺延为 3.2~3.8）、`07 D25`、`02 §3/§8`、`06 P38`、`05-LOGS` 索引、当日日志。
 **下一步 = 等用户 review `WavePaintMockup.exe`** → 通过后按 **08 §7.8**：U2 + D0 合并同批 → U3（含 P-UI-02）→ D1 → D2 → D3 → D4+U4。
 维护者：任何接手的 AI。
+
+</details>
 
 <details>
 <summary>上一轮记录（第二十五轮：U0-R 顶栏统一（撤销 D-UI-A）+ 真机 splitter 高度模型根本重写 + 三条真 bug + 混淆残留清零）</summary>

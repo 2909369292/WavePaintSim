@@ -66,9 +66,9 @@
 | `node tools/e2e-rtl.mjs` | #75/#85/#86/#76-B1 冒烟：CM6 / RTL Tree / VCD 树 / 观察行 / 实例跳定义 / 符号→VCD 映射 / 反向高亮 / 观察行存档 / 全接口入波形（**61 项**，B~J 段） | 61/61 | `rtl-nav` / `vcd-index` / `rtl-panel` / `ui-bridge` / `index.html` 改动 |
 | `node .e2e-tmp/verify-recovery2.mjs` | 服务自愈：判活 / 重连 / 重拉 / 自动重试（17 项） | 17/17 | `service-guard` / `ui-bridge` / `launcher` / `index.html` 改动 |
 | `node tools/exe-smoke.mjs` | 真实 exe 冒烟 | 通过 | exe 重建后 |
-| `node tools/mock-probe.mjs` | UI 原型（`prototype/`）渲染 + 交互 + 布局体检（**34 项**） | 34/34 | `prototype/**` 改动 |
-| `node tools/mockup-exe-smoke.mjs` | 原型 exe 无浏览器冒烟（ping 身份 / 静态资源字节数比对 / 构建戳 / 404 / 路径穿越；**41 项**） | 41/41 | 原型 exe 重新打包后 |
-| `node tools/ui-audit.mjs --all --check` | 控件/工具栏规范化体检（真机 + 原型 × 1920/1680/1440/1280；口径 R3 主按钮唯一 / R5 间距只 4·12 / R6 无折行无溢出 / R8 无 offscreen / R9 长文本不进带） | 违规 **0**（原型已达标；**真机 U3 前仍有违规**，基线见 08 §7.1） | `index.html` / `css/**` / `prototype/**` 改动（U2~U4 起提交前必跑） |
+| `node tools/mock-probe.mjs` | UI 原型（`prototype/`）渲染 + 交互 + 布局体检（**55 项**，含第二十七轮 G 落点矩阵 7 例 / H 分隔条 5 例 / I 拖拽重建 5 例） | 55/55 | `prototype/**` 改动（`MOCK_BASE=http://127.0.0.1:<port>` 可对 exe 服务跑同一套） |
+| `node tools/mockup-exe-smoke.mjs` | 原型 exe 无浏览器冒烟（ping 身份 / 静态资源（含 `css/ js/ lib/`）字节数比对 / 构建戳 / 404 / 路径穿越；**56 项**） | 56/56 | 原型 exe 重新打包后 |
+| `node tools/ui-audit.mjs --all --check` | 控件/工具栏规范化体检（真机 + 原型 × 1920/1680/1440/1280；口径 R3 主按钮唯一 / R5 间距只 4·12 / R6 无折行无溢出 / R8 无 offscreen / R9 长文本不进带；**D26：R5 / R6 隐式溢出 / R8 只在 `target==='real'` 判定**） | 违规 **0**（原型已达标；**真机 U3 前仍有违规**，基线见 08 §7.1） | `index.html` / `css/**` / `prototype/**` 改动（U2~U4 起提交前必跑） |
 | 浏览器人工验收 | UI 视觉/交互 | 用户确认 | AI 无法完整实测的 UI 改动，必须明确告知用户 |
 
 ---
@@ -200,8 +200,17 @@ node tools/dev-server.mjs 8947
 # 检查 exe 特征
 rg -a -c "rangeResolvable" WavePaintClean.exe
 
+# 原型页重新生成（改真机 index.html 骨架后必跑：原型 = 真机骨架 1:1 拷贝 + prototype/mock-tail.html 外壳；口径见 07 D26）
+node tools/gen-mock-page.mjs
+
 # 原型 exe 构建 / 冒烟 / 对 exe 跑探针
+# ⚠ 打包前必须先关掉正在运行的旧 exe，否则 csc 报 CS0016
+taskkill /F /IM WavePaintMockup.exe
 .\build-prototype.ps1
 node tools/mockup-exe-smoke.mjs
 node tools/mock-probe.mjs http://127.0.0.1:17820
+
+# 真机 vs 原型 1:1 比对（需 dev-server 与真机页面；临时脚本在 .e2e-tmp/）
+node .e2e-tmp/r37e.mjs    # DOM / 几何 逐项比对
+node .e2e-tmp/r37f.mjs    # chrome band + 波形画布 像素 diff
 ```

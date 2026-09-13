@@ -631,4 +631,21 @@
 
 ---
 
-> 以上为截至**第二十六轮（2026-09-13）**的坑位清单，共 **P1~P38**。每条格式：现象 → 根因 → 修法 → 预防；带 `#NN` 的对应 `03-REQUIREMENTS.md` 需求号。
+## P39 · 第二十七轮一坑：拖拽闭包**缓存 DOM 引用**，被中途重建后写进「游离节点」（2026-09-13）
+
+### 坑：拖拽预览与松手后落位不一致 + 拖动中按钮/页签✕乱闪 —— 同一个根因
+
+- **现象**：① 拖动面板时，跟随指针的「预览矩形」和松手后「实际落位」不一致（有时预览动了、落位没动，或反过来）；② 拖动中面板头部的 `⧉ ▣ ✕` 按钮、页签上的 `✕` 会闪现/乱闪，CSS 里明明写了 `body.mk-dragging ... opacity:0 !important` 却失效。
+- **根因**：拖拽处理函数在 `pointerdown` 时把 DOM 引用**缓存进闭包**（`const el = …; const handle = …; const slots = …`），而拖拽过程中会有一个 60ms 的 `afterLayout()` 定时器派发 `window` 的 `resize`，原型监听 resize → `render()/renderFloats()` → **整棵 DOM 被重建**。此时闭包里缓存的是**已被替换掉的游离节点**：
+  - 往游离 `el` 上写 `style.transform` / `dataset` → **视觉上什么都不发生**（写进了空气）→ 预览与落位不一致；
+  - 往游离 `handle` 上加 `.active`、用 `el.classList` 判断拖动态 → 活节点上类名没变 → 拖动中的按钮显隐 CSS 失效 → 乱闪。
+- **实证**：探针日志 `[fdrag.up] elConnected=false sameEl=false sameF=true` —— 位置状态 `f.x/f.y` 确实更新了，但被写在**未连接**（`isConnected===false`）的旧 `el` 上。
+- **修法**（原型 `prototype/ui-mockup.js`，三条铁律）：
+  1. **稳定 id**：`split` 节点补 `id`（`'s-' + (++seq)`）并落 `el.dataset.splitId`；浮窗本就有 `data-float`。
+  2. **每次查活节点**：`move` 里不用缓存引用，一律 `layer.querySelector('[data-float="id"]')` / `[data-split-id="id"]` 现查，`|| el` 兜底；写完在 `pointerup` 统一 `renderFloats()` + `persist()` 收尾。
+  3. **监听挂 `window`**：`pointermove/pointerup/pointercancel` 从 `handle` 改挂 `window`（手柄被换掉也不中断），并补 `pointercancel` 取消分支；跨重建的「正在拖动」状态用**模块级变量**（`draggingFloatId`）承载，`renderFloats()` 按它拼 `.dragging` 类。
+- **预防**：**任何会跨异步/跨重渲染存活的交互（拖拽、悬停、选中），都禁止把 DOM 节点缓存在闭包里**；要么存「稳定 id / 数据」，要么每次现查活节点。这条已升格为决策 **D27**，并加 5 条回归断言（`tools/mock-probe.mjs` I1~I5：重建后仍在拖动 / 预览==落位 / 清理状态 / 分隔条跟随 / 逐像素相等）长期看守。
+
+---
+
+> 以上为截至**第二十七轮（2026-09-13）**的坑位清单，共 **P1~P39**。每条格式：现象 → 根因 → 修法 → 预防；带 `#NN` 的对应 `03-REQUIREMENTS.md` 需求号。

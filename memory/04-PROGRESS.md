@@ -5,7 +5,7 @@
 
 ---
 
-## 1. 当前状态快照（2026-09-13，第二十六轮后）
+## 1. 当前状态快照（2026-09-13，第二十七轮后）
 
 | 项 | 状态 |
 |---|---|
@@ -21,12 +21,13 @@
 | 上一轮（第二十四轮，2026-09-13） | **控件与工具栏规范化 U 线：方案定稿（08 §7）+ 可复算审计工具转正 + 原型 U0 重排完成（全绿，等用户拍板）**（详见 §4.22）。用户原话：「UI 排布在大体上基本正确，**小的按钮上的排布以及控制栏的排布还需要斟酌，现在似乎有一些混乱**，大体上可以按照此方案进行改动，**请给出之后的工作方案**」→ 判定 = **形态层已通过（第二十三轮四区 dock / 页内浮窗 / 多 Tab / 3 预设），本轮只做控件层**，编号 **U0~U4**。产出三件：① **`08 §7` 方案全文**（§7.1~§7.10，含实测问题清单 **P-UI-01~09** + 铁律 **R1~R9** + 目标分层 **L0~L4** + 主方案 **D-UI-A**（14 个波形类控件从全局带下沉到波形面板上下文带，全局带 **34→14 个顶层元素**）/ 备选 D-UI-B + 刻度规范 + 溢出降级 + U0~U4 分期 + 与 §6 D 线合并总排期 ≈8~9 工作日 + 四条待拍板）；② **`tools/ui-audit.mjs` 转正**（真实 Edge headless + CDP 测量工具，`--mock`/`--real`/`--all`/`--check`/`--widths=`，`violationsOf()` 与 R3/R5/R6/R8/R9 一一对应）；③ **原型 U0 重排**（`prototype/ui-mockup.{html,css,js}`：`#toolbar` 重写为 L1 11 项 + `⋯`、波形/源码/树/文件/属性面板带全部改 `.mk-tbg` 分组 + `⋯`、新增 `setupBands()` 按 `data-ovp` 收组 / `setupFlyouts()` / `setupCtlFeedback()` 假交互、:`:root` 加 6 个刻度变量、删 `.mk-hintbar`（R9）与全部散落 margin（R5）、状态栏三段化 + `#st-ctx`）。**实测**（全部实跑）：`tools/mock-probe.mjs` **34/34**、`tools/ui-audit.mjs` mock **1680 与 1280 两档违规 0**（此前 3 / 6）；真机基线（未改，**待 U3 修**）= 1920 违规 1 / 1440 溢 32px / 1280 溢 192px。**C1 未触发（只改 `prototype/` + 新增 `tools/`，均不进 `resources.txt`）→ 未重建 exe** |
 | 上一轮（第二十五轮，2026-09-13） | **U0-R 顶栏统一（撤销 D-UI-A）+ 真机面板 splitter 高度模型根本重写 + 三条真 bug 修复 + 混淆残留清零**（详见 §4.23）。用户原话：「**波形的时间标 1234 等错误地放在了源码区**」「**波形区的子波形区现在不添加功能栏，功能栏仍旧放在统一的顶栏**」「现在各个窗口的**大小拖拽有 bug，似乎和鼠标坐标对不上**」「**已有绘图 UI 尽量不做改动**」「编辑栏先不做修改」。**① 原型 U0-R（`prototype/ui-mockup.{html,css,js}`）**：把第二十四轮 D-UI-A 下沉到波形面板带的控件**全部收回统一顶栏** `#toolbar`（5 组 18 个绘图/编辑控件，带 `data-ovp`），**整条 `.mk-toolrow` 从波形面板删除**（波形区零子功能栏），帮助浮层 §5 与 `mk-version` 同步（→ `mock-3（顶栏统一 U0-R）`）。**② 真机 `js/sim/panel-layout.js` 重写 splitter 高度模型**（旧实现三处叠加缺陷：`onMove` 把累计位移当增量反复叠加 → 越拖越飞；`weights` 被当像素值但 `applyWeights()` 归一化成占比；`flex-basis:0` + 占比模型触到 `min-height` 后 px↔权重无恒定系数）→ 新模型 `cardBaseline`/`pairSlackPx`/`resizePairTo`/`resizePair`：`applyWeights` 改 `flexBasis = 基线 px + flexGrow = 占比*100 + flexShrink 0`；`applyMinHeights` **同时写 `minHeight` 与 `flexBasis`（同源）**。**③ 三条真 bug**：a) **「时间标跑进源码区」真正根因 = 原型 `.mk-gutter` 未 `white-space:pre`** → 行号换行吃掉宽度（实测 `gutW 369→32`、`bodyW 59→396`；修复后源码区 `ticksInSource 0`）；b) 原型波形刻度类名与菜单勾选冲突 `.mk-tick` → 改 **`.mk-wave-tick`**；c) 原型信号名列宽拖拽完全无效（`closest` → `querySelector`）+ 时间轴与波形轨横滚同步。**实测（全部实跑）**：`e2e-ui` **88/88**（I1 改口径 + 新增 **I4c 指针拖拽**）、`regression` 79/79、`e2e-rtl` 61/61、`e2e-sim` 0 失败、`mock-probe` 34/34、`ui-audit --mock` 1680/1280 两档违规 0。**④ 混淆复查**：`js/wavepaint.clean.js` 无混淆残留，**另清除 9 个残留 `_0x_` 前缀局部变量**（`_0x_wpf*` → `wpf*`，正文 `_0x` 归零）→ **触发 C1，exe 已重建**（`v0.4.0 build 2026-09-13 16:52:06 83fab85`，C8 特征串核验通过） |
 | 最新一轮（第二十六轮，2026-09-13） | **原型打包为可双击运行的 exe（交付方式升级）+ 记忆同步**（详见 §4.24）。用户上一轮 review 方式为 `node tools/dev-server.mjs 8951` + 手输 URL，反馈「提供的网页链接无法打开」→ 本轮把第二十五轮 U0-R 原型打包成**双击即用、零依赖、零命令行**的 `WavePaintMockup.exe`。① **新增 `MockupLauncher.cs`（528 行，独立于真机 `WavePaintLauncher.cs`，后者一行未改 → C1 未触发）**：内嵌静态资源 HTTP 服务，端口优先 **17820**（真机 17817）被占则换随机端口，`/api/ping` 返回 **`WAVEPAINT-MOCKUP <构建戳>`**（与真机 `WAVEPAINT-SERVICE` 身份不混），`/mockup-version.txt` 暴露构建戳，`MapPathToResource` 映射（`/`→`prototype/ui-mockup.html`、`ui-mockup.*`→`prototype/`、其余按内嵌资源名、含 `..` 一律 404）；单实例发现 `%TEMP%\WavePaintMockup_service.txt`（`tag=`/`port=`）+ ping 判活；**开窗 = Edge `--app=` 无地址栏窗口**（无 Edge 退默认浏览器），`EnumWindows` + 标题含「原型」判窗口存活（真机标题不含「原型」→ 互不误伤），窗口关掉 **12 秒后自动退出**，最长存活 12 小时；参数 `/nolaunch`（只起服务）/`/port=N`。② **新增 `build-prototype.ps1`（64 行）**：独立构建脚本，**不写 `resources.txt`、不动 `version.txt`、不碰 `WavePaintClean.exe`**；内嵌 `prototype/**` + `img/**` + `mockup-version.txt`；产物 `WavePaintMockup.exe` + `mockup-version.txt`（**脚本必须带 UTF-8 BOM**，否则 PS5.1 读中文乱码 → 06 P38）。③ **新增 `tools/mockup-exe-smoke.mjs`（143 行）无浏览器自检**：`/nolaunch` 起服务后核验 ping 身份 / 首页与静态资源状态码·Content-Type·字节数与磁盘源码逐一相等 / 构建戳 / 404 分支 / HEAD / 4 条原始 socket 路径穿越非 200 → **41/41 ✅**。④ `tools/mock-probe.mjs` 支持外部 `MOCK_BASE`（`argv[2]` / `process.env.MOCK_BASE`），默认行为不变；`prototype/ui-mockup.html` 末尾抓 `/mockup-version.txt` 把构建戳插进顶部绿条（`#mock-version`），dev-server 下 404 静默跳过；`.gitignore` 加 `WavePaintMockup.exe` / `mockup-version.txt`。**实测（全部实跑）**：`build-prototype.ps1` → `csc exit: 0` / `res count: 27` / exe **186,368 B**；`mockup-exe-smoke` **41/41**；`mock-probe`（源码 dev-server）**34/34**；**对 exe 服务跑同一探针 34/34**；`ui-audit --mock` 违规 0；真实双击路径实测（`%TEMP%` 服务文件 `tag=WAVEPAINT-MOCKUP` / `port=17820`、可见窗口标题「WavePaint UI 原型（假界面 · 未连接后端）」、截图 1050×999 / 207 色非白屏、WM_CLOSE 关窗后第 12 秒自动退出、第二实例自动交接退出）。**C1 未触发 → 真机 `WavePaintClean.exe` 未重建**（仍 22,015,488 B / 16:52:06） |
-| 当前阻塞 | 无。**U1 闸门已拍板**（第二十五轮用户裁决「波形区不再有子功能栏、功能栏统一放顶栏」→ 否决 D-UI-A / 采纳 U0-R，原型已重排并全绿）；`08 §7.9-③④`（`⋯` vs 折行 / 刻度 28·24·4·12）用户未提异议，按默认执行。当前唯一待办 = **等用户 review 第二十六轮交付的 `WavePaintMockup.exe`**（原型 U0-R 假界面），通过后进 D0+U2。 |
-| 下一步主线 | **① 等用户 review `WavePaintMockup.exe`**（双击 `D:\Files\Code\波形\WavePaintMockup.exe` → Edge 无地址栏窗口打开 U0-R 原型，顶部绿条显示构建戳；**零依赖、零命令行**；关窗约 12s 后进程自动退出）。原型改动后须重跑 `.\build-prototype.ps1` 重新打包（exe 内是**构建时快照**）。**② 用户通过后按 08 §7.8 总排期推进**（U 线与 D 线合并；**D-UI-A 已作废**：真机 21 个图标按钮**不下沉**、全部留在 `#toolbar`，U3 只做分组 / 刻度 / 尺寸 / 溢出）：**U2 工具带数据驱动化**（新增 `js/sim/ui/toolbar-spec.js`，24 个冻结 id 不改名，触发 C1 重建 exe）与 **D0 面板注册表 + 宿主容器抽象**（像素级零视觉变化）**合并同批** → **U3 真机工具带落地 + P-UI-02 真 bug 修复**（真机 1440/1280 不再越界）→ **D1 停靠引擎**（把原型的 `split`/`tabs` 模型 + `hitTest` + 落点框搬进 `js/sim/dock/*.js`）→ **D2** 页内浮动 + 最大化 + 键盘 → **D3** 持久化（sessionStorage + localStorage + 3 预设 + reset，**不写 `.wp`**）→ **D4 + U4** 打磨 + 闸门工具化。**#95（G1~G8）** 已由用户明确暂不实现（方案保留 08 §6.2，恢复前须重新确认意图）；**08 §2.6 三项剩余**（VCD 树移入波形区 / TB 控制带收敛 / 层次树左置）并入 #94 D1；**#84 波形查看增强 / #77 Active Annotation / #78** 仍远期（08 §3）；RTL 树只做代码层级浏览；服务自愈（§4.11）为独立专项（C19 不变量） |
+| 最新一轮（第二十七轮，2026-09-13） | **① 修两条用户报的真 bug（拖拽预览≠落位 / 拖动中按钮乱闪，同一根因）+ ② 原型「1:1 完全照搬真机」重构 + ③ 审计口径按 D26 校准 + exe 重新打包**（详见 §4.25）。用户原话：「目前各个面板的**拖动仍然有问题，拖动的预览和最后实际的效果不一致**，且**拖动按钮在拖动时的显示也有 bug**」「代码显示区和菜单栏的显示等**并没有照搬原本的源码**…我要 **1:1 完全一样的效果**，完全一致的效果**起码波形显示区是这样的**」。**① 两条真 bug = 同一根因（06 P39 / 07 D27）**：拖拽闭包**缓存了 DOM 引用**（`el`/`handle`/`slots`），拖拽中途 `afterLayout()` 的 `setTimeout(60ms) → dispatchEvent('resize')` → 原型 `renderFloats()` **重建整棵 DOM** → 缓存的引用变成**游离节点**（实测 `elConnected=false`），样式写进空气 → 预览与落位不一致；`el.classList` 判拖动态失效 → 按钮显隐 CSS 不生效 → 乱闪。**修法（三条）**：a) split 节点补**稳定 id**（`'s-'+(++seq)`）+ `el.dataset.splitId`；b) 拖拽 `move` 里**每次现查活节点**（`[data-float=…]`/`[data-split-id=…]`，`|| el` 兜底），不再用缓存引用；c) `pointermove/up/cancel` **从 handle 改挂 `window`** + 跨重建的拖动态用**模块级变量** `draggingFloatId`（`renderFloats()` 按它拼 `.dragging` 类）+ 松手统一 `renderFloats()`/`persist()` 收尾。加 **I1~I5 五条回归**（重建后仍在拖动 / 预览==落位 / 清理状态 / 分隔条跟随且只改相邻两格 / 逐像素相等）。**② 1:1 照搬**：新增 `tools/gen-mock-page.mjs`（**从真机 `index.html` 逐字生成** `prototype/ui-mockup.html`：机械替换资源路径为 `../css` `../js` `../lib` `../img` + 内联 module 说明符 + 注入 `ui-mockup.css` + 追加 `prototype/mock-tail.html` 外壳；真机文件一律只读）+ 新增 `prototype/mock-tail.html`（工作区宿主/状态栏/帮助浮层/拖拽引擎）；**菜单栏 / 工具带 / 代码区（CodeMirror 宿主）/ 波形显示区 = 真机原样 DOM + 真机原样 CSS + 真机原样 JS**，不再「按预测效果复刻」。实测 `node .e2e-tmp/r37e.mjs` = **13 same / 1 diff**（唯一 diff = sim 卡片 DOM 顺序 `[source,rtl,vcd,tb]→[rtl,source,vcd,tb]`，无害；菜单栏/工具带 outerHTML·矩形·35 个子元素矩形/CodeMirror 文本·行数·字体·颜色·背景/verilog-source 兜底/rtl-tree 前缀/sim-status 文本/主题变量全 SAME）；**像素 diff：波形画布 908×609 `diffPx=78/552972 = 0.0141%`（只差网格虚线抗锯齿亚像素）、chrome band 1680×86 = 0.4713%** → **波形显示区 1:1 达成**。**③ 审计口径（07 D26）**：`tools/ui-audit.mjs` 的 **R5/R6(隐式溢出)/R8 三条「真机自身规范化」规则改为只在 `target==='real'` 判定**，mock 豁免（原型继承真机原生间距 `{4,6,8,10,12,18}` / 真机 1280 溢 192px / 步数越界，属真机待优化 P-UI-02，不是原型缺陷）→ `--mock` **1680/1280 两档违规 0**。**④ exe 重新打包**：`build-prototype.ps1` 内嵌目录由仅 `prototype/` 扩为 **`prototype/ img/ css/ js/ lib/` 五目录（res count 27→54）** → `WavePaintMockup.exe` **186,368 B → 1,709,056 B**；`tools/mockup-exe-smoke.mjs` 资源清单同步（新增 css/js/lib 三项字节数逐一相等；首页断言改 `#workbench`/`#mk-park`/`#menu-bar`/`#toolbar`）→ **56/56 ✅**。**实测（全部实跑）**：`mock-probe` **55/55**（源码 dev-server）+ **对 exe 服务（17899）55/55**；`ui-audit --mock` 两档违规 0；`mockup-exe-smoke` 56/56；真机 vs 原型 13 same/1 diff + 像素 diff 0.0141%。**C1 未触发 → 真机 `WavePaintClean.exe` 未重建**（仍 22,015,488 B / 16:52:06） |
+| 当前阻塞 | 无。**U1 闸门已拍板**（第二十五轮用户裁决「波形区不再有子功能栏、功能栏统一放顶栏」→ 否决 D-UI-A / 采纳 U0-R）；**第二十七轮用户再次明确「1:1 完全照搬真机」优先于旧审计口径（D26）**，`08 §7.9-③④`（`⋯` vs 折行 / 刻度 28·24·4·12）用户未提异议，按默认执行。当前唯一待办 = **等用户 review 第二十七轮重新打包的 `WavePaintMockup.exe`**（1:1 真机界面 + 拖拽修复），通过后进 D0+U2。 |
+| 下一步主线 | **① 等用户 review 第二十七轮重新打包的 `WavePaintMockup.exe`**（双击 `D:\Files\Code\波形\WavePaintMockup.exe` → Edge 无地址栏窗口打开 **1:1 真机界面**的原型，顶部绿条显示构建戳；**零依赖、零命令行**；关窗约 12s 后进程自动退出）。⚠ 原型页现由 **`node tools/gen-mock-page.mjs` 从真机 `index.html` 生成**：**改真机骨架后必须先重跑生成器、再 `.\build-prototype.ps1`**（exe 内是**构建时快照**）。**② 用户通过后按 08 §7.8 总排期推进**（U 线与 D 线合并；**D-UI-A 已作废**：真机 21 个图标按钮**不下沉**、全部留在 `#toolbar`，U3 只做分组 / 刻度 / 尺寸 / 溢出）：**U2 工具带数据驱动化**（新增 `js/sim/ui/toolbar-spec.js`，24 个冻结 id 不改名，触发 C1 重建 exe）与 **D0 面板注册表 + 宿主容器抽象**（像素级零视觉变化）**合并同批** → **U3 真机工具带落地 + P-UI-02 真 bug 修复**（真机 1440/1280 不再越界）→ **D1 停靠引擎**（把原型的 `split`/`tabs` 模型 + `hitTest` + 落点框搬进 `js/sim/dock/*.js`，**必须遵守 D27：禁止缓存 DOM 引用**）→ **D2** 页内浮动 + 最大化 + 键盘 → **D3** 持久化（sessionStorage + localStorage + 3 预设 + reset，**不写 `.wp`**）→ **D4 + U4** 打磨 + 闸门工具化。**#95（G1~G8）** 已由用户明确暂不实现（方案保留 08 §6.2，恢复前须重新确认意图）；**08 §2.6 三项剩余**（VCD 树移入波形区 / TB 控制带收敛 / 层次树左置）并入 #94 D1；**#84 波形查看增强 / #77 Active Annotation / #78** 仍远期（08 §3）；RTL 树只做代码层级浏览；服务自愈（§4.11）为独立专项（C19 不变量） |
 | 测试基线 | regression **79/79**；e2e-rtl **61/61**；**e2e-ui 88/88**（第二十一轮 I0~I8；**第二十五轮 I1 改口径**〔基线模型：`flex-basis` = 卡片基线 px + `flexGrow` 占比 + `flexShrink 0`〕**+ 新增 I4c 指针拖拽**〔拖 DY → 上下卡各 ±DY 且总高守恒、同手势拖回高度可逆〕）；e2e-sim 0 失败；probe-param 全过；**2026-09-13 第二十五轮实测复跑（全部实测）：regression 79/79、e2e-ui 88/88、e2e-rtl 61/61、e2e-sim 0 失败、mock-probe 34/34、probe-param 全过、真 exe 冒烟通过、`verify-recovery2` 17/17**（B4 起「仿真后不全量灌信号」的 e2e-sim 断言仍在守） |
-| 原型 / 控件测试基线（第二十六轮更新，**全部实跑**） | **交付方式 = `WavePaintMockup.exe`（双击即用）**，构建 `.\build-prototype.ps1`，无浏览器自检 `node tools/mockup-exe-smoke.mjs` → **41/41 ✅**；**`node tools/mock-probe.mjs` → 34/34**（源码 dev-server 与 exe 服务**两种承载都 34/34**：对 exe 用 `node tools/mock-probe.mjs http://127.0.0.1:<port>`）；**`node tools/ui-audit.mjs` → 原型 mock 1680 / 1280 两档违规 0 ✅**（口径 R3/R5/R6/R8/R9；产物 `.e2e-tmp/ui-audit-mock.json`）；**真机基线（未修，U3 目标）= 1920 违规 1 / 1680 违规 1 / 1440 违规 3（`#toolbar` 溢 32px）/ 1280 违规 3（溢 192px）**（P-UI-02）；**第二十六轮只动 `prototype/` + 新增 `MockupLauncher.cs`/`build-prototype.ps1`/`tools/mockup-exe-smoke.mjs` → 真机四档数字不变** |
+| 原型 / 控件测试基线（第二十七轮更新，**全部实跑**） | **交付方式 = `WavePaintMockup.exe`（双击即用）**；**原型页生成链 = `node tools/gen-mock-page.mjs`（真机 index.html → 1:1 原型页）→ `.\build-prototype.ps1`（内嵌 `prototype/ img/ css/ js/ lib/` 五目录，res count 54）**；无浏览器自检 `node tools/mockup-exe-smoke.mjs` → **56/56 ✅**；**`node tools/mock-probe.mjs` → 55/55**（源码 dev-server 与 exe 服务**两种承载都 55/55**：对 exe 用 `node tools/mock-probe.mjs http://127.0.0.1:<port>`；含 I1~I5 拖拽重建回归）；**`node tools/ui-audit.mjs --mock` → 1680 / 1280 两档违规 0 ✅**（**D26 新口径**：R5 / R6 隐式溢出 / R8 只在真机判定，mock 保留 R3 / R6 控制带禁换行 / R9；产物 `.e2e-tmp/ui-audit-mock.json`）；**真机基线（未修，U3 目标）= 1920 违规 1 / 1680 违规 1 / 1440 违规 3（`#toolbar` 溢 32px）/ 1280 违规 3（溢 192px）**（P-UI-02）；**真机 vs 原型 1:1 比对 = 13 same / 1 diff**（`.e2e-tmp/r37e.mjs`；唯一 diff = sim 卡片 DOM 顺序，无害）+ **像素 diff：波形画布 0.0141% / chrome band 0.4713%**（`.e2e-tmp/r37f.mjs`）；**第二十七轮只动 `prototype/` + `tools/` + `build-prototype.ps1` → 真机四档数字不变、真机 exe 未重建** |
 | UI 基线 | e2e-rtl **61/61**（含 #85 D1~D6 + 第十二轮 B3 RTL 树纯层级浏览 + 第十四轮 E1~E6 + 第十五轮 F1~F9 + 第十六轮 G1~G7 + 第十七轮 H1/H2/H3/H4/H4b/H5/H6 + 第十八轮 I1~I6 + 第十九轮 J0~J7）；**e2e-ui 88/88**（真实 Edge；第二十一轮 I0~I8：4 卡 + 3 splitter 装配 / `flex-grow` 归一化 100 且 `flex-basis:0px` / 折叠 `.collapsed`+`display:none`+相邻 splitter disabled+aria / 展开还原 / `ArrowDown` `source=原高+16`·`rtl=原高-16` / 宽度 420·下限 280·上限 760 / sessionStorage v1 落盘 / reset 回 328+展开+300-245-245-190 / 矮窗口 750×485 下 `#sim-run` 命中自身**）；probe-tutorial / probe-addbtn / probe-simfail 全过；真 exe 冒烟通过（端口 17817、core/wpf/doc/canvas/汉化全在、无异常）；**第二十五轮 `js/sim/panel-layout.js` splitter 高度模型根本重写**（`cardBaseline` / `pairSlackPx` / `resizePairTo` + `applyMinHeights` 同源写 `flexBasis`）→ e2e-ui **88/88**（I1 改口径 + 新增 I4c 指针拖拽，用户报的「拖拽和鼠标坐标对不上」根因即旧 `onMove` 累计位移反复叠加）；第十三轮自愈专测 `verify-recovery2.mjs` 17/17 + 真实 Edge 协议探针 `probe-protocol.mjs` |
-| 交付提醒 | 重启应用、从唯一路径启动、面板版本号自查（应显示 **`v0.4.0 build 2026-09-13 16:52:06 83fab85`**；⚠ `83fab85` = **构建时 HEAD**（第二十四轮 commit），承载第二十五轮代码的 commit 是它的**下一个** —— **别误判 exe 落后**，口径见 05/09 第十六轮补记）；本次 exe 内置 **第二十五轮 `js/sim/panel-layout.js` splitter 基线模型重写 + 混淆残留清零**、第二十四轮 U 线原型、第二十一轮可拖拽多面板（卡片折叠 + 纵向 splitter + 侧栏宽度 + session 级持久化 + 矮窗口工具栏裁剪修复）、第十九轮 #87②（`Ctrl+Alt+4`）、第十八轮 #76 B5、第十七轮 #76 B3、第十六轮 #76 B4（+ 不再仿真后全量灌信号）、第十五轮 #76 B1、第十四轮 #86 A1~A4、第十三轮服务自愈（端口 17817 + `WPServiceGuard` + `#sim-recover` 按钮）、第十二轮 RTL 树瘦身、#85 与第六轮收官 clean.js。**首次**自愈时浏览器会弹一次「是否允许打开 wavepaint:」，勾选「始终允许」后无感（浏览器安全策略，无法绕过） **第二十六轮新增交付物**：原型 = `WavePaintMockup.exe`（`D:\Files\Code\波形\WavePaintMockup.exe`，双击即用、零依赖；端口 17820；窗口顶部绿条显示 `v0.4.0-mock build <时间> <构建时HEAD>`；**纯 mock / 零后端 / 假数据**），与真机 `WavePaintClean.exe` **互不影响、可同时运行**（身份探针分别为 `WAVEPAINT-MOCKUP` / `WAVEPAINT-SERVICE`，端口 17820 / 17817） |
+| 交付提醒 | 重启应用、从唯一路径启动、面板版本号自查（应显示 **`v0.4.0 build 2026-09-13 16:52:06 83fab85`**；⚠ `83fab85` = **构建时 HEAD**（第二十四轮 commit），承载第二十五轮代码的 commit 是它的**下一个** —— **别误判 exe 落后**，口径见 05/09 第十六轮补记）；本次 exe 内置 **第二十五轮 `js/sim/panel-layout.js` splitter 基线模型重写 + 混淆残留清零**、第二十四轮 U 线原型、第二十一轮可拖拽多面板（卡片折叠 + 纵向 splitter + 侧栏宽度 + session 级持久化 + 矮窗口工具栏裁剪修复）、第十九轮 #87②（`Ctrl+Alt+4`）、第十八轮 #76 B5、第十七轮 #76 B3、第十六轮 #76 B4（+ 不再仿真后全量灌信号）、第十五轮 #76 B1、第十四轮 #86 A1~A4、第十三轮服务自愈（端口 17817 + `WPServiceGuard` + `#sim-recover` 按钮）、第十二轮 RTL 树瘦身、#85 与第六轮收官 clean.js。**首次**自愈时浏览器会弹一次「是否允许打开 wavepaint:」，勾选「始终允许」后无感（浏览器安全策略，无法绕过）。**原型交付物（第二十七轮更新）**：`D:\Files\Code\波形\WavePaintMockup.exe` = **1,709,056 B**（2026-09-13 18:55:12；构建戳 `v0.4.0-mock build 2026-09-13 18:55:12 b93ad07`；**内嵌 `prototype/ img/ css/ js/ lib/` 五目录共 54 项资源**；**菜单栏 / 工具带 / 代码区 / 波形区 = 真机 1:1 原样 DOM+CSS+JS**；拖拽「预览==落位」「拖动中按钮不乱闪」已修），双击即用、零依赖、端口 17820，与真机 `WavePaintClean.exe` **互不影响、可同时运行**（身份探针 `WAVEPAINT-MOCKUP` / `WAVEPAINT-SERVICE`）。⚠ **重新打包前必须先关掉正在运行的旧 `WavePaintMockup.exe`**，否则 `csc` 报 `CS0016 未能写入输出文件…另一个程序正在使用此文件`（本轮实测踩到）。原型页由 `node tools/gen-mock-page.mjs` 从真机 `index.html` 生成 → 改真机骨架后**必须先重跑生成器、再 `.\build-prototype.ps1`** |
 
 ---
 
@@ -66,6 +67,7 @@
 | 2026-09-13 | 第二十四轮：**控件与工具栏规范化 U 线 —— 方案定稿（08 §7）+ 审计工具转正 + 原型 U0 重排（等用户 U1 拍板）** | 用户 review 第二十三轮原型后判定「**UI 排布在大体上基本正确**，小的按钮上的排布以及控制栏的排布还需要斟酌，现在似乎有一些混乱」，授权「大体上可以按照此方案进行改动」并要求「**给出之后的工作方案**」→ **形态层通过、只做控件层**（编号 **U0~U4**）。交付三件：① **`08 §7` 全文**（§7.2 **P-UI-01~09** 实测问题清单〔含 **P-UI-02 = 真机 `#toolbar` 1440 溢 32px / 1280 溢 192px 的真 bug**〕/ §7.3 **R1~R9 铁律** / §7.4 **L0~L4 分层 + 主方案 D-UI-A**（真机 21 个图标按钮中 **14 个波形类控件下沉到波形面板上下文带**，全局带 **34 → 14 个顶层元素**）/ 备选 D-UI-B / §7.5 刻度规范 / §7.6 `⋯` 溢出降级 / §7.7 **U0~U4 分期** / §7.8 **之后的工作方案（与 §6 D 线合并总排期 ≈8~9 工作日）** / §7.9 **四条待拍板**）；② **`tools/ui-audit.mjs` 由临时脚本转正入库**（真实 Edge headless + CDP 量测，`--mock` / `--real` / `--all` / `--check` / `--widths=`，`violationsOf()` 与 R3/R5/R6/R8/R9 一一对应）；③ **原型 U0 重排**（`prototype/ui-mockup.{html,css,js}`：`#toolbar` 重写为 L1 11 项 + `⋯`、各面板带改 `.mk-tbg` 分组 + `⋯`、`:root` 加 6 个刻度变量、删 `.mk-hintbar`、状态栏三段化 + `#st-ctx`、新增 `setupBands()` / `setupFlyouts()` / `setupCtlFeedback()`）。**实测**：`tools/mock-probe.mjs` **34/34**；`tools/ui-audit.mjs` 原型 mock **1680/1280 两档违规 0**（改动前 3/6）；**真机基线未修 = 1440 溢 32px / 1280 溢 192px（P-UI-02，待 U3）**。**C1 未触发、未重建 exe** |
 | 2026-09-13 | 第二十五轮：**U0-R 顶栏统一（撤销 D-UI-A）+ 真机 splitter 高度模型重写 + 三条真 bug 修复 + 混淆残留清零** | 用户四条原话：① 「**波形的时间标 1234 等错误地放在了源码区**」；② 「**编辑栏先不做修改**……保存图标、撤回图标、放大缩小图标等**还放到此位置**（统一顶栏），**波形区的子波形区现在不添加功能栏**，功能栏仍旧放在统一的顶栏那里」；③ 「现在各个窗口的**大小拖拽有 bug，似乎和鼠标坐标对不上**，而且检查显示等其他 bug」；④ 「**已有绘图 UI 尽量不做改动**……如果是很混淆过的，请查明问题之前做过的所有代码的解混淆和剔除工作」。**① 原型 U0-R**：`prototype/ui-mockup.{html,css,js}` —— 撤销第二十四轮 D-UI-A，把下沉到波形面板带的控件**全部收回 `#toolbar`**（5 组 18 项，`data-ovp`），**删除波形面板整条 `.mk-toolrow`**（波形区零子功能栏），帮助浮层 §5 + `mk-version`（→ `mock-3（顶栏统一 U0-R）`）同步。**② 真机 `js/sim/panel-layout.js` 根因重写**：`cardBaseline` / `pairSlackPx` / `resizePairTo` / `resizePair`；`applyWeights` = `flexBasis: 基线px` + `flexGrow: 占比*100` + `flexShrink: 0`；`applyMinHeights` **同源同时写 `minHeight` 与 `flexBasis`**（此前窗口 resize 只重算 min-height → flex-basis 留在旧值 = 拖拽错位根因之一）。**③ 三条真 bug**：a) **时间标跑进源码区根因 = 原型 `.mk-gutter` 缺 `white-space:pre`** → 行号换行吃掉宽度（`gutW 369→32`、`bodyW 59→396`，修复后 `ticksInSource 0`）；b) 原型 `.mk-tick` 与菜单勾选类名冲突 → 波形刻度改 **`.mk-wave-tick`**；c) 原型信号名列宽拖拽全失效（`closest` → `querySelector`）+ 时间轴与波形轨横滚同步（`tracks.scrollLeft` → `axisScroll.scrollLeft`）。**④ 混淆复查**：`js/wavepaint.clean.js` 无混淆残留（`_0x55bf` / `\xNN` 等均在注释或为 ✕ 字符 / 产品功能），**另清除 9 个残留 `_0x_` 前缀局部变量**（`_0x_wpf*` → `wpf*`）→ 正文 `_0x` 归零。**实测（全部实跑）**：e2e-ui **88/88**（I1 改口径 + 新增 I4c）、regression 79/79、e2e-rtl 61/61、e2e-sim 0 失败、mock-probe 34/34、ui-audit --mock 1680/1280 违规 0；真机四档数字不变（U3 修）。**C1 触发（改了 `js/`）→ exe 已重建**（22,015,488 B / 2026-09-13 16:52:06 / `v0.4.0 build 2026-09-13 16:52:06 83fab85`，C8 特征串核验通过） |
 | 2026-09-13 | 第二十六轮：**原型打包为可双击运行的 exe（交付方式升级：网页链接 → 零依赖 exe）** | 用户反馈「提供的网页链接无法打开，请按照原本之前的方式一样打包成一个可直接运行的点 exe 供我 review」→ 上一轮 review 链路（`node tools/dev-server.mjs 8951` + 手输 `http://127.0.0.1:8951/prototype/ui-mockup.html`）需 Node + 手输地址，本轮改为**双击 exe 即用**。① **新增 `MockupLauncher.cs`（528 行）**：自包含静态资源 HTTP 服务 + Edge `--app` 无地址栏窗口；端口优先 **17820**（真机 17817），冲突则随机；`/api/ping` = **`WAVEPAINT-MOCKUP <构建戳>`**（与真机 `WAVEPAINT-SERVICE` 身份隔离）；`/mockup-version.txt` 暴露构建戳；单实例发现 `%TEMP%\WavePaintMockup_service.txt`（`tag=`/`port=`）+ ping 判活；`EnumWindows` + 标题含「原型」判定窗口存活（真机标题不含「原型」→ 互不误伤）；关窗 **12s 后自动退出**、最长 12h；`/nolaunch`、`/port=N` 两参数。**独立于真机 `WavePaintLauncher.cs`（一行未改）**。② **新增 `build-prototype.ps1`（64 行）**：不写 `resources.txt`、不动 `version.txt`、不碰 `WavePaintClean.exe`，只产 `WavePaintMockup.exe` + `mockup-version.txt`（**须带 UTF-8 BOM**，见 06 P38）。③ **新增 `tools/mockup-exe-smoke.mjs`（143 行）** 无浏览器冒烟 **41/41**。④ `tools/mock-probe.mjs` 支持 `MOCK_BASE`（argv[2]/env）；`prototype/ui-mockup.html` 顶部绿条显示构建戳；`.gitignore` 加两产物。**实测：exe 186,368 B / 2026-09-13 17:08:12，构建戳 `v0.4.0-mock build 2026-09-13 17:08:12 2d1636a`；mockup-exe-smoke 41/41、mock-probe 34/34（源码 + exe 双跑）、ui-audit --mock 违规 0、真实双击路径全流程实测通过**。**C1 未触发 → 真机 exe 未重建**（仍 22,015,488 B / 16:52:06） |
+| 2026-09-13 | 第二十七轮：**拖拽两条真 bug 修复（同一根因）+ 原型「1:1 完全照搬真机」重构 + 审计口径校准 + exe 重打包** | 用户原话：① 「目前各个面板的**拖动仍然有问题，拖动的预览和最后实际的效果不一致**，且**拖动按钮在拖动时的显示也有 bug**」；② 「代码显示区和菜单栏的显示等**并没有照搬原本的源码**，我希望**完全照搬它的源码，做出 1:1 的效果**，只是原本是全屏的，现在是面板而已，而不是按照预测的显示效果等进行复刻，我要 **1:1 完全一样的效果**，完全一致的效果**起码波形显示区是这样的**」。**① 拖拽两 bug = 同一根因（06 P39 / 07 D27）**：拖拽闭包**缓存 DOM 引用**，拖拽中途 `afterLayout()`（60ms `setTimeout` + `resize`）触发 `renderFloats()` **重建整棵 DOM** → 缓存引用变**游离节点**（实测 `elConnected=false`）→ 写样式进空气（预览≠落位）、`classList` 判拖动态失效（按钮乱闪）。修法：split 补**稳定 id** + `data-split-id`；`move` 里**每次现查活节点**（`|| el` 兜底）；`pointermove/up/cancel` **挂 `window`** + 模块级 `draggingFloatId` 承载拖动态 + 松手统一 `renderFloats()/persist()`；新增 `.mk-float.dragging` 样式；加 **I1~I5 五条回归**、`E2` 过滤 `ERR_ABORTED`。**② 1:1 照搬**：新增 `tools/gen-mock-page.mjs`（**从真机 `index.html` 逐字生成** `prototype/ui-mockup.html`：资源路径 → `../css ../js ../lib ../img` + 内联 module 说明符 + 插 `ui-mockup.css` + 追加外壳；真机文件**只读**）+ 新增 `prototype/mock-tail.html`（工作区/状态栏/帮助浮层/拖拽引擎）；菜单栏·工具带·代码区·波形区 = **真机原样 DOM+CSS+JS**。实测 `.e2e-tmp/r37e.mjs` = **13 same / 1 diff**（唯一 diff = sim 卡片 DOM 顺序，无害）+ 像素 diff **波形画布 0.0141% / chrome band 0.4713%** → **波形显示区 1:1 达成**。**③ 审计口径（07 D26）**：R5/R6 隐式溢出/R8 改为**只在真机判定**，mock 豁免 → `ui-audit --mock` 两档违规 0。**④ exe 重打包**：内嵌目录扩为 `prototype/ img/ css/ js/ lib/`（res 27→54）→ `WavePaintMockup.exe` **186,368 B → 1,709,056 B**；`mockup-exe-smoke` **56/56**。⚠ 打包前须 `taskkill /F /IM WavePaintMockup.exe`（否则 `CS0016 文件被占用`）。**实测：mock-probe 55/55（源码 + exe 双跑）、ui-audit --mock 违规 0、mockup-exe-smoke 56/56**。**C1 未触发 → 真机 exe 未重建**（仍 22,015,488 B / 16:52:06） |
 
 ---
 
@@ -1581,6 +1583,132 @@ node tools/dev-server.mjs 8951
 - **不碰真机构建产物**：`resources.txt` 仍 52 项、`version.txt` 仍 `v0.4.0 build 2026-09-13 16:52:06 83fab85`、`WavePaintClean.exe` 仍 22,015,488 B / 16:52:06。
 - **不改绘图 UI**（用户既有红线）；**不重做 #88~#92**；**不动 24 个冻结 id**（原型与真机均未动）。
 - **`prototype/`、`tools/`、`memory/` 不进 `resources.txt`**（沿用第十二轮起的既有口径）。
+
+### 4.25 ✅ 已完成：拖拽两条真 bug 修复 + 原型「1:1 完全照搬真机」重构 + 审计口径校准 + exe 重打包（第二十七轮 2026-09-13）
+
+**用户请求（原话）**：「目前各个面板的**拖动仍然有问题，拖动的预览和最后实际的效果不一致**，且**拖动按钮在拖动时的显示也有 bug**。此外，代码显示区和菜单栏的显示等**并没有照搬原本的源码**，我希望**完全照搬它的源码，做出 1:1 的效果**，只是原本是全屏的，现在是面板而已，而不是按照预测的显示效果等进行复刻，我要 **1:1 完全一样的效果**，完全一致的效果**起码波形显示区是这样的**。」
+
+**判定**：① 两条拖拽 bug = **同一根因的真 bug**（不是"手感问题"），必须修根因 + 加回归；② 「1:1」是**口径裁决**（07 D26）—— 原型不再是"按预期效果另画一版"，而是**逐字照搬真机源码/样式/脚本**；③ 该口径顺带推翻旧审计规则对原型的适用性 → 校准 `tools/ui-audit.mjs`。
+
+#### ① 拖拽两条真 bug（06 P39 / 07 D27）
+
+**根因（一句话）**：拖拽闭包**缓存了 DOM 引用**，而拖拽中途 `afterLayout()` 的 `setTimeout(60ms) → window.dispatchEvent('resize')` 会让原型 `render()`/`renderFloats()` **重建整棵 DOM** → 闭包里的 `el`/`handle`/`slots` 变成**游离节点**，样式与类名写进空气。
+
+**两个症状同源**：
+
+| 症状 | 机制 | 实证 |
+|---|---|---|
+| 拖动预览 ≠ 松手后落位 | 往游离 `el` 写 `style.transform` / `dataset` 不生效 | 探针日志 `[fdrag.up] elConnected=false sameEl=false sameF=true`（f.x/f.y 更新了但写在未连接节点上） |
+| 拖动中 `⧉ ▣ ✕` / 页签 `✕` 乱闪 | 用游离 `el.classList` 判拖动态 → CSS `body.mk-dragging … opacity:0 !important` 失效 | H4/H5 加断言后可见 |
+
+**修法（`prototype/ui-mockup.js`，三条铁律 → 07 D27）**：
+
+1. **稳定 id**：`split()` / `cloneTree()` 给 split 节点补 `id = 's-' + (++seq)`（原来只有 tabs 有 id），`buildNode()` 落 `el.dataset.splitId`；浮窗本就有 `data-float`。
+2. **每次查活节点**：`startSplitDrag` / `startFloatDrag` / `startFloatResize` 的 `move` 一律 `liveSplit()` / `floatsLayer.querySelector('.mk-float[data-float="id"]') || el` **现查**，绝不用缓存引用。
+3. **监听挂 `window`**：`pointermove/pointerup/pointercancel` 从 handle 改挂 `window`（手柄被换掉也不中断），补 `pointercancel` 取消分支；跨重建的拖动态用**模块级变量** `draggingFloatId`（`renderFloats()` 按它拼 `.dragging` 类）；松手统一 `renderFloats()` + `persist()` 收尾。
+
+**新增样式（`prototype/ui-mockup.css`）**：`.mk-float.dragging{ z-index:500; border-color:var(--accent); box-shadow:… }`、`.mk-float.dragging .mk-float-head{ background:var(--active-bg) }`、拖动中 `cursor:grabbing !important` + `.mk-float-body{ pointer-events:none }`。
+
+**新增回归（`tools/mock-probe.mjs` I 段 5 例，专打"拖拽中途被 render 重建"）**：
+
+| 例 | 断言 | 结果 |
+|---|---|---|
+| I1 | 重建后仍在拖动状态（`body.mk-dragging` + `.mk-float.dragging`） | `{"swapped":true,"oldConnected":false,"dragging":true,"bodyDrag":true}` ✅ |
+| I2 | 重建后松手：落位 == 拖动中最后位置 | 拖动中 `{x:390,y:944}` == 松手后 `{x:390,y:944}` ✅ |
+| I3 | 松手后清理拖动态 | ✅ |
+| I4 | 分隔条拖动中 `render()` 重建后仍跟随指针 | `314 → 494`（期望 +180）✅ |
+| I5 | 分隔条重建后「拖动中 == 松手后」逐像素 | `[494,730,430]` == `[494,730,430]` ✅ |
+
+（另有既有 **H1~H5**：H1 分隔条拖动中==松手后逐像素 `[404,820,430]`、H2 只改相邻两格、H3 +90px、H4/H5 拖拽中 `⧉▣✕` 与页签 `✕` `opacity=0`；**G 段 7 例**：预览矩形 == 落位矩形逐像素相等（波形组左/右/上/下/中心、工作区左外环、底外环）。）
+
+#### ② 原型「1:1 完全照搬真机」重构
+
+**新增 `tools/gen-mock-page.mjs`（原型页生成器，唯一正确来源 = 真机 `index.html`）**：
+
+1. 读真机 `index.html` **全文**（只读，绝不写回）；
+2. **机械替换**资源路径：`css/ js/ lib/ img/` → `../css/ ../js/ ../lib/ ../img/`（原型页在 `prototype/` 子目录，URL 层级必须与真机一致，否则 `js/sim` 的 ESM 相对 `import` 会 404）；
+3. 内联 module 说明符 `'./js/sim/project-model.js'` → `'../js/sim/project-model.js'`（module 的 import 按**文档 URL** 解析）；
+4. 真机 head 内联 `<style>` 之后插一行 `ui-mockup.css`（原型外壳样式**只在最后覆盖**，不改真机任何元素的原生规则）；
+5. `</body>` 前追加 **`prototype/mock-tail.html`**（工作区宿主 / 状态栏 / 帮助浮层 / `ui-mockup.js`）。
+
+**新增 `prototype/mock-tail.html`**：原型独有的"外壳"（工作区宿主 `#mk-park`、状态栏、帮助浮层、拖拽引擎脚本引用）—— 与真机 chrome 彻底分离，避免混进真机源码。
+
+**结果**：`prototype/ui-mockup.html` = 64,658 B / 1,133 行（真机骨架逐字 + 原型外壳），**菜单栏 / 工具带 / 代码区（CodeMirror 宿主）/ 波形显示区 = 真机原样 DOM + 真机原样 CSS + 真机原样 JS 资源**。
+
+**真机 vs 原型 1:1 比对（`node .e2e-tmp/r37e.mjs`）= 13 same / 1 diff**：
+
+| 维度 | 结论 |
+|---|---|
+| `#menu-bar` / `#toolbar` outerHTML（归一化 `../img/` 后） | **SAME** |
+| `#menu-bar` / `#toolbar` 矩形、菜单项(4) 矩形、工具条子元素(**35**) 矩形 | **SAME** |
+| CodeMirror 源码文本 / 行数 / 字体·颜色·背景 | **SAME** |
+| `verilog-source` 兜底值 / `rtl-tree` 前缀 / `sim-status` 文本 / 主题 CSS 变量 | **SAME** |
+| sim 卡片 id 集合 | **DIFF**（仅 DOM 顺序：真机 `[source,rtl,vcd,tb]` vs 原型 `[rtl,source,vcd,tb]`，**无害**） |
+| 画布尺寸 | 真机 `1540×922` vs 原型 `1540×609`（高度差 = 面板高度，**宽度相同**） |
+
+**像素 diff（`node .e2e-tmp/r37f.mjs`，同一页面内 canvas 比对）**：
+
+| 区域 | 结果 |
+|---|---|
+| wave canvas `908×609` | `diffPx=78/552972 = **0.0141%**`，`maxDelta=31`（只差网格虚线抗锯齿亚像素 `(240,240,240)` vs `(242,242,242)`） |
+| chrome band `1680×86` | `diffPx=681/144480 = **0.4713%**`，`maxDelta=11` |
+
+→ **波形显示区 1:1 达成**。
+
+**真机黄金基线（1680×1000 headless，供日后回归）**：`#menu-bar` l=0 t=0 w=1680 **h=40**；`#toolbar` l=0 **t=40** w=1680 **h=46**；`#main-area` t=86；原型 `#workbench` t=86 h=888、`#status-bar` t=974 h=26；波形面板内 `#wave-view` 908×609、`#wave-canvas` 1540×609。原型布局树：`col[0.74,0.26]` → `row[0.19,0.55,0.26]`（z / rtl+vcd ｜ wave ｜ source+tb）+ z-4 console。
+
+**关键约束（必须遵守）**：
+
+- **绝不能改 `css/` / `js/` / `lib/` 下任何文件**（真机 ESM 相对导入，URL 路径必须与真机一致）；**`js/sim/panel-layout.js:72 if (!cards.length) return null;`** → 4 张卡片被原型搬走后 `panelLayout` 为 null，**无需改任何 js**。
+- **U0-R 仍在生效**：波形区**不得加子功能栏**；绘图/编辑控件全留统一顶栏 `#toolbar`；**已有绘图 UI 照搬不改**。
+
+#### ③ 审计口径校准（07 D26）
+
+`tools/ui-audit.mjs` 的 **R5 间距刻度 / R6 禁隐式溢出 / R8 不被裁切** 三条改为**只在 `target==='real'` 判定**；mock 豁免（原型继承真机原生间距 `{4,6,8,10,12,18}`、真机 1280 `#toolbar` 溢 192px、步数/子步数越界 —— 这些是真机待优化项 **P-UI-02**，属 U3，**不是原型缺陷**）。mock 仍保留 **R3 主按钮唯一 / R6 控制带禁换行 / R9 提示不进工具带**。
+
+**理由（用户口径）**：「1:1 完全一致」优先于旧审计口径；**绝不为迁就旧审计去改真机 DOM / 间距 / toolbar 行为**。
+
+#### ④ exe 重新打包
+
+- `build-prototype.ps1` 内嵌目录由仅 `prototype/` 扩为 **`prototype/ img/ css/ js/ lib/`（res count 27 → 54）** → `WavePaintMockup.exe` **186,368 B → 1,709,056 B**（`mockup-version.txt` = `v0.4.0-mock build 2026-09-13 18:55:12 b93ad07`）；`MapPathToResource` 按逻辑名命中，**C# 一行未改**。
+- ⚠ **打包前必须关掉正在运行的旧 exe**：本轮首次 `csc` 失败 `CS0016 未能写入输出文件…另一个程序正在使用此文件`（用户上轮 review 留下的进程 PID 47024/70792）→ `taskkill /F /IM WavePaintMockup.exe` 后 `csc exit: 0`。
+- `tools/mockup-exe-smoke.mjs` 同步：资源清单加 `css/wavepaint.e7b903ef.css`、`js/wavepaint.clean.js`、`js/sim/ui-bridge.js`、`js/sim/engine.js`、`lib/codemirror.bundle.js`（**与磁盘逐字节比长度**）；首页断言由 `mock-banner` 改为 **`#workbench` + `#mk-park` + `#menu-bar` + `#toolbar`**；404 分支改 `/js/sim/engine.js.bak`（内嵌 `js/` 后 `/js/core/__core.js` 已变 200）→ **56/56 ✅**。
+
+#### ⑤ 实测汇总（全部实跑）
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| 原型探针（源码 dev-server） | `MOCK_BASE=http://127.0.0.1:8961 node tools/mock-probe.mjs` | **55/55**，失败 0 ✅ |
+| 原型探针（**exe 服务**） | `node tools/mock-probe.mjs http://127.0.0.1:17899` | **55/55** ✅ |
+| 控件审计（原型） | `node tools/ui-audit.mjs --mock` | 1680 / 1280 **两档违规 0** ✅（D26 新口径） |
+| exe 无浏览器自检 | `node tools/mockup-exe-smoke.mjs` | **56/56** ✅ |
+| 真机 vs 原型 1:1 | `node .e2e-tmp/r37e.mjs` | **13 same / 1 diff**（diff = 卡片 DOM 顺序，无害） ✅ |
+| 像素 diff | `node .e2e-tmp/r37f.mjs` | 波形画布 **0.0141%** / chrome band **0.4713%** ✅ |
+| 落点预览矩阵 | `node .e2e-tmp/r37c.mjs` | 10 例全过 ✅ |
+| 分隔条 + 拖拽按钮 | `node .e2e-tmp/r37d.mjs` | 8 例全过 ✅ |
+
+#### ⑥ 改动文件
+
+| 文件 | 改动 |
+|---|---|
+| `prototype/ui-mockup.js` | **核心修复**（稳定 id + 现查活节点 + 监听挂 window + `draggingFloatId`） |
+| `prototype/ui-mockup.css` | 新增 `.mk-float.dragging` 系列样式 |
+| `prototype/ui-mockup.html` | **由 `tools/gen-mock-page.mjs` 重新生成**（真机 1:1 骨架，64,658 B / 1,133 行） |
+| `prototype/mock-tail.html` | **新增**（原型外壳：工作区/状态栏/帮助浮层/拖拽引擎） |
+| `tools/gen-mock-page.mjs` | **新增**（真机 `index.html` → 1:1 原型页生成器） |
+| `tools/mock-probe.mjs` | 新增 **I1~I5** 五条拖拽重建回归；`E2` 过滤 `net::ERR_ABORTED`（导航取消 ≠ 加载失败） |
+| `tools/mockup-exe-smoke.mjs` | 资源清单加 css/js/lib + 首页断言改真机骨架四件套 + 404 分支调整 → 56/56 |
+| `tools/ui-audit.mjs` | **D26 口径**：R5/R6 隐式溢出/R8 只在 `real` 判定 |
+| `build-prototype.ps1` | 内嵌目录扩为 `prototype/ img/ css/ js/ lib/` 五目录 |
+
+#### ⑦ 红线 / 不做的事
+
+- **真机一行未改**：`js/`、`index.html`、`css/`、`img/`、`lib/`、`WavePaintLauncher.cs`、`build.ps1` 全部未动 → **C1 未触发**，真机 `WavePaintClean.exe` 仍 22,015,488 B / 16:52:06、`version.txt` 仍 `v0.4.0 build 2026-09-13 16:52:06 83fab85`。
+- 24 个冻结 id 全在（`sim-panel`/`verilog-source`/`verilog-cm-host`/`rtl-tree`/`vcd-tree`/`tb-source`/`sim-status`/`sim-recover`/`app-version` …）。
+- 不改绘图 UI；不动 `js/sim/engine.js`（C9）；不新建弹窗入口（C10）。
+- `prototype/`、`tools/`、`memory/` 不进 `resources.txt`。
+
+---
 
 ## 5. 已知未排期方向
 
