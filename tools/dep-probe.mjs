@@ -270,6 +270,59 @@ check('取消不导入任何文件', same(N.files, ['only_top.sv']), JSON.string
 check('取消写出「已取消选择源码目录」+ 缺口提示（给出后续补齐路径）',
   N.cancelledHint === true && N.gapHint === true, JSON.stringify({ c: N.cancelledHint, g: N.gapHint }));
 
+// ─────────────────────────── 5. ＋ 导入后仍缺依赖 → 日志流里的「补齐」按钮（第 53 轮）
+// 语义：`＋` 的瞬时手势被文件对话框吃掉，同一次调用里**没法**再弹 showDirectoryPicker
+// （必然 SecurityError）。于是 reportMissingDependencies 在日志流里挂一个行内按钮；
+// 用户点它的那一刻 = 一次**全新手势** ⇒ 一键补齐，且缺口消失后按钮自动清理。
+const action = await ev(`(async () => {
+  const sim = window.__wpsim;
+  const mkFile = (name, text) => ({ kind: 'file', name,
+    async getFile() { return { name: name, async text() { return text; } }; } });
+  const mkDir = (name, entries) => ({ kind: 'directory', name,
+    async *values() { for (const e of entries) yield e; },
+    async queryPermission() { return 'granted'; }, async requestPermission() { return 'granted'; } });
+  const dir = mkDir('proj2', [mkFile('nope.v', 'module nope;\\nendmodule\\n')]);
+  const btnSel = '#sim-console-log .mk-cline.mk-act .mk-cline-btn';
+  sim.setSourceDirHandle(null);
+  sim.resetAutoScanDecline();
+  sim.setSourceFiles([{ name: 'only_top.sv', content: 'module only_top;\\n  nope u_n();\\nendmodule\\n' }]);
+  await new Promise((r) => setTimeout(r, 400));
+  document.getElementById('sim-console-log').replaceChildren();   // 清空日志，便于定位本次按钮
+  // ＋ 导入路径（stub 系统文件选择框）：新文件同样缺依赖 → 应挂出补齐按钮
+  const originalOpen = window.showOpenFilePicker;
+  window.showOpenFilePicker = async () => [mkFile('only_top2.sv', 'module only_top2;\\n  nope u_n();\\nendmodule\\n')];
+  await sim.importSourceFiles();
+  window.showOpenFilePicker = originalOpen;
+  await new Promise((r) => setTimeout(r, 500));
+  const btn = document.querySelector(btnSel);
+  const label = btn ? btn.textContent : null;
+  const clicked = !!btn;
+  let pickerCalls = 0;
+  const originalPick = window.showDirectoryPicker;
+  window.showDirectoryPicker = async () => { pickerCalls += 1; return dir; };
+  if (btn) btn.click();                      // 用户点按钮 = 新手势（stub 不校验，但走的是同一条链）
+  await new Promise((r) => setTimeout(r, 1200));
+  window.showDirectoryPicker = originalPick;
+  const names = sim.sourceFiles.map((f) => f.name);
+  const missingAfter = sim.missingDependencyModules('only_top2');
+  const btnGone = !document.querySelector(btnSel);
+  const logText = document.getElementById('sim-console-log').textContent || '';
+  return JSON.stringify({ label: label, clicked: clicked, pickerCalls: pickerCalls, names: names,
+    missingAfter: missingAfter, btnGone: btnGone,
+    logHasLoaded: logText.indexOf('读入') >= 0 || logText.indexOf('依赖自动补齐') >= 0 });
+})()`);
+console.log('\n=== 5. ＋ 导入后仍缺依赖 → 日志流「补齐」按钮 ===');
+console.log(action);
+let A5 = {};
+try { A5 = JSON.parse(action); } catch (e) { console.log('解析失败', e); }
+check('＋ 导入后日志流里出现补齐按钮（文案含「补齐依赖」）',
+  A5.clicked === true && typeof A5.label === 'string' && A5.label.indexOf('补齐依赖') >= 0, JSON.stringify(A5.label));
+check('点按钮恰好弹出一次文件夹选择框', A5.pickerCalls === 1, String(A5.pickerCalls));
+check('补齐后缺口清空且依赖文件已读入',
+  same(A5.missingAfter, []) && (A5.names || []).indexOf('nope.v') >= 0, JSON.stringify({ missing: A5.missingAfter, names: A5.names }));
+check('缺口闭合后按钮自动清理（不长期占界面）', A5.btnGone === true, String(A5.btnGone));
+check('点按钮补齐写进日志流（读入 / 自动补齐）', A5.logHasLoaded === true, String(A5.logHasLoaded));
+
 console.log('\n=== 运行期异常 ===');
 console.log(errors.length ? errors.join('\n') : '（无）');
 check('运行期无未捕获异常', errors.length === 0, String(errors.length));

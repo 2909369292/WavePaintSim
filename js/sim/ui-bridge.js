@@ -1874,8 +1874,25 @@ function missingDependencyModules(topName) {
   return missing;
 }
 
-// 汇报：齐全 → 一条 info；有缺口 → 一条 warn，并给出两条可执行的补齐路径。
+// 日志流里的「补齐依赖」按钮（同时只保留一个；见下方 reportMissingDependencies）。
+let depActionBtn = null;
+
+function clearDepAction() {
+  if (!depActionBtn) return;
+  const line = depActionBtn.parentNode;
+  if (line && line.parentNode) line.parentNode.removeChild(line);
+  depActionBtn = null;
+}
+
+// 汇报：齐全 → 一条 info；有缺口 → 一条 warn，并给出可执行的补齐路径。
+//
+// ★ 第 53 轮补齐的口子：光写「去点菜单 / 去点＋」还不够 —— 触发汇报的那些路径
+//   （`<input type=file>` 的 change、切顶层的 change）都把手势用掉了，调用方**没法**
+//   顺手弹 showDirectoryPicker。于是在这里挂一个**行内动作按钮**（workspace.js 的
+//   wpConsoleAction）：用户点它的那一刻是全新手势，picker 正常弹出 ⇒ 缺口一键补齐。
+//   没有缺口时按钮不出现（自动清掉），所以它不占固定界面高度。
 function reportMissingDependencies() {
+  clearDepAction();
   const missing = missingDependencyModules();
   if (!missing.length) {
     consoleOut(`依赖扫描：${state.files.length} 个源文件的例化依赖已闭合，没有被例化却缺失定义的模块。`, "info");
@@ -1887,8 +1904,17 @@ function reportMissingDependencies() {
     "　→ 点源码标签条末尾的「＋」选择这些源码文件（可多选）；",
     sourceDirHandle
       ? "　→ 或直接重试（已记住源码目录，会自动读入）；若权限已过期，重选一次目录即可。"
-      : "　→ 或用菜单「文件 → 打开源码目录（自动扫描依赖）…」一次性扫描整个工程目录补齐。"
+      : "　→ 或用菜单「文件 → 打开源码目录（自动扫描依赖）…」一次性扫描整个工程目录补齐；"
+        + "或直接点下面这行的按钮。"
   ].join("\n"), "warn");
+  // 有已授权目录时不需要按钮（下一次解析会自动补齐）；浏览器不支持 FSA 时也不挂。
+  // ⚠ 点击处理器里**不要**把 depActionBtn 置空 —— 那一行要留给本次流程末尾的
+  //   reportMissingDependencies() → clearDepAction() 自己摘掉（否则点击后那行会赖着不走）。
+  if (!sourceDirHandle && typeof window.wpConsoleAction === "function") {
+    depActionBtn = window.wpConsoleAction("扫描工程目录，自动补齐依赖…", () => {
+      return openSourceDirAndResolve();
+    }, "warn");
+  }
   return missing;
 }
 
@@ -2028,51 +2054,112 @@ async function resolveMissingDependencies() {
   return { rounds, loaded, unresolved, needsPermission };
 }
 
-// 选工程目录 → 递归收集 HDL 源文件（只读；跳过重目录，带文件数 / 深度护栏）。
-async function scanSourceDirectory() {
-  const dir = await window.showDirectoryPicker({ mode: "read", id: "wavepaint-source" });
-  const index = await indexSourceDirectory(dir);
-  const collected = [];
-  for (const [key, handle] of index) {
-    try {
-      collected.push({ name: handle.name, content: await readDirFile(key, handle) });
-    } catch (error) { /* 单个文件读失败（权限 / 占用）不阻断整次扫描 */ }
+// ─────────────────────────────────────────────────────────────────────────────
+// 依赖补齐的统一入口（第 53 轮收口 · #122 / #123）
+// ─────────────────────────────────────────────────────────────────────────────
+// 原先三处各写一遍「弹框 → 递归读 → 导入 → 解析 → 补齐」，口径已经分叉（菜单路径敢
+// 整体替换出厂源码、顶层路径不敢；菜单路径会丢重命名提示……）。现在收敛成一条流水线，
+// 三条触发路径共用：
+//   ① autoScanForTop（切顶层 / 打开顶层时的自动扫描，见本文件下半部分）；
+//   ② openSourceDirAndResolve（菜单「文件 → 打开源码目录（自动扫描依赖）…」）；
+//   ③ 日志流里的「扫描工程目录，自动补齐依赖…」按钮（reportMissingDependencies 挂的）。
+//
+// ⚠ showDirectoryPicker 需要「瞬时用户手势」（transient activation）：requestSourceDirSync
+//   必须由事件处理器的**同步段**调用，之后才能 await —— 这就是它返回 Promise 而不是
+//   直接 await 的原因。
+function requestSourceDirSync() {
+  if (typeof window.showDirectoryPicker !== "function") {
+    const error = new Error("当前浏览器不支持 File System Access API");
+    error.name = "NotSupportedError";
+    throw error;
   }
-  return collected;
+  return window.showDirectoryPicker({ mode: "read", id: "wavepaint-source" });
 }
 
-// 入口（菜单「文件 → 打开源码目录（自动扫描依赖）…」）：
-// 一次点击 = 选目录 + 递归读源码 + 自动解析 + 自动汇报依赖缺口；
-// 目录句柄被记住，之后每次解析都会自动按顶层例化图补齐缺失模块（#123）。
-async function openSourceDirectory() {
-  if (typeof window.showDirectoryPicker !== "function") {
-    consoleOut("当前浏览器不支持「打开源码目录」（需要 File System Access API）。请改用源码标签条的「＋」逐个选择源码文件。", "error");
-    return;
+// 登记句柄并让索引 / 文本缓存失效。
+// ⚠ 换目录**必须**走这里：sourceDirIndex / sourceDirTextCache 是按目录建的缓存，
+//   换了目录还留着旧索引 ⇒ 会读到上一个工程的内容（同名不同内容时尤其致命）。
+function adoptSourceDir(dir) {
+  sourceDirHandle = dir || null;
+  sourceDirIndex = null;
+  sourceDirTextCache.clear();
+}
+
+// 把一个目录里**尚未收录**的 HDL 文件读进来（`activate:false` 不抢占当前活动标签）
+// → 解析。只列目录、不走文件选择框 ⇒ 不受「手势」限制，可被自动流程自由调用。
+// 返回 { added: 新增文件名[], renamed: [], indexed: 目录索引到的 HDL 文件数 }
+async function ingestSourceDir(dir) {
+  adoptSourceDir(dir);
+  const index = await indexSourceDirectory(dir);
+  const existing = new Set(state.files.map((file) => String(file.name || "").toLowerCase()));
+  const picked = [];
+  for (const [key, handle] of index) {
+    if (existing.has(String(handle.name).toLowerCase())) continue;   // 已在源码集合里
+    try { picked.push({ name: handle.name, content: await readDirFile(key, handle) }); }
+    catch (error) { /* 单个文件读失败（权限 / 占用）不阻断整次扫描 */ }
   }
-  let picked = [];
+  let added = [];
+  let renamed = [];
+  if (picked.length) {
+    // 源码还是出厂的 counter.sv（用户没动过）→ 用目录内容整体替换，
+    // 避免出现 counter_2.sv 这类噪音（只在「用户什么都还没做」时生效）。
+    if (state.files.length === 1 && state.files[0].content === DEFAULT_SOURCE) {
+      state.files = [];
+      state.active = 0;
+    }
+    const result = addSourceFiles(picked, { activate: false });
+    added = result.added;
+    renamed = result.renamed;
+    if (added.length) parseDesign();
+  }
+  const dirLabel = dir ? `「${dir.name}」` : "";
+  const capped = index.size >= SOURCE_DIR_MAX_FILES
+    ? `（已达 ${SOURCE_DIR_MAX_FILES} 个文件上限，可能被截断）` : "";
+  if (added.length) {
+    const renameNote = renamed.length ? `　同名文件已重命名：${renamed.join("、")}。` : "";
+    setStatus(`已从源码目录${dirLabel}读入 ${added.length} 个文件并自动解析。${renameNote}${capped}`);
+  } else {
+    consoleOut(`源码目录${dirLabel}里没有新的 HDL 文件（已索引 ${index.size} 个）。${capped}`, "info");
+  }
+  return { added, renamed, indexed: index.size };
+}
+
+// ② / ③ 共用：同步发起选择框 → 读入 → 解析 → 补齐 → 汇报。
+// 用户取消 / 浏览器不支持 / 无手势，各自只写一条日志，绝不抛到调用方之外。
+async function openSourceDirAndResolve() {
+  let dir;
   try {
-    picked = await scanSourceDirectory();
+    dir = await requestSourceDirSync();           // ★ 同步段发起（保住手势）
   } catch (error) {
-    if (error && error.name === "AbortError") { setStatus("已取消打开源码目录。"); return; }
+    const name = error && error.name;
+    if (name === "AbortError" || name === "NotAllowedError") {
+      setStatus("已取消打开源码目录。");
+      reportMissingDependencies();                // 缺口还在 → 重新挂上补齐按钮
+      return;
+    }
+    if (name === "NotSupportedError") {
+      consoleOut("当前浏览器不支持「打开源码目录」（需要 File System Access API）。请改用源码标签条的「＋」逐个选择源码文件。", "error");
+      return;
+    }
     consoleOut(`打开源码目录失败：${(error && error.message) || error}`, "error");
+    reportMissingDependencies();
     return;
   }
-  if (!picked.length) {
-    setStatus("该目录（含子目录）下没有找到 .v / .sv / .vh / .svh 源码文件。");
+  try {
+    await ingestSourceDir(dir);
+  } catch (error) {
+    consoleOut(`打开源码目录失败：${(error && error.message) || error}`, "error");
+    reportMissingDependencies();
     return;
   }
-  // 源码还是出厂的 counter.sv（用户没动过）→ 用目录内容整体替换，避免出现 counter_2.sv 这类噪音
-  if (state.files.length === 1 && state.files[0].content === DEFAULT_SOURCE) {
-    state.files = [];
-    state.active = 0;
-  }
-  const { added, renamed } = addSourceFiles(picked);
-  if (!added.length) { setStatus("该目录下没有可导入的源码文件。"); return; }
-  parseDesign();
-  const renameNote = renamed.length ? `　同名文件已重命名：${renamed.join("、")}。` : "";
-  const capped = picked.length >= SOURCE_DIR_MAX_FILES ? `（已达 ${SOURCE_DIR_MAX_FILES} 个文件上限，可能被截断）` : "";
-  setStatus(`已从源码目录「${sourceDirHandle ? sourceDirHandle.name : ""}」导入 ${added.length} 个文件并自动解析。${renameNote}${capped}`);
   await resolveMissingDependencies();
+  reportMissingDependencies();
+}
+
+// 菜单入口（「文件 → 打开源码目录（自动扫描依赖）…」）：一次点击 = 选目录 + 递归读源码
+// + 自动解析 + 自动补齐依赖缺口；句柄被记住，之后每次解析都会按顶层例化图自动补齐（#123）。
+function openSourceDirectory() {
+  return openSourceDirAndResolve();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2100,47 +2187,33 @@ function autoScanForTop(topName) {
     reportMissingDependencies();                   // ③ / 不支持 FSA → 只提示可执行的补齐路径
     return;
   }
-  const dirName = String(topName || state.selectedTop || state.design?.topName || "").trim();
+  const topLabel = String(topName || state.selectedTop || state.design?.topName || "").trim();
   let pickerPromise;
   try {
-    // ② 同步发起（保住用户手势）：选择框此时已在系统层弹出
-    pickerPromise = window.showDirectoryPicker({ mode: "read", id: "wavepaint-source" });
+    pickerPromise = requestSourceDirSync();        // ② 同步发起：选择框此时已在系统层弹出
   } catch (error) {
     reportMissingDependencies();                   // 无手势等 → 静默降级，不写 autoScanDeclined
     return;
   }
   consoleOut([
-    `依赖扫描：顶层 ${dirName || "（未命名）"} 例化了 ${missing.length} 个当前源码里没有定义的模块 ——`,
+    `依赖扫描：顶层 ${topLabel || "（未命名）"} 例化了 ${missing.length} 个当前源码里没有定义的模块 ——`,
     `　${missing.join("、")}`,
     "　→ 已弹出文件夹选择框，请选择这些模块所在的源码目录（一次授权，之后自动补齐）。"
   ].join("\n"), "info");
   pickerPromise.then(async (dir) => {
     try {
-      sourceDirHandle = dir || null;
-      sourceDirIndex = null;                       // 换目录 → 索引与文本缓存一起失效
-      sourceDirTextCache.clear();
-      const index = await indexSourceDirectory(dir);
-      const before = new Set(state.files.map((file) => String(file.name || "").toLowerCase()));
-      const picked = [];
-      for (const [key, handle] of index) {
-        if (before.has(String(handle.name).toLowerCase())) continue;   // 已在源码集合里
-        try { picked.push({ name: handle.name, content: await readDirFile(key, handle) }); }
-        catch (error) { /* 单文件读失败不阻断整次扫描 */ }
-      }
-      if (picked.length) {
-        addSourceFiles(picked, { activate: false });   // 不抢占用户正在看的标签
-        parseDesign();
-      }
+      await ingestSourceDir(dir);                  // 递归读入目录里尚未收录的 HDL 文件
       await resolveMissingDependencies();
+      reportMissingDependencies();
     } catch (error) {
       autoScanDeclined = true;
       consoleOut(`依赖自动扫描失败：${(error && error.message) || error}`, "warn");
       reportMissingDependencies();
     }
   }, () => {
-    // 用户点了取消 / 系统拒绝：本会话不再自动弹框，只保留日志提示
+    // 用户点了取消 / 系统拒绝：本会话不再自动弹框，改为「汇报缺口 + 日志流里的补齐按钮」
     autoScanDeclined = true;
-    consoleOut("已取消选择源码目录。之后可用菜单「文件 → 打开源码目录（自动扫描依赖）…」或源码标签条的「＋」补齐缺失模块。", "info");
+    consoleOut("已取消选择源码目录。之后可用菜单「文件 → 打开源码目录（自动扫描依赖）…」、源码标签条的「＋」，或下面这行的按钮补齐缺失模块。", "info");
     reportMissingDependencies();
   });
 }

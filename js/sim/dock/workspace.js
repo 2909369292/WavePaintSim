@@ -553,6 +553,92 @@ function releasePointer(el, pointerId) {
 
 /* ── 7. 分隔条拖拽 ──────────────────────────────────────────────────── */
 let splitDragActive = false;
+
+/* 「拖这一条，别的那几条必须纹丝不动」——嵌套 split 的补偿（第 53 轮）。
+ *
+ * 背景（用户实测）：布局树一旦出现**同向嵌套**（例如 row[ row[a,b], c ]，视觉上就是
+ * 「三列」），拖动外层那条会把左半边的整棵子树改宽，于是它内部那条竖条必然跟着平移。
+ * 这在几何上完全正确（VS Code / Verdi 等停靠引擎都是这个行为），但用户看到的是
+ * 「我拖右边这条，左边那条跟着跑」——读起来就是 bug。
+ *
+ * 口径：**被拖动的那一条的分界线跟随指针，其余分隔条的绝对位置一律锁死**。
+ * 做法 = 把这一对的尺寸变化 ±δ 沿轴向「记到贴着被拖边界那一端、且位于同侧子树内的
+ * 最外层可吸收面板」头上，于是嵌套层里的分界线不动：
+ *   · 同向（row 里嵌 row）：容器可用宽（高）变了 δ，把这 δ 全记在**贴边那个子项**头上
+ *     ⇒ 该 split 的 (像素/份额) 因子 f 不变 ⇒ 其余子项像素宽度分毫不动 ⇒ 内部那条
+ *     分界线绝对位置不动（递归下探，直到 tabs 叶子）。
+ *   · 交叉向（row 里嵌 col，子项与容器同宽/高）：容器沿轴的尺寸变了 δ ⇒ 每个子项都
+ *     跟着变 δ ⇒ 逐个下探（下一层再按同向规则吸收）。
+ *   · 地板 = min(24px, 基准像素的一半)：缩到地板就停，不产生负宽度、不把面板挤成 0。
+ *     此时余量只能按比例摊给该 split 的其它子项（空间已耗尽，物理上无解）。
+ *
+ * 关键：δ 一律取「相对**拖动起点**的总位移」，每个节点都用「起始基准 + δ」重算份额 ——
+ *   若改用逐帧增量，浏览器对 flex 的亚像素取整会让误差单向累积（把分界线拖回原点时，
+ *   内部那条分界线回不到原位）。用基准重算是幂等的：同一个 na 重复调用得到同一结果。
+ */
+
+// 拖动开始时抓一次全树基准：split → { f: 像素/份额, sizes: 份额副本, px: 各 slot 像素 }
+function snapshotSplitBasis(node, map) {
+  map = map || new Map();
+  if (!node || node.kind !== 'split') return map;
+  const el = document.querySelector('.mk-split[data-split-id="' + node.id + '"]');
+  const slots = el ? Array.from(el.children).filter((c) => c.classList.contains('mk-slot')) : [];
+  const pxOf = (c) => { const r = c.getBoundingClientRect(); return node.dir === 'row' ? r.width : r.height; };
+  const sumPx = slots.reduce((a, c) => a + pxOf(c), 0);
+  const sumNorm = node.sizes.reduce((a, b) => a + b, 0);
+  map.set(node, { f: sumNorm > 0 ? sumPx / sumNorm : 0, sizes: node.sizes.slice(), px: slots.map(pxOf) });
+  node.children.forEach((c) => snapshotSplitBasis(c, map));
+  return map;
+}
+
+// 把 ±deltaPx 记到「贴边那个子项」头上（fixedStart=true → 末尾子项；false → 首个），
+// 再向它内部递归。返回实际吸收的像素（被地板夹住时可能小于请求值）。
+function absorbWithBasis(node, deltaPx, fixedStart, axis, basis) {
+  if (!node || node.kind !== 'split' || !Number.isFinite(deltaPx)) return 0;
+  const b = basis && basis.get(node);
+  if (!b || !(b.f > 0)) return 0;
+  if (node.dir !== axis) {
+    // 交叉轴：本容器沿 axis 的尺寸变了 δ，而它的每个孩子与容器同宽（高）⇒ 都跟着变 δ
+    node.children.forEach((c) => absorbWithBasis(c, deltaPx, fixedStart, axis, basis));
+    return deltaPx;
+  }
+  if (!node.children.length) return 0;
+  const k = fixedStart ? b.sizes.length - 1 : 0;
+  const pxBase = b.px[k] || 0;
+  let d = deltaPx;
+  if (d < 0) {                               // 收缩：地板 = min(24px, 基准像素的一半)
+    const floor = Math.max(0, Math.min(24, pxBase * 0.5));
+    if (pxBase + d < floor) d = -(Math.max(0, pxBase - floor));
+  }
+  // 每个子项都从**基准**重算（不是就地改本节点现有的值）：上一帧已经归一化过一次，
+  // 若只覆盖 k，其余子项会带着上一帧的归一化结果再被归一化一次 ⇒ 逐帧漂移。
+  const target = b.sizes.slice();
+  target[k] += d / b.f;                      // 基准 + 总位移 ⇒ 幂等、无漂移
+  // ★ 第 53 轮踩到的坑：CSS Flexbox 规定「flex-grow 之和 < 1 时只分配
+  //   freeSpace × Σgrow，剩下的空白**留空**」。收缩时 Σ 会掉到 1 以下，于是整个 split
+  //   的面板集体缩水、内部那条分界线照样会偏（实测 rtl 份额没变却从 312 → 271）。
+  //   把本 split 的份额整体归一到 Σ=1 即可：等比缩放不改比例 ⇒ 像素完全不变，
+  //   而 Σ 恒为 1 ⇒ flex 永远走「按比例分满」那条路径。
+  const sum = target.reduce((a, v) => a + v, 0);
+  node.sizes = sum > 0 ? target.map((v) => v / sum) : target;
+  return absorbWithBasis(node.children[k], d, fixedStart, axis, basis);
+}
+
+// 把布局树里的份额写回活节点（只用 mx-slot 的 inline flex；不重建 DOM）。
+// 拖动期间每帧都要写：补偿会改嵌套层的份额，而这些层级的 DOM 元素是上一次 render()
+// 建的、flex 还停在旧值上（只改数据不改 DOM ⇒ 视觉上不动）。
+function syncSplitFlex(node) {
+  if (!node || node.kind !== 'split') return;
+  const el = document.querySelector('.mk-split[data-split-id="' + node.id + '"]');
+  if (el) {
+    const slots = Array.from(el.children).filter((c) => c.classList.contains('mk-slot'));
+    node.children.forEach((child, i) => {
+      if (slots[i] && node.sizes[i] != null) slots[i].style.flex = node.sizes[i] + ' 1 0';
+    });
+  }
+  node.children.forEach(syncSplitFlex);
+}
+
 function startSplitDrag(ev, node, idx, splitEl) {
   if (splitDragActive) return;      // 防御：上一次分隔条拖拽没收尾
   ev.preventDefault();
@@ -581,11 +667,28 @@ function startSplitDrag(ev, node, idx, splitEl) {
   const pairNorm = node.sizes[idx] + node.sizes[idx + 1] || 1;
   const scale = pairNorm / pairPx;              // 归一化份额 / 像素
   const MIN = Math.min(120, pairPx / 2);
-  const savedSizes = node.sizes.slice();
+  // ★ 第 53 轮修 Bug（用户报「拖右边那条，左边那条跟着一起移动」）：三列布局很可能是
+  //   **同向嵌套**（row 里再嵌 row），此时改外层子树的宽度必然牵动它内部那条分界线。
+  //   用户要的语义是「其余分隔条绝对不动」，所以拖动期间把 ±δ 传给被拖边界两侧的
+  //   子树，让它们内部把 δ 记在贴边的面板上（见 absorbWithBasis 的注释）。
+  //   basis 在拖动开始时抓一次（含被拖的这个 split 自己），之后每帧都用
+  //   「基准 + 总位移」重算 ⇒ 幂等、无漂移；cancel 也直接照它整树回滚。
+  const basis = snapshotSplitBasis(root);
   const apply = (na) => {
+    const delta = na - sizeA;                   // 相对拖动起点的总位移（不是每帧增量）
     node.sizes[idx] = na * scale;
     node.sizes[idx + 1] = (pairPx - na) * scale;
-    slotsOf(liveSplit()).forEach((el, i) => { el.style.flex = node.sizes[i] + ' 1 0'; });
+    // 分界线右/下移（delta > 0）⇒ 前半子树「起点固定」由末位子项吸收；后半子树
+    // 「起点被推走」由首位子项吸收 −δ。delta → 0 时同样调用 = 把嵌套层还原到基准。
+    absorbWithBasis(node.children[idx], delta, true, node.dir, basis);
+    absorbWithBasis(node.children[idx + 1], -delta, false, node.dir, basis);
+    // ★ 补偿改的是嵌套层的份额，而它们的 DOM 是上一次 render() 建的 ⇒ 必须整树刷 flex
+    syncSplitFlex(root);
+    // ★ 高亮每帧补一次：拖动期间任何一次 render()（面板内容变化等）都会重建 handle，
+    //   只在拖拽开始加一次 .active 会丢（探针 split-drag-probe 实测 FAIL 过的既有缺陷）。
+    const h = liveHandle();
+    document.querySelectorAll('.mk-handle.active').forEach((el) => { if (el !== h) el.classList.remove('active'); });
+    h.classList.add('active');
   };
   // ★ 第 47 轮修 Bug：必须按「本 split 的 id」限定，不能用裸的
   //   querySelector('.mk-handle[data-split-idx="N"]') —— querySelector 搜的是**子树**，
@@ -622,7 +725,8 @@ function startSplitDrag(ev, node, idx, splitEl) {
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
     window.removeEventListener('pointercancel', cancel);
-    node.sizes = savedSizes;
+    // ★ 撤销必须整树回滚：补偿会改到嵌套层的份额，只还原被拖的这一对会留下脏数据
+    basis.forEach((b, n) => { n.sizes = b.sizes.slice(); });
     render();
   };
   const pid = ev.pointerId;
@@ -1210,6 +1314,43 @@ function consoleAppend(text, kind) {
 
 // 对外暴露（ESM 的 ui-bridge 与 e2e 探针都靠它写日志流）。
 window.wpConsoleAppend = consoleAppend;
+
+/* ── 10.2 行内动作行 consoleAction(label, onClick, kind) ────────────────────
+ * 用途：某些动作**必须由用户手势发起**，而触发它的那个事件处理器已经把手势用掉了
+ *   —— 最典型的是依赖补齐：ui-bridge 在 `<input type=file>` 的 change 里想弹
+ *   showDirectoryPicker，而 transient activation 已被文件对话框消耗，必然 SecurityError。
+ * 做法：在日志流里补一行「按钮」。用户点它的那一刻 = 一次**全新手势**，picker 正常弹出。
+ *   · 不是模态框、不占固定界面高度（没有缺口时不出现），缺点也正好是可被忽略；
+ *   · 行类名仍是 `mk-cline`（dock-probe 按它计行），附加 mk-act 便于样式与探针定位；
+ *   · onClick 返回 thenable 时按钮在等待期内置灰（防连点），settle 后恢复可点。
+ * 返回值 = 按钮元素，调用方可以据此移除自己那一行（见 ui-bridge 的 clearDepAction）。
+ */
+function consoleAction(label, onClick, kind) {
+  const log = document.getElementById('sim-console-log');
+  if (!log || typeof onClick !== 'function') return null;
+  const line = document.createElement('div');
+  line.className = 'mk-cline mk-act' + (CONSOLE_KIND_CLASS[kind] || '');
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'mk-cline-btn';
+  btn.textContent = String(label == null ? '' : label);
+  btn.addEventListener('click', () => {
+    let pending = null;
+    try { pending = onClick(); } catch (err) { pending = null; }
+    if (pending && typeof pending.then === 'function') {
+      btn.disabled = true;
+      const done = () => { btn.disabled = false; };
+      pending.then(done, done);
+    }
+  });
+  line.appendChild(btn);
+  log.appendChild(line);
+  while (log.childElementCount > CONSOLE_MAX) log.removeChild(log.firstElementChild);
+  log.scrollTop = log.scrollHeight;
+  return btn;
+}
+
+window.wpConsoleAction = consoleAction;
 
 function flash(msg) { consoleAppend(msg, 'info'); }
 

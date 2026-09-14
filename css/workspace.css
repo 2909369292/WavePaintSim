@@ -302,6 +302,18 @@ body.wp-dock .mk-float-resize {
 #sim-console-log .mk-cline.mk-ok { color: #8fd48f; }
 #sim-console-log .mk-cline.mk-warn { color: #e6c86e; }
 #sim-console-log .mk-cline.mk-err { color: #ff9b8a; }
+/* 行内动作行（工作区 §10.2 consoleAction）：日志流里的可点按按钮。
+   形如「[hh:mm:ss] [ 扫描工程目录，自动补齐依赖… ]」——用于那些**必须由用户手势
+   发起**的动作（依赖补齐要弹 showDirectoryPicker，而触发汇报的 change 事件已经
+   把手势用掉了）。无缺口时不出现，所以不占固定界面高度。 */
+#sim-console-log .mk-cline.mk-act { padding-left: 11px; }
+#sim-console-log .mk-cline-btn {
+    font: inherit; margin-left: 2px; padding: 1px 8px; cursor: pointer;
+    border: 1px solid #4a6b4a; border-radius: var(--radius-sm, 6px);
+    background: #2b3a2b; color: #b8e6b8;
+}
+#sim-console-log .mk-cline-btn:hover { background: #3a4d3a; color: #d6f5d6; }
+#sim-console-log .mk-cline-btn:disabled { opacity: .55; cursor: default; }
 body.wp-dock .mk-host > #sim-console { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 body.wp-dock #sim-console-log { flex: 1 1 auto; min-height: 0; overflow: auto; }
 /* #sim-recover 的 display 由 ui-bridge 用 inline style 控制（none ↔ block），
