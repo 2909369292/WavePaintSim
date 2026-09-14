@@ -978,3 +978,24 @@ W1~W3，其中 **W3 已拍板不做**）见 `03-REQUIREMENTS.md` 表 K；后端�
 `withPickerCancelWatch`/`bindToolbarFileButtons`）/ `index.html`（`文件` 菜单「保存」+「打开源码目录（自动扫描依赖）…」）/
 `tools/dep-probe.mjs`（23 项）/ `tools/source-panel-probe.mjs`（＋ 用例改为 stub `showOpenFilePicker`）/ `06 P55` /
 `memory/logs/2026-09-14.md` 第五十二轮 / exe `v0.4.0 build 2026-09-14 22:19:28`。
+
+## D56 依赖补齐收敛为一条流水线（第五十三轮）
+
+**语义**：原先三处各写一遍「弹框 → 递归读 → 导入 → 解析 → 补齐」，口径已经分叉（菜单路径敢整体替换出厂源码、
+顶层路径不敢；菜单路径会丢重命名提示）。现在收敛成**一条流水线**，三个触发路径共用：
+① 切顶层 / 打开顶层的 `autoScanForTop`；② 菜单「文件 → 打开源码目录（自动扫描依赖）…」；③ 日志流里的行内按钮。
+
+1. `requestSourceDirSync()` —— **同步**发起 `showDirectoryPicker`（返回 Promise，保住 transient activation），
+   必须由事件处理器的**同步段**调用；无 FSA 时抛 `NotSupportedError`。
+2. `adoptSourceDir(dir)` —— 登记句柄 + **失效 `sourceDirIndex` / `sourceDirTextCache`**（按目录建的缓存，
+   换目录不清会读到上一个工程的内容）。**换目录必须走这里**。
+3. `ingestSourceDir(dir)` —— 递归列目录，只收**尚未收录**的 HDL（`activate:false` 不抢当前标签）→ `parseDesign()`；
+   出厂 `counter.sv` 未动过时才整体替换（避免 `counter_2.sv` 噪音）；≥400 文件提示可能截断。
+4. `openSourceDirAndResolve()` —— ② / ③ 共用外壳：Abort/NotAllowed → 取消；NotSupported → 提示 FSA；其余 → 报错；
+   **每条出口末尾都调 `reportMissingDependencies()`**（缺口还在 → 自动把行内按钮重新挂上）。
+5. `openSourceDirectory()` = 菜单入口，直接 `return openSourceDirAndResolve()`（旧的 `scanSourceDirectory()` 已删）。
+
+**关联**：`js/sim/ui-bridge.js`（上述 + `reportMissingDependencies` ≈L1895 挂按钮）/ `js/sim/dock/workspace.js`
+（`§10.2 consoleAction` + `window.wpConsoleAction` ≈L1318、`absorbWithBasis`/`syncSplitFlex` ≈L581~L640）/
+`css/workspace.css`（`.mk-cline.mk-act` / `.mk-cline-btn` ≈L305）/ `tools/dep-probe.mjs`（+§5，28 项）/
+`tools/split-drag-probe.mjs`（新增）/ `06 P56` `P57` / `memory/logs/2026-09-14.md` 第五十三轮。

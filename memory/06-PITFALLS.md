@@ -831,4 +831,38 @@
   `scrollTop` 必须仍是 400（修复前 `before=400 after=0`）。
 
 ---
-> 以上为截至**第五十二轮（2026-09-14）**的坑位清单，共 **P1~P55**。每条格式：现象 → 根因 → 修法 → 预防；带 `#NN` 的对应 `03-REQUIREMENTS.md` 需求号。
+### P56 拖动一条分隔条，别的分隔条跟着跑（同向嵌套 split + flex Σ<1）
+
+- **现象**：三列布局（左中右）下拖**右边**那条竖条，**左边**那条跟着一起平移。用户口径：这是 bug。
+- **根因 1（几何）**：三列往往是**同向嵌套 split**（`row[ row[a,b], c ]`）。拖外层边界 = 改整棵左侧子树的宽度
+  ⇒ 它内部那条竖条**必然**平移。这在几何上完全正确（VS Code / Verdi 的停靠引擎同行为），但用户要的语义是
+  「**被拖的那条跟随指针，其余分隔条绝对像素位置锁死**」。判据：读持久化布局（Edge leveldb
+  `wavepaint.workspace.layout.v1`）确认树上确实是同向嵌套，而不是「联动」这种 bug 级别的东西。
+- **根因 2（CSS）**：**Flexbox 在 `Σflex-grow < 1` 时只分配 `freeSpace × Σgrow`，剩余留空**。
+  只改份额不归一 ⇒ 收缩时 Σ 掉到 1 以下 ⇒ 整个 split 集体缩水（实测 rtl 份额没变却 312 → 271px）。
+- **修法**（`js/sim/dock/workspace.js`）：拖动开始 `snapshotSplitBasis(root)` 抓一次全树基准
+  `split → {f: 像素/份额, sizes, px}`；每帧把 **±δ（相对拖动起点的总位移）** 记到「贴被拖边界那一端」的子项头上再递归：
+  交叉轴 → 每个孩子都变 δ；同向 → `target = 基准副本; target[k] += d/f`，随后**整组归一到 Σ=1**；
+  地板 `min(24px, 基准像素/2)`，返回实际吸收量。最后 `syncSplitFlex(root)` 把份额写回**活 DOM 的 `.mk-slot` inline flex**
+  （补偿改的是嵌套层，DOM 还是上次 `render()` 建的）。`cancel()` 必须 `basis.forEach(n => n.sizes = b.sizes.slice())` **整树回滚**。
+- **预防**：① 补偿量一律用「**基准 + 总位移**」重算，不要用逐帧增量 —— 浏览器对 flex 的亚像素取整会让误差
+  **单向累积**（拖回原点时分界线回不到原位），用基准重算是幂等的。② 任何「改份额」的地方都要保证 Σ=1。
+  ③ 拖动期间每帧补一次 `.active`（期间任何 `render()` 都会重建 handle，只在开始时加会丢）。
+- **验收**：`tools/split-drag-probe.mjs`（4 种结构含 3 种嵌套 × 每条 handle × 4 方向）须 ALL PASS；
+  口径 = 位移跟随指针 ±6，**或**同向且被压侧 ≤124px（顶到地板，物理无解）。
+
+### P57 需要用户手势的 API 在被消耗手势的处理器里必然失败（依赖补齐）
+
+- **现象**：`＋` 导入文件后仍缺依赖时，只写一行「去点菜单/去点＋」的文字提示 —— 用户照做很费解。
+- **根因**：`showDirectoryPicker` 需要 **transient activation**，而触发汇报的路径
+  （`<input type=file>` 的 `change`、切顶层的 `change`）**已经把手势用掉了** ⇒ 直接调必抛 `SecurityError`。
+- **修法**：`workspace.js` 新增 **`window.wpConsoleAction(label, onClick, kind)`** —— 在日志流里追加一行**行内按钮**
+  （行类 `mk-cline mk-act`，按钮 `.mk-cline-btn`）。用户点它的那一刻 = **全新手势**，picker 正常弹出。
+  `ui-bridge` 的 `reportMissingDependencies()` 用 `clearDepAction()` 先摘旧行、有缺口才挂新按钮。
+- **预防**：① 点击处理器里**绝不能把 `depActionBtn` 置空** —— 那一行要留给流程末尾的 `reportMissingDependencies()`
+  → `clearDepAction()` 自己摘（否则点击后旧行赖着不走；探针 `btnGone` 会 FAIL）。② 该行被 `CONSOLE_MAX` 裁剪掉时
+  `line.parentNode` 为 null，`clearDepAction` 必须有 guard。③ 行内按钮优于模态框：不占固定界面高度、可被忽略。
+- **验收**：`tools/dep-probe.mjs` §5 —— 按钮出现（文案含「补齐依赖」）→ 点击 → picker 恰好 1 次 → 缺口清空 → 按钮自动消失。
+
+---
+> 以上为截至**第五十三轮（2026-09-14）**的坑位清单，共 **P1~P57**。每条格式：现象 → 根因 → 修法 → 预防；带 `#NN` 的对应 `03-REQUIREMENTS.md` 需求号。
