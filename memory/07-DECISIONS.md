@@ -933,3 +933,48 @@ W1~W3，其中 **W3 已拍板不做**）见 `03-REQUIREMENTS.md` 表 K；后端�
 **关联**：`docs/2026-09-14-专业仿真能力评估与功能规划.md` / `index.html:743~813` / `1251` / `js/editor/view-menu.js` / `css/view-menu.css` /
 `js/editor/file-menu.js` / `js/sim/dock/workspace.js`（`showPanel` 语义 zone 归位）/ `06 P53·P54` / `memory/logs/2026-09-14.md` 第四十八~四十九轮 /
 提交 `937e2d8`、`d829704`。
+
+---
+
+## D54 文件对话框一律用「系统对话框」（第五十二轮，用户裁决）
+
+**裁决原话口径**：「点开那个加号直接弹出的就是文件选择的界面，保存波形和打开波形也一样 …
+就像一个正常的软件的保存逻辑和打开逻辑一样，调用 Windows 的保存和打开逻辑。」
+
+落地口径（**四条，后续不得回退**）：
+
+1. **源码面板「＋」= 直接弹系统文件选择框**（`showOpenFilePicker`，可多选 `.v/.sv/.vh/.svh`；
+   无 FSA 回退隐藏 `<input type=file>`）。**不得**再先弹自定义输入框问文件名、**不得**预建空白标签。
+2. **顶栏「打开」/ 菜单「打开」** = 系统打开框；结果一律写「仿真状态」日志流
+   （成功「已打开工程：<文件名>」/ 取消「已取消打开工程。」/ 失败 error），**不再弹英文模态框**。
+3. **顶栏「保存」/ 菜单「保存」** = 正常软件语义：**已存过盘（`document_wave._fileHandle`）直接静默写回原文件、零对话框**；
+   没存过盘 → 等同「另存为」（系统保存框）。写回失败（权限过期）自动退到「另存为」。
+4. **「另存为」= 去掉 `wpPrompt` 那层自定义输入框**，点一下直接就是系统保存框；建议文件名沿用
+   `_fileHandle.name`，否则 `waveform.wp`。**用户点取消 = 静默**（不得误报「保存失败」）。
+
+实现注意：核心 `openFile` / `saveToFile` 的 catch 会把 `AbortError` 吞成 `false`，
+必须用 `withPickerCancelWatch()` 临时包一层 picker 才能区分取消与真失败；
+核心 `initToolbarHandlers` 用 `element.onclick = …` 绑定 ⇒ `js/editor/file-menu.js` 直接覆盖 `.onclick`（无重复触发）。
+
+## D55 打开顶层 → 自动扫描依赖（第五十二轮，用户点名「下一步就要做」）
+
+**语义**（对齐 Verdi `-top` + filelist）：选定顶层后，工具**自己**把该顶层**例化可达图**上缺定义的模块补齐，
+而不是让用户一个个挑文件。
+
+1. **缺口口径 = 当前顶层的例化可达图**（BFS）：只有顶层往下真的例化到的模块才算依赖，
+   工程里无关模块的残留例化**不得**把无关文件拖进来。
+2. **有授权目录**（`sourceDirHandle`，来自「文件 → 打开源码目录（自动扫描依赖）…」）→ 后台静默补齐，
+   最多 `DEP_RESOLVE_MAX_ROUNDS = 3` 轮（支持递归一层）。
+3. **没有授权目录** → **在同一次用户手势里同步发起 `showDirectoryPicker`**（切顶层的 `change` 处理器同步段），
+   选完即递归读入 + 解析 + 补齐。**取消过一次 → 本会话不再弹框**（只写日志提示后续路径）。
+4. **自动补齐绝不抢占当前活动标签**（`addSourceFiles(..., {activate:false})`）。
+5. 查找顺序：① 文件名约定 `<name>.v/.sv/.vh/.svh` 且内容真有 `module <name>`（`maskStrings(blankComments(...))`
+   防注释/字符串假命中）；② 兜底按**内容**扫目录索引（文件名与模块名不一致的工程也能找到）。
+6. **权限失效 → 降级汇报**：`dirReadable()` 无权限且当前没有真实用户手势时**不调** `requestPermission`
+   （避免刷 `SecurityError`），只回报 `needsPermission` + 日志缺口。
+
+**关联**：`js/sim/ui-bridge.js`（`missingDependencyModules` / `loadMissingModulesFromDir` / `resolveMissingDependencies` /
+`autoScanForTop` / `openSourceDirectory`；`__wpsim` 已导出供探针）/ `js/editor/file-menu.js`（`onOpen`/`onSave`/`onSaveAs`/
+`withPickerCancelWatch`/`bindToolbarFileButtons`）/ `index.html`（`文件` 菜单「保存」+「打开源码目录（自动扫描依赖）…」）/
+`tools/dep-probe.mjs`（23 项）/ `tools/source-panel-probe.mjs`（＋ 用例改为 stub `showOpenFilePicker`）/ `06 P55` /
+`memory/logs/2026-09-14.md` 第五十二轮 / exe `v0.4.0 build 2026-09-14 22:19:28`。

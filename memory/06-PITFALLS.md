@@ -815,4 +815,20 @@
   尤其 `timeUnit` / `timePerStep` 这类「有变量名但无写入点」的参数，读代码时容易误判为已生效。
 
 ---
-> 以上为截至**第四十九轮（2026-09-14）**的坑位清单，共 **P1~P54**。每条格式：现象 → 根因 → 修法 → 预防；带 `#NN` 的对应 `03-REQUIREMENTS.md` 需求号。
+### P55 搬运 DOM 节点会清零滚动位置：拖分隔条后代码框跳回顶部
+
+- **现象**：拖动 dock 的分隔条（改源码面板宽度 / 改仿真状态高度）后，源码 / TB 代码框**滚动位置回到最上面**
+  （`scrollTop` 400 → 0）。纯 CSS 或 CodeMirror 复现不出来。
+- **根因**：`js/sim/dock/workspace.js` 的 `render()` 为了「整块搬家不克隆节点」，先把真机节点 `parkHost` 到
+  `#mk-park` 再重建树搬回 —— **元素一旦脱离文档，浏览器就销毁该滚动容器的布局对象，`scrollTop/scrollLeft` 归零**。
+  （`render()` 会被拖拽预览、面板隐藏/显示、布局预设等大量路径调用 ⇒ 症状看起来像「拖动才有」。）
+- **修法**：`render()` 里加一对「快照 / 回填」——`snapshotScrollState()` 在 `parkHost` **之前**按
+  「面板宿主子节点下标路径」记录所有非 0 的 `scrollTop/scrollLeft`（含宿主自身，递归 `HOST_PANELS`），
+  `restoreScrollState(snap)` 在 `renderFloats()` 之后回填（`try/catch` 兜底）。共 +51 行。
+- **预防**：**任何「先把节点移出文档、再搬回来」的复用手法都要显式保存/恢复滚动状态**
+  （同理还有 input 的 `selectionStart`、`<details>.open`、焦点）。新增「搬运式重排」时默认套这套快照。
+- **验收**：`.e2e-tmp/probe50-scroll.mjs` —— 长源码滚到 400 → 拖源码左边界竖条 / 拖仿真状态上方横条 →
+  `scrollTop` 必须仍是 400（修复前 `before=400 after=0`）。
+
+---
+> 以上为截至**第五十二轮（2026-09-14）**的坑位清单，共 **P1~P55**。每条格式：现象 → 根因 → 修法 → 预防；带 `#NN` 的对应 `03-REQUIREMENTS.md` 需求号。
