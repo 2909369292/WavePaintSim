@@ -999,3 +999,36 @@ W1~W3，其中 **W3 已拍板不做**）见 `03-REQUIREMENTS.md` 表 K；后端�
 （`§10.2 consoleAction` + `window.wpConsoleAction` ≈L1318、`absorbWithBasis`/`syncSplitFlex` ≈L581~L640）/
 `css/workspace.css`（`.mk-cline.mk-act` / `.mk-cline-btn` ≈L305）/ `tools/dep-probe.mjs`（+§5，28 项）/
 `tools/split-drag-probe.mjs`（新增）/ `06 P56` `P57` / `memory/logs/2026-09-14.md` 第五十三轮。
+
+## D57 源码搜索根（依赖自动补齐）改为本地服务读盘 + 「往上 3 层」（第五十四轮）
+
+**背景**：第五十三轮依赖补齐要用户**手动选源码目录**（`showDirectoryPicker`），且只搜**该目录向下**。
+用户口径：**不该让人手动选**；一般与 top 同目录，`std` 等标准单元库可能在**另一个独立目录**；默认应搜
+「top 所在目录**及其同目录**，并**往上遍历 3 层**」。并追问 Verdi 是否有不依赖 filelist 打开 top 的方式。
+
+1. **免 filelist 的 Verdi 机制**（已查实，本项目对齐）：`-y <dir>` + `+libext+.v+.sv`（Verilog-XL 源库语义）——
+   只编译「**文件名与被引用模块名匹配**」的文件；库中新引入的引用**再次**触发搜索，直到收敛（多轮）。
+   实现对齐 = **多根** + **文件名约定** + **内容兜底** + 多轮（`DEP_RESOLVE_MAX_ROUNDS=3`）。
+2. **读盘通道走本地服务**：Edge/Chromium 的 `FileSystemDirectoryHandle` **没有 `getParent()`** ⇒
+   「往上 3 层」在句柄层**做不到**。新增 `api/fs`（op=`probe|list|index|read`）与 `api/pick`
+   （C# WinForms 原生对话框，STA 线程，返回 `{ok,canceled,paths}`）。
+3. **安全闸门（不得弱化）**：`FsCallerAllowed` —— Host 必须是 `127.0.0.1`/`localhost`/`::1`；
+   必须带 `X-WavePaint-Fs: 1`（`FsHeader`）；`Sec-Fetch-Site` 若存在必须是 `same-origin`。
+   读盘白名单 `IsReadableSourceExt`（`.v .sv .vh .svh .f .lst .vlg .verilog .txt .md .cfg .h .json`），
+   单文件上限 `FsMaxReadBytes = 8MB`，索引上限 `FsMaxIndexFiles = 2000`。
+4. **默认搜索根深度语义**（`notePickedSourcePaths` 按路径深度派生）：
+   - 打开的 **top 同级目录** → `depth = 6`（本级，`SOURCE_DIR_MAX_DEPTH`）；
+   - **每往上 1 层** → `depth = 2`（`DEP_ROOT_ANCESTOR_DEPTH`，共 `DEP_ROOT_UP_LEVELS = 3` 层）；
+   - **盘符根**（`/^[a-zA-Z]:[\\/]?$/`）→ `depth = 1`（避免全盘递归）。
+   - 手工添加的根标记 `auto:false`（设置面板可单独移除）。
+5. **持久化与入口**：`localStorage['wavepaint.sourceRoots.v1']`（`restoreDepRoots` / `persistDepRoots`）；
+   设置面板 §9.5「源码搜索目录（依赖自动补齐）」可增删/恢复默认（`pickAndAddDepSearchRoot` / `resetDepSearchRoots`）。
+6. **触发与 UI**：`parseDesign()` 末尾 `scheduleAutoFill()`（微任务合流）；`autoScanForTop()` 有搜索根/句柄即
+   **静默补齐不弹框**，只有确知服务不可用且无任何来源才回退 FSA 弹框。缺口仍存时显示「＋」右侧的
+   `#sim-depfill`「自动补齐」按钮（**点一次即消失**，busy 期间 hidden）。
+7. **filelist 待办（大方向）**：`-f` 文件表 / `+incdir` / 多库语义尚未完整解析 ⇒ 见 `08-ROADMAP.md`「大功能方向」。
+
+**关联**：`WavePaintLauncher.cs`（`FsTag`/`FsHeader`/`FsCallerAllowed`/`HandleFs`/`HandlePick`/`QueryParam`/`WalkHdlIndex`）/
+`js/sim/ui-bridge.js`（`fsApi*` / `depSearchRoots` / `autoFillDependencies` / `syncDepFillButton`）/
+`js/editor/view-menu.js` §9.5 / `index.html`（`#sim-depfill`）/ `tools/dep-probe.mjs` §4.5~§8 /
+`tools/fs-api-probe.mjs`（新建，真 exe）/ `06 P58` `P59`。

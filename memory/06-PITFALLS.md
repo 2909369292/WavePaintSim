@@ -863,6 +863,27 @@
   → `clearDepAction()` 自己摘（否则点击后旧行赖着不走；探针 `btnGone` 会 FAIL）。② 该行被 `CONSOLE_MAX` 裁剪掉时
   `line.parentNode` 为 null，`clearDepAction` 必须有 guard。③ 行内按钮优于模态框：不占固定界面高度、可被忽略。
 - **验收**：`tools/dep-probe.mjs` §5 —— 按钮出现（文案含「补齐依赖」）→ 点击 → picker 恰好 1 次 → 缺口清空 → 按钮自动消失。
+- **⚠ 第五十四轮修订**：该**行内按钮已删除**（`wpConsoleAction` 那套不再用于依赖补齐）。根治手段换成
+  **本地服务原生对话框** `api/pick`（C# 侧 `OpenFileDialog`，**不受 transient activation 限制**，可在任何时刻调用）。
+  补缺口改由「＋」右侧的 **`#sim-depfill`「自动补齐」按钮**承担（点一次即消失）。**已作废的口径不要再参考。**
+
+### P58 `HttpListenerRequest.QueryString` 按系统 ANSI(GBK) 解转义 ⇒ 中文路径全废
+
+- **现象**（第五十四轮真 exe 抓到）：`api/fs` 传中文工程路径时，`op=list` 只回 `.e2e-tmp`、`op=read`/`op=index` 404。
+  英文路径一切正常 ⇒ 极易误判成「路径拼错 / 权限问题」。
+- **根因**：.NET `HttpListenerRequest.QueryString` 用**当前系统 ANSI 代码页**（简中 = GBK/936）解 `%XX`，
+  而前端 `encodeURIComponent` 产出的是 **UTF-8** 百分号编码 ⇒ `%E6%B3%A2%E5%BD%A2`（"波形"）被解成 `娉㈠舰`。
+- **修法**：自写 `QueryParam(HttpListenerContext, string key)` —— 手工拆 `context.Request.RawUrl` 的 query 段 +
+  `Uri.UnescapeDataString`（按 UTF-8 解）。**全部 `context.Request.QueryString[...]` 已替换**（`op`/`path`/`depth`/`max`/`mode`/`multi`）。
+- **预防**：任何**跨语言**（JS ↔ .NET）传参**一律不要用 `Request.QueryString`**；同理 `Request.Url`、`Server.UrlDecode` 都有
+  同一代码页坑。涉中文的路径/参数只能在服务端**自己按 UTF-8 解**。
+
+### P59 `api/*` 路由必须插在静态文件分支**之前**
+
+- **现象**：加了 `HandleFs` 却永远走不到，请求被当静态文件处理。
+- **根因**：静态分支里会先把 URL 变成 `path.Replace('/', '\\')` 再比对，`"api/fs"` 与变换后的 `"api\\fs"` **永不相等**。
+- **修法**：`if (path == "api/fs") { HandleFs(context); return; }`（`api/pick` 同理）放在静态分支**之前**（`WavePaintLauncher.cs` ≈L430-431）。
+- **预防**：新增任何 `api/*` 端点，都按「**先 api、后静态**」的顺序插；并配一条真 exe 探针防回归（`tools/fs-api-probe.mjs`）。
 
 ---
-> 以上为截至**第五十三轮（2026-09-14）**的坑位清单，共 **P1~P57**。每条格式：现象 → 根因 → 修法 → 预防；带 `#NN` 的对应 `03-REQUIREMENTS.md` 需求号。
+> 以上为截至**第五十四轮（2026-09-15）**的坑位清单，共 **P1~P59**。每条格式：现象 → 根因 → 修法 → 预防；带 `#NN` 的对应 `03-REQUIREMENTS.md` 需求号。
