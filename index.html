@@ -693,8 +693,15 @@
                     <li>新建</li>
                     <li>打开</li>
                     <li>载入示例</li>
+                    <li>保存</li>
                     <li>另存为</li>
                     <li>复制分享链接</li>
+                    <li class="submenu-separator"></li>
+                    <!-- #122：RTL 源码集合的入口（与上面 .wp 工程级的「打开 / 另存为」区分成组）。
+                         一次点击 = 选工程目录 → 递归读 .v/.sv/.vh/.svh → 自动解析 → 汇报依赖缺口。
+                         ⚠ data-wpv-* 不是核心的 data-action 契约：核心 handleAction 的 switch 在
+                         C9 红线文件里（不能新增 case），本项由 js/editor/file-menu.js 自行绑定。 -->
+                    <li data-wpv-open-source-dir>打开源码目录（自动扫描依赖）…</li>
                     <li class="submenu-separator"></li>
                     <li class="has-submenu">导入为
                         <ul class="submenu submenu-right">
@@ -815,8 +822,13 @@
         </ul>
     </div>
     <div id="toolbar">
-        <button type="button" class="tool-btn" id="tool-open" title="打开"><img src="img/folder.svg" alt="打开"></button>
-        <button type="button" class="tool-btn" id="tool-save" title="保存"><img src="img/save.svg" alt="保存"></button>
+        <!-- 第 52 轮：打开 / 保存 = 系统文件对话框（正常软件的文件逻辑）。
+             核心 initToolbarHandlers 给这两个按钮挂的是「自定义输入框问文件名 + 英文模态框」，
+             已由 js/editor/file-menu.js 的 bindToolbarFileButtons() 覆盖 .onclick：
+               · 打开 → window.openFile（showOpenFilePicker，取消 / 成功都写到仿真状态日志流）；
+               · 保存 → 已存过盘（有 _fileHandle）直接写回原文件，否则弹系统「另存为」对话框。 -->
+        <button type="button" class="tool-btn" id="tool-open" title="打开工程文件（弹出系统打开对话框）"><img src="img/folder.svg" alt="打开"></button>
+        <button type="button" class="tool-btn" id="tool-save" title="保存工程（已保存过则直接写回原文件，否则弹出系统保存对话框）"><img src="img/save.svg" alt="保存"></button>
         <span class="separator">|</span>
         <button type="button" class="tool-btn" id="tool-undo" title="撤销"><img src="img/undo.svg" alt="撤销"></button>
         <button type="button" class="tool-btn" id="tool-redo" title="重做"><img src="img/redo.svg" alt="重做"></button>
@@ -1030,14 +1042,15 @@
                         <!-- ── 文件标签条（浏览器式；第 37 轮用户裁决）────────────────────
                              本栏只留两件东西：① 文件标签条 ② 下面的代码框。
                              每个文件 = 一个标签（.source-chip，文本严格等于文件名）；
-                             标签右侧「−」= 移除该文件；标签条末尾「＋」= 新建源文件。
+                             标签右侧「−」= 移除该文件；标签条末尾「＋」= **弹系统文件选择框**导入源码
+                             （第 51 轮用户裁决：不再先弹自定义输入框问文件名，直接就是打开文件的界面）。
                              ⇒ 原来的「添加文件 / 移除文件」两个按钮被这两个图标取代。
                              ⚠ .source-chip 的 textContent 必须只有文件名本身
                                （e2e-rtl E2 直接断言 chip==='sub.v'），因此关闭键
                                （.source-chip-close）是它的**兄弟节点**，不是子节点。 -->
                         <div class="source-tabs" id="source-tabs">
                             <div id="source-files" class="source-files"></div>
-                            <button id="sim-addfile" type="button" class="source-add" title="添加源文件（新标签页）" aria-label="添加源文件">＋</button>
+                            <button id="sim-addfile" type="button" class="source-add" title="添加源文件（打开文件选择框，可多选 .v/.sv/.vh/.svh）" aria-label="添加源文件">＋</button>
                         </div>
                         <!-- ── 已按用户裁决移出界面的控件（id 全部保留 = 契约面，见 memory/08 §2.5；
                                  e2e-rtl E6 等按 id 断言存在性，故只 hidden、不删节点）────

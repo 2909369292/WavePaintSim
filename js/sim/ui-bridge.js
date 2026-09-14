@@ -1,6 +1,6 @@
 import { buildAutoTestbench, buildSimulationPayload, createPortStimulus, createSignalFromPort, diagnoseSimulation, parseVerilogDesign, vcdToProjectOutputs } from "./engine.js";
 import { formatVectorValue, normalizeVectorValue } from "./project-model.js";
-import { buildRtlNav, buildSymbolIndex, collectModuleDefs, findSymbols, moduleAtLine, resolveModuleDef, resolveSymbolVcdPaths } from "./rtl-nav.js";
+import { blankComments, buildRtlNav, buildSymbolIndex, collectModuleDefs, findSymbols, maskStrings, moduleAtLine, resolveModuleDef, resolveSymbolVcdPaths } from "./rtl-nav.js";
 import { buildVcdHierarchy, findVcdPathsByName } from "./vcd-index.js";
 import { installSimPanelLayout } from "./panel-layout.js";
 import { highlightRtlRow, highlightVcdSignal, installCodeEditor, renderRtlTree, renderVcdTree } from "./rtl-panel.js";
@@ -1219,6 +1219,9 @@ function parseDesign() {
   syncTopSelector();
   refreshStructureTrees();
   render();
+  // #123：若本次会话已授权过源码目录，解析后自动把「顶层例化图里缺定义」的模块
+  // 从该目录读进来（异步、不阻塞；重入由 resolveMissingDependencies 内部守卫）。
+  if (sourceDirHandle) { resolveMissingDependencies().catch(() => {}); }
 }
 
 function buildTbPreview() {
@@ -1663,15 +1666,12 @@ function renderFileTabs() {
   scheduleRtlTreeRefresh();
 }
 
+// 第 51 轮（用户裁决）：标签条末尾的「＋」**不再**先弹自定义输入框问文件名，
+// 而是直接调用系统「打开文件」对话框（File System Access API，回退隐藏 <input type=file>），
+// 与「另存为 / 打开」一致 —— 像正常软件一样一步到位：选完文件即导入 + 自动解析。
+// 这也是 Verdi「Add File」的等价行为（不预设空文件名的空白标签页）。
 function addFile() {
-  const name = prompt("源文件名", `file_${state.files.length + 1}.sv`);
-  if (!name) return;
-  syncEditor();
-  state.files.push({ id: `file_${state.files.length}`, name, content: "" });
-  state.active = state.files.length - 1;
-  renderFileTabs();
-  setStatus(`已添加 ${name}。`);
-  render();
+  return importSourceFiles();
 }
 
 function removeFile() {
@@ -1757,6 +1757,33 @@ function uniqueSourceFileName(name) {
   return candidate;
 }
 
+// 把一批「磁盘上读到的源码」并进源码集合（同名自动去重，不静默覆盖）。
+// 只做数据 + 标签条刷新；**调用方负责随后 parseDesign()**（避免批量导入解析多次）。
+// 返回 { added: 实际加入的文件名[], renamed: '旧名 → 新名'[] }，供调用方组织状态文案。
+//
+// options.activate === false：**不要抢占当前活动标签**（#123 自动补齐依赖用）。
+//   用户正在看 / 编辑 counter.sv 时后台把 sub.v 读进来，编辑器绝不能跳到 sub.v。
+function addSourceFiles(items, options = {}) {
+  const valid = (Array.isArray(items) ? items : [])
+    .filter((item) => item && String(item.name || "").trim());
+  if (!valid.length) return { added: [], renamed: [] };
+  syncEditor();
+  const firstIndex = state.files.length;
+  const added = [];
+  const renamed = [];
+  for (const item of valid) {
+    const name = uniqueSourceFileName(item.name);
+    if (name !== item.name) renamed.push(`${item.name} → ${name}`);
+    state.files.push({ id: `file_${state.files.length}`, name, content: String(item.content || "") });
+    added.push(name);
+  }
+  if (options.activate !== false) state.active = firstIndex;
+  // 活动下标收敛到合法区间（清空后重填、后台追加等路径都可能把它顶出界）
+  state.active = Math.min(Math.max(0, Number(state.active) || 0), Math.max(0, state.files.length - 1));
+  renderFileTabs();
+  return { added, renamed };
+}
+
 async function importSourceFiles() {
   let picked = [];
   try {
@@ -1766,21 +1793,356 @@ async function importSourceFiles() {
     setStatus(`导入源码失败：${(error && error.message) || error}`);
     return;
   }
-  const valid = (picked || []).filter((item) => item && String(item.name || "").trim());
-  if (!valid.length) return;
-  syncEditor();
-  const renamed = [];
-  const firstIndex = state.files.length;
-  for (const item of valid) {
-    const name = uniqueSourceFileName(item.name);
-    if (name !== item.name) renamed.push(`${item.name} → ${name}`);
-    state.files.push({ id: `file_${state.files.length}`, name, content: String(item.content || "") });
-  }
-  state.active = firstIndex;
-  renderFileTabs();
+  const { added, renamed } = addSourceFiles(picked);
+  if (!added.length) return;
   parseDesign();   // 自动解析 + 刷新 RTL 结构树（parseDesign 内部已 refreshStructureTrees）
   const renameNote = renamed.length ? `　同名文件已重命名：${renamed.join("、")}。` : "";
-  setStatus(`已导入 ${valid.length} 个源码文件并自动解析。${renameNote}`);
+  setStatus(`已导入 ${added.length} 个源码文件并自动解析。${renameNote}`);
+  reportMissingDependencies();
+}
+
+// ---------------------------------------------------------------------------
+// #122 / #123 顶层依赖图：扫「谁被例化却没定义」+ 从已授权目录自动补齐
+// ---------------------------------------------------------------------------
+// 分工：
+//   #122（第 51 轮）= 选目录 → 递归读 → 解析 → **汇报**缺谁；
+//   #123（第 52 轮）= **记住**已授权目录 → 之后每次解析自动把「从当前顶层往下的
+//     例化图里缺定义的模块」读进来，用户不必再选一次文件
+//     （= 用户要的「打开顶层自动扫描读取相应的依赖和例化的模块」）。
+//
+// 为什么 #123 能「自动」：FileSystemDirectoryHandle 一旦经用户手势授权，**同一页面
+// 会话内** queryPermission() 恒为 'granted'，之后读盘不再需要手势。跨页面重载权限
+// 失效，此时自动补齐自动降级为「汇报 + 提示重选目录」，不弹任何模态框。
+//
+// 数据源一律是 buildRtlNav（源码扫描器，已过滤门原语 / 字符串里的假例化），不碰 C9 核心。
+const HDL_SOURCE_RE = /\.(v|sv|vh|svh)$/i;
+const HDL_EXTS = [".v", ".sv", ".vh", ".svh"];
+// 递归扫目录时跳过这些「肯定不含 HDL 源码」的重目录（避免误扫 node_modules / 构建产物）
+const SOURCE_DIR_SKIP_RE = /^(node_modules|\.git|\.svn|\.hg|\.e2e-tmp|\.codex|\.vscode|build|out|dist|target|obj|bin|csrc|simv|__pycache__|temp|tmp)$/i;
+const SOURCE_DIR_MAX_FILES = 400;   // 护栏：一次最多收 400 个源文件（防止误选 C:\ 这类巨目录）
+const SOURCE_DIR_MAX_DEPTH = 6;
+const DEP_RESOLVE_MAX_ROUNDS = 3;   // 自动补齐最多 3 轮（每轮一层依赖，环/漏定义不会死循环）
+
+let sourceDirHandle = null;            // 用户最后一次授权的源码目录（会话内有效）
+let sourceDirIndex = null;             // Map<小写文件名, FileSystemFileHandle>（惰性建立）
+const sourceDirTextCache = new Map();  // 小写文件名 → 文本（读过就不再读第二次）
+let depResolving = false;              // 自动补齐重入保护（parseDesign 会被补齐流程自己触发）
+let autoScanDeclined = false;          // 用户在「自动扫描依赖」的文件夹对话框里点过取消 → 本会话不再弹
+
+function escapeRe(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// 从当前顶层 BFS 例化图，收集「被例化但没有 module 定义」的模块名。
+// 口径 = 当前顶层的**例化可达图**（Verdi 的 -top 语义）：只有顶层往下真的例化到的
+// 模块才算依赖，工程里其它无关模块的残留例化不会把无关文件拖进来。
+// topName 为空 / 源码里查无此定义时，退化成「扫全部模块」的宽松口径。
+// 大小写不敏感判重，保留源码里的原始拼写；按先遇到的顺序返回。
+function missingDependencyModules(topName) {
+  const nav = buildRtlNav(state.files);
+  const defs = new Map();   // 小写模块名 → { name, instances[] }（同名多文件定义合并）
+  for (const mod of nav) {
+    const key = String(mod?.name || "").toLowerCase();
+    if (!key) continue;
+    const entry = defs.get(key);
+    if (entry) entry.instances.push(...(mod.instances || []));
+    else defs.set(key, { name: String(mod.name), instances: (mod.instances || []).slice() });
+  }
+  const requested = String(topName || state.selectedTop || state.design?.topName || "").trim().toLowerCase();
+  const roots = defs.has(requested) ? [requested] : Array.from(defs.keys());
+
+  const missing = [];
+  const seen = new Set();
+  const visited = new Set();
+  const queue = roots.slice();
+  while (queue.length) {
+    const key = queue.shift();
+    if (visited.has(key)) continue;
+    visited.add(key);
+    const entry = defs.get(key);
+    if (!entry) continue;
+    for (const inst of entry.instances) {
+      const name = String(inst?.moduleName || "").trim();
+      if (!name) continue;
+      const childKey = name.toLowerCase();
+      if (visited.has(childKey) || seen.has(childKey)) continue;
+      seen.add(childKey);
+      if (defs.has(childKey)) queue.push(childKey);
+      else missing.push(name);   // 例化了、但整个源码集合里没有它的 module 定义
+    }
+  }
+  return missing;
+}
+
+// 汇报：齐全 → 一条 info；有缺口 → 一条 warn，并给出两条可执行的补齐路径。
+function reportMissingDependencies() {
+  const missing = missingDependencyModules();
+  if (!missing.length) {
+    consoleOut(`依赖扫描：${state.files.length} 个源文件的例化依赖已闭合，没有被例化却缺失定义的模块。`, "info");
+    return missing;
+  }
+  consoleOut([
+    `⚠ 依赖扫描：以下 ${missing.length} 个模块被例化，但当前源码里没有定义 ——`,
+    `　${missing.join("、")}`,
+    "　→ 点源码标签条末尾的「＋」选择这些源码文件（可多选）；",
+    sourceDirHandle
+      ? "　→ 或直接重试（已记住源码目录，会自动读入）；若权限已过期，重选一次目录即可。"
+      : "　→ 或用菜单「文件 → 打开源码目录（自动扫描依赖）…」一次性扫描整个工程目录补齐。"
+  ].join("\n"), "warn");
+  return missing;
+}
+
+// 目录句柄当前是否可读（不弹框；无权限且当前没有用户手势时返回 false）。
+async function dirReadable(handle) {
+  if (!handle) return false;
+  if (typeof handle.queryPermission !== "function") return true;   // 非 FSA 句柄（探针 stub）
+  try {
+    const options = { mode: "read" };
+    if ((await handle.queryPermission(options)) === "granted") return true;
+    if (typeof handle.requestPermission !== "function") return false;
+    // 重新授权必须由用户手势触发；没有手势时不要调用（会抛 SecurityError 并刷控制台）
+    if (!(navigator.userActivation && navigator.userActivation.isActive)) return false;
+    return (await handle.requestPermission(options)) === "granted";
+  } catch (error) {
+    return false;
+  }
+}
+
+// 建立 / 复用「目录 → HDL 文件句柄」索引（只列目录，不读内容）。
+async function indexSourceDirectory(handle) {
+  if (sourceDirIndex && sourceDirHandle === handle) return sourceDirIndex;
+  const index = new Map();
+  const walk = async (dir, depth) => {
+    if (depth > SOURCE_DIR_MAX_DEPTH || index.size >= SOURCE_DIR_MAX_FILES) return;
+    for await (const entry of dir.values()) {
+      if (index.size >= SOURCE_DIR_MAX_FILES) return;
+      if (entry.kind === "directory") {
+        if (SOURCE_DIR_SKIP_RE.test(entry.name)) continue;
+        await walk(entry, depth + 1);
+        continue;
+      }
+      if (!HDL_SOURCE_RE.test(entry.name)) continue;
+      const key = entry.name.toLowerCase();
+      if (!index.has(key)) index.set(key, entry);   // 同名取先遇到的（重名极罕见，只做去重）
+    }
+  };
+  await walk(handle, 0);
+  sourceDirHandle = handle;
+  sourceDirIndex = index;
+  return index;
+}
+
+// 读目录里的某个 HDL 文件（带缓存：同一文件在整个会话里只读一次）。
+async function readDirFile(key, handle) {
+  if (sourceDirTextCache.has(key)) return sourceDirTextCache.get(key);
+  const file = await handle.getFile();
+  const text = await file.text();
+  sourceDirTextCache.set(key, text);
+  return text;
+}
+
+// 在目录里找「定义了模块 name」的源文件：
+//   ① 文件名约定优先 —— <name>.v / .sv / .vh / .svh，并要求文件里真有它的 module 声明；
+//   ② 兜底按内容找 —— 文件名与模块名不一致的工程（扫索引里的其余 HDL 文件）。
+// 已被当前源码集合收录的文件、以及本轮已经认领的文件都跳过（不重复导入）。
+async function findModuleFileInDir(name, index, claimed, existing) {
+  const lower = String(name).toLowerCase();
+  const declares = (text) => new RegExp(`\\bmodule\\s+${escapeRe(name)}\\b`, "i")
+    .test(maskStrings(blankComments(String(text))));
+  const usable = (key) => index.has(key) && !claimed.has(key) && !existing.has(key);
+
+  for (const ext of HDL_EXTS) {
+    const key = lower + ext;
+    if (!usable(key)) continue;
+    const handle = index.get(key);
+    try {
+      const content = await readDirFile(key, handle);
+      if (declares(content)) return { key, name: handle.name, content };
+    } catch (error) { /* 单文件读失败（权限 / 占用）→ 继续找 */ }
+  }
+  for (const [key, handle] of index) {
+    if (!usable(key)) continue;
+    try {
+      const content = await readDirFile(key, handle);
+      if (declares(content)) return { key, name: handle.name, content };
+    } catch (error) { /* 同上 */ }
+  }
+  return null;
+}
+
+// 把一批「缺失模块」从已授权目录读进源码集合（**不抢占当前活动标签**）。
+// 返回 { loaded: 文件名[], unresolved: 模块名[], needsPermission: bool }
+async function loadMissingModulesFromDir(names) {
+  const list = (Array.isArray(names) ? names : []).filter(Boolean);
+  if (!list.length) return { loaded: [], unresolved: [], needsPermission: false };
+  if (!sourceDirHandle) return { loaded: [], unresolved: list.slice(), needsPermission: false };
+  if (!(await dirReadable(sourceDirHandle))) {
+    return { loaded: [], unresolved: list.slice(), needsPermission: true };
+  }
+  const index = await indexSourceDirectory(sourceDirHandle);
+  const existing = new Set(state.files.map((file) => String(file.name || "").toLowerCase()));
+  const claimed = new Set();
+  const items = [];
+  const unresolved = [];
+  for (const name of list) {
+    const hit = await findModuleFileInDir(name, index, claimed, existing);
+    if (!hit) { unresolved.push(name); continue; }
+    claimed.add(hit.key);
+    existing.add(String(hit.name).toLowerCase());
+    items.push({ name: hit.name, content: hit.content });
+  }
+  const { added } = addSourceFiles(items, { activate: false });
+  return { loaded: added, unresolved, needsPermission: false };
+}
+
+// #123 自动补齐入口：解析后（或切换顶层后）调用 —— 有已授权目录就自动读入缺失模块。
+// 重入保护：本函数内部会再调 parseDesign()，而 parseDesign() 又会回调本函数，
+// 用 depResolving 把嵌套调用一次性挡掉（不会递归、也不会重复汇报）。
+async function resolveMissingDependencies() {
+  if (depResolving) return { rounds: 0, loaded: [], unresolved: missingDependencyModules(), needsPermission: false };
+  depResolving = true;
+  const loaded = [];
+  let unresolved = [];
+  let needsPermission = false;
+  let rounds = 0;
+  try {
+    while (rounds < DEP_RESOLVE_MAX_ROUNDS) {
+      rounds += 1;
+      unresolved = missingDependencyModules();
+      if (!unresolved.length || !sourceDirHandle) break;
+      const result = await loadMissingModulesFromDir(unresolved);
+      if (result.needsPermission) { needsPermission = true; unresolved = result.unresolved; break; }
+      if (!result.loaded.length) { unresolved = result.unresolved; break; }
+      loaded.push(...result.loaded);
+      parseDesign();   // 新模块进 design（depResolving 守卫保证不会递归）
+    }
+  } catch (error) {
+    consoleOut(`依赖自动补齐出错：${(error && error.message) || error}`, "error");
+  } finally {
+    depResolving = false;
+  }
+  if (loaded.length) {
+    consoleOut(`依赖自动补齐：已从源码目录「${sourceDirHandle ? sourceDirHandle.name : ""}」读入 ${loaded.length} 个源文件 —— ${loaded.join("、")}`, "ok");
+  }
+  reportMissingDependencies();
+  return { rounds, loaded, unresolved, needsPermission };
+}
+
+// 选工程目录 → 递归收集 HDL 源文件（只读；跳过重目录，带文件数 / 深度护栏）。
+async function scanSourceDirectory() {
+  const dir = await window.showDirectoryPicker({ mode: "read", id: "wavepaint-source" });
+  const index = await indexSourceDirectory(dir);
+  const collected = [];
+  for (const [key, handle] of index) {
+    try {
+      collected.push({ name: handle.name, content: await readDirFile(key, handle) });
+    } catch (error) { /* 单个文件读失败（权限 / 占用）不阻断整次扫描 */ }
+  }
+  return collected;
+}
+
+// 入口（菜单「文件 → 打开源码目录（自动扫描依赖）…」）：
+// 一次点击 = 选目录 + 递归读源码 + 自动解析 + 自动汇报依赖缺口；
+// 目录句柄被记住，之后每次解析都会自动按顶层例化图补齐缺失模块（#123）。
+async function openSourceDirectory() {
+  if (typeof window.showDirectoryPicker !== "function") {
+    consoleOut("当前浏览器不支持「打开源码目录」（需要 File System Access API）。请改用源码标签条的「＋」逐个选择源码文件。", "error");
+    return;
+  }
+  let picked = [];
+  try {
+    picked = await scanSourceDirectory();
+  } catch (error) {
+    if (error && error.name === "AbortError") { setStatus("已取消打开源码目录。"); return; }
+    consoleOut(`打开源码目录失败：${(error && error.message) || error}`, "error");
+    return;
+  }
+  if (!picked.length) {
+    setStatus("该目录（含子目录）下没有找到 .v / .sv / .vh / .svh 源码文件。");
+    return;
+  }
+  // 源码还是出厂的 counter.sv（用户没动过）→ 用目录内容整体替换，避免出现 counter_2.sv 这类噪音
+  if (state.files.length === 1 && state.files[0].content === DEFAULT_SOURCE) {
+    state.files = [];
+    state.active = 0;
+  }
+  const { added, renamed } = addSourceFiles(picked);
+  if (!added.length) { setStatus("该目录下没有可导入的源码文件。"); return; }
+  parseDesign();
+  const renameNote = renamed.length ? `　同名文件已重命名：${renamed.join("、")}。` : "";
+  const capped = picked.length >= SOURCE_DIR_MAX_FILES ? `（已达 ${SOURCE_DIR_MAX_FILES} 个文件上限，可能被截断）` : "";
+  setStatus(`已从源码目录「${sourceDirHandle ? sourceDirHandle.name : ""}」导入 ${added.length} 个文件并自动解析。${renameNote}${capped}`);
+  await resolveMissingDependencies();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 「打开顶层 → 自动扫描依赖」（第 52 轮 · #123 的入口形态）
+// ─────────────────────────────────────────────────────────────────────────────
+// 语义（对齐 Verdi 的 `-top` + filelist 行为）：用户选定一个顶层后，工具应当自己去把
+// 该顶层**例化可达图**上缺定义的模块找出来，而不是让用户一个个地挑文件。
+//   ① 已有授权过的源码目录（sourceDirHandle）→ 后台静默补齐（resolveMissingDependencies）；
+//   ② 没有 → **在同一次用户手势里**直接弹系统「选择文件夹」，选完即递归读入并补齐；
+//   ③ 用户取消过一次 → 本会话内不再弹框（避免每次切顶层都打扰），只往日志流写补齐提示，
+//      之后仍可走菜单「文件 → 打开源码目录（自动扫描依赖）…」或标签条「＋」。
+//
+// ⚠ showDirectoryPicker 必须有用户手势（transient activation）。因此本函数**同步**发起
+// 选择框，之后才 await —— 只能在点击 / change 这类事件处理器的同步段里调用。
+// 没有手势（SecurityError）时只退回「写日志提示」，**不**记成用户拒绝。
+function autoScanForTop(topName) {
+  if (depResolving) return;
+  const missing = missingDependencyModules(topName);
+  if (!missing.length) return;                     // 依赖已闭合：什么都不做，不打扰用户
+  if (sourceDirHandle) {                           // ① 已授权目录 → 静默补齐
+    resolveMissingDependencies().catch(() => {});
+    return;
+  }
+  if (autoScanDeclined || typeof window.showDirectoryPicker !== "function") {
+    reportMissingDependencies();                   // ③ / 不支持 FSA → 只提示可执行的补齐路径
+    return;
+  }
+  const dirName = String(topName || state.selectedTop || state.design?.topName || "").trim();
+  let pickerPromise;
+  try {
+    // ② 同步发起（保住用户手势）：选择框此时已在系统层弹出
+    pickerPromise = window.showDirectoryPicker({ mode: "read", id: "wavepaint-source" });
+  } catch (error) {
+    reportMissingDependencies();                   // 无手势等 → 静默降级，不写 autoScanDeclined
+    return;
+  }
+  consoleOut([
+    `依赖扫描：顶层 ${dirName || "（未命名）"} 例化了 ${missing.length} 个当前源码里没有定义的模块 ——`,
+    `　${missing.join("、")}`,
+    "　→ 已弹出文件夹选择框，请选择这些模块所在的源码目录（一次授权，之后自动补齐）。"
+  ].join("\n"), "info");
+  pickerPromise.then(async (dir) => {
+    try {
+      sourceDirHandle = dir || null;
+      sourceDirIndex = null;                       // 换目录 → 索引与文本缓存一起失效
+      sourceDirTextCache.clear();
+      const index = await indexSourceDirectory(dir);
+      const before = new Set(state.files.map((file) => String(file.name || "").toLowerCase()));
+      const picked = [];
+      for (const [key, handle] of index) {
+        if (before.has(String(handle.name).toLowerCase())) continue;   // 已在源码集合里
+        try { picked.push({ name: handle.name, content: await readDirFile(key, handle) }); }
+        catch (error) { /* 单文件读失败不阻断整次扫描 */ }
+      }
+      if (picked.length) {
+        addSourceFiles(picked, { activate: false });   // 不抢占用户正在看的标签
+        parseDesign();
+      }
+      await resolveMissingDependencies();
+    } catch (error) {
+      autoScanDeclined = true;
+      consoleOut(`依赖自动扫描失败：${(error && error.message) || error}`, "warn");
+      reportMissingDependencies();
+    }
+  }, () => {
+    // 用户点了取消 / 系统拒绝：本会话不再自动弹框，只保留日志提示
+    autoScanDeclined = true;
+    consoleOut("已取消选择源码目录。之后可用菜单「文件 → 打开源码目录（自动扫描依赖）…」或源码标签条的「＋」补齐缺失模块。", "info");
+    reportMissingDependencies();
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -2030,6 +2392,10 @@ function bindEvents() {
       : `⚠ ${design.topName} 未解析到端口。`,
       ports.length ? "info" : "warn");
     setStatus(`顶层模块已切换为 ${design.topName}，点「自动加信号」或「生成 TB」生效。`);
+    // #123：换顶层 = 换依赖子图 → 自动扫描该顶层缺的例化模块。
+    // ⚠ 必须在 change 事件处理器的**同步段**里调用（autoScanForTop 同步发起
+    // showDirectoryPicker，晚一拍就没有用户手势了）。
+    autoScanForTop(state.selectedTop);
   });
   refs.addSignals?.addEventListener("click", addPortSignalsToCanvas);
   refs.tbBtn?.addEventListener("click", buildTbPreview);
@@ -2302,9 +2668,41 @@ window.__wpsim = {
     return stripInjectedSignals(window.document_wave?.m_signals || [])
       .map((signal) => String(signal?.name || ""));
   },
+  // 当前源码集合快照（探针 / 自动化核验用；只读拷贝，外部改不动内部数组）。
+  get sourceFiles() {
+    return (Array.isArray(state.files) ? state.files : []).map((file) => ({
+      name: String(file?.name || ""),
+      content: String(file?.content ?? "")
+    }));
+  },
   setSourceFiles,
   resetSourceFiles,
-  importSourceFiles
+  importSourceFiles,
+  // 重新解析当前源码集合并刷新 RTL 结构树（探针改完源码后手动触发；setSourceFiles 已内含）。
+  parseDesign,
+  // #122 顶层依赖自动扫描（e2e / 探针入口）：
+  //   missingDependencyModules() —— 纯计算，返回「被例化但没定义」的模块名数组；
+  //   addSourceFiles(items)      —— 把 {name,content}[] 并进源码集合（同名去重，不解析）；
+  //   reportMissingDependencies()—— 走一遍扫描 + 写日志流，返回同一数组；
+  //   openSourceDirectory()      —— 等价于点菜单「打开源码目录（自动扫描依赖）…」
+  //                                 （探针可先 stub window.showDirectoryPicker）。
+  //   #123 自动补齐：
+  //   setSourceDirHandle(handle)     —— 直接登记一个目录句柄（探针用 fake handle 注入，
+  //                                    真机等同「用户刚授权过这个目录」）；
+  //   resolveMissingDependencies()   —— 按当前顶层例化图自动补齐缺失模块；
+  //   loadMissingModulesFromDir(list)—— 只做「读进来」这一步（不解析、不汇报）。
+  missingDependencyModules,
+  addSourceFiles,
+  reportMissingDependencies,
+  openSourceDirectory,
+  setSourceDirHandle(handle) { sourceDirHandle = handle || null; sourceDirIndex = null; },
+  resolveMissingDependencies,
+  loadMissingModulesFromDir,
+  // autoScanForTop(topName) —— 「打开顶层 → 自动扫描依赖」入口（#123）。
+  // 探针可先 stub window.showDirectoryPicker 返回 fake 句柄，再调它验证整条链。
+  // resetAutoScanDecline()  —— 清掉「用户已取消过一次」的会话标志（探针用例间隔离用）。
+  autoScanForTop,
+  resetAutoScanDecline() { autoScanDeclined = false; }
 };
 
 if (document.readyState === "loading") {

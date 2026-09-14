@@ -211,10 +211,17 @@ const tabs = await ev(`(async () => {
   const conLog = document.getElementById('sim-console-log');
   // 第 44 轮：单行状态行 #sim-status 已删，这里改为回报日志流尾部（诊断用）。
   out.status = conLog ? (conLog.textContent || '').slice(-120) : '';
-  // 用「＋」新增一个文件（stub prompt，避免弹系统框）
-  window.prompt = () => 'extra.sv';
+  // 用「＋」新增一个文件。第 52 轮起「＋」= 直接弹**系统文件选择框**
+  // （showOpenFilePicker，多选 HDL 源文件），不再是自定义输入框问文件名。
+  // 无头环境没法真的弹系统框，这里 stub 掉 picker，验证「＋ → addSourceFiles」这条链。
+  const unpick = window.showOpenFilePicker;
+  window.showOpenFilePicker = async () => [{
+    name: 'extra.sv',
+    getFile: async () => ({ name: 'extra.sv', text: async () => 'module extra;\\nendmodule\\n' })
+  }];
   document.getElementById('sim-addfile').click();
   await sleep(400);
+  window.showOpenFilePicker = unpick;   // 还原本环境（后面的用例不该继承这个 stub）
   const chips3 = Array.from(strip.querySelectorAll('.source-chip'));
   out.afterAddNames = chips3.map((c) => c.textContent);
   out.afterAddActive = (strip.querySelector('.source-chip.active') || {}).textContent;

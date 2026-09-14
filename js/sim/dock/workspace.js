@@ -320,6 +320,53 @@ function parkHost(pid) {
   const el = HOST_EL[pid];
   if (el && el.parentNode !== parkEl) parkEl.appendChild(el);
 }
+
+/* ── 4.5 滚动位置快照 / 回填（第 50 轮修 Bug：拖动分隔条后代码框跳回最上面）───
+ * 现象：拖分隔条改变「源码 / 仿真状态」面板大小（或拖动浮窗）后，代码框（CM6 的
+ *   .cm-scroller）、日志框等滚动位置被重置到顶部。
+ * 根因：render() 为保证「整块搬家不克隆」，会先把所有真机节点 parkHost 到 #mk-park、
+ *   重建树后再搬回 —— 元素一旦脱离文档，浏览器会销毁该滚动容器的布局对象，滚动偏移
+ *   （scrollTop / scrollLeft）随之归零。这是**搬运 DOM 的固有代价**，不是 CSS / CM 的问题。
+ * 修法：render() 前按「从面板宿主出发的子节点下标路径」快照所有已滚动过的后代（含宿主
+ *   自身），重建后按同一路径回填。面板是整块搬移、子树结构与子节点顺序不变，路径天然
+ *   一一对应（CM6 自己在视口内增删的节点都在被记录节点之下，不影响上层路径）。
+ * 代价：只快照 scrollTop/scrollLeft 非 0 的节点，正常编辑时几乎为空数组。
+ * ⚠ 顺序要求：快照必须在 parkHost **之前**（一摘节点就清零，之后再取已是 0）。 */
+function snapshotScrollState() {
+  const snap = [];
+  const visit = (hostEl, node, path) => {
+    if (node.nodeType !== 1) return;
+    const top = node.scrollTop || 0;
+    const left = node.scrollLeft || 0;
+    if (top || left) snap.push({ hostEl, path: path.slice(), top, left });
+    const kids = node.children;
+    for (let i = 0; i < kids.length; i++) {
+      path.push(i);
+      visit(hostEl, kids[i], path);
+      path.pop();
+    }
+  };
+  HOST_PANELS.forEach((pid) => {
+    const el = HOST_EL[pid];
+    if (el) visit(el, el, []);
+  });
+  return snap;
+}
+function restoreScrollState(snap) {
+  if (!snap || !snap.length) return;
+  for (const item of snap) {
+    let node = item.hostEl;
+    for (const idx of item.path) {
+      node = node && node.children ? node.children[idx] : null;
+      if (!node) break;
+    }
+    if (!node) continue;
+    try {
+      node.scrollTop = item.top;
+      node.scrollLeft = item.left;
+    } catch (e) { /* 只读 / 已销毁节点：忽略（滚动位置恢复是增强，失败不影响功能） */ }
+  }
+}
 // 面板内容：真机节点直接搬（不是克隆、绝不 remove），六个面板全部如此。
 function buildPanelBody(pid) {
   const body = document.createElement('div');
@@ -330,6 +377,8 @@ function buildPanelBody(pid) {
 }
 
 function render() {
+  // 0) 先记下所有滚动位置（必须在 parkHost 之前 —— 见 snapshotScrollState 注释）
+  const scrollSnap = snapshotScrollState();
   // 1) 先把所有真机节点收回暂存区：这样旧树被删时不会把节点一起带走
   HOST_PANELS.forEach(parkHost);
   // 2) 重建停靠树（buildPanelBody 会把用到的节点从暂存区里再摘出来）
@@ -344,6 +393,8 @@ function render() {
     wb.insertBefore(built, floatsLayer);
   }
   renderFloats();
+  // 2.5) 回填滚动位置（含浮窗：renderFloats 之后所有宿主都已归位）
+  restoreScrollState(scrollSnap);
   // 3) 画布只认 #wave-view 的尺寸，而真机 clean.js 没有 resize 监听
   //    （全靠 js/editor/measure.js:187 的 window resize → scheduleDraw）→
   //    每次重排后必须手动派发一次，等 flex 收敛再补一发。
