@@ -29,6 +29,18 @@ namespace WaveWorkbench
         // 服务身份标识：页面探活时用它区分「本应用的仿真服务」与「别人占用了同一端口
         // 的其它本地 HTTP 服务」——否则会对着别家的服务发 /api/sim 而拿到 404。
         const string PingTag = "WAVEPAINT-SERVICE";
+        // ── 本地读盘通道（第 54 轮 · #124）──────────────────────────────────────
+        // 为什么必须有它：浏览器 File System Access API 给出的 FileSystemDirectoryHandle
+        //   **没有 getParent()**（真机实测：原型上不存在该方法），从 showDirectoryPicker
+        //   拿到的句柄既不能上溯、也不能跨目录树；而「打开顶层后往上遍历 3 层去找被例化
+        //   模块的源码」正是本轮的核心需求。页面本身由本服务同源提供 ⇒ 加一条只走回环的
+        //   读盘路由是最小代价的实现方式（= Verdi 的 -y 源库目录语义的本地等价物）。
+        // 另外 /api/pick 用原生「打开文件 / 选择文件夹」对话框回传**绝对路径**：
+        //   showOpenFilePicker 的句柄同样没有路径，原生对话框是拿到路径的唯一途径。
+        const string FsTag = "WAVEPAINT-FS";
+        const string FsHeader = "X-WavePaint-Fs";
+        const int FsMaxReadBytes = 8 * 1024 * 1024;      // 单文件读取上限 8 MB
+        const int FsMaxIndexFiles = 2000;                // 一次递归索引的文件数硬上限
         static string root;
         static string ivlRoot;
         static HttpListener server;
@@ -350,7 +362,9 @@ namespace WaveWorkbench
                     context.Response.AddHeader("Vary", "Origin");
                 }
                 context.Response.AddHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-                context.Response.AddHeader("Access-Control-Allow-Headers", "Content-Type");
+                // X-WavePaint-Fs 见 FsHeader：自定义头会强制跨源预检，本服务只对回环
+                // origin 回显 ACAO ⇒ 别的网页过不了预检，读不到任何本地文件。
+                context.Response.AddHeader("Access-Control-Allow-Headers", "Content-Type, " + FsHeader);
                 if (context.Request.HttpMethod == "OPTIONS") { context.Response.StatusCode = 200; context.Response.Close(); return; }
 
                 string path = context.Request.Url.AbsolutePath.TrimStart('/');
@@ -410,6 +424,11 @@ namespace WaveWorkbench
                     context.Response.Close();
                     return;
                 }
+
+                // 本地读盘 / 原生选择框（第 54 轮 · #124）。与上面三条一样必须在
+                // 静态文件分支之前 —— 下面会把 '/' 换成 '\'，之后就再也比不出 "api/fs"。
+                if (path == "api/fs") { HandleFs(context); return; }
+                if (path == "api/pick") { HandlePick(context); return; }
 
                 if (string.IsNullOrEmpty(path)) path = "index.html";
                 path = path.Replace('/', Path.DirectorySeparatorChar);
@@ -769,6 +788,350 @@ namespace WaveWorkbench
                 return full.StartsWith(rootFull, StringComparison.OrdinalIgnoreCase);
             }
             catch { return false; }
+        }
+
+        // ═════════════════════════════════════════════════════════════════════
+        // api/fs · api/pick（第 54 轮 · #124）：本地读盘 + 原生选择框（回传绝对路径）
+        // ═════════════════════════════════════════════════════════════════════
+        // 与静态资源不同，这两条路由读的是**解压目录以外**的任意本地路径（用户自己的
+        // RTL 工程），所以三层放行条件缺一不可：
+        //   ① Host 是回环地址 —— 防 DNS rebinding（攻击页面打过来的 Host 是它自己的域名）；
+        //   ② 带自定义请求头 X-WavePaint-Fs —— 跨源 fetch 带自定义头必先发 OPTIONS 预检，
+        //      而本服务只对回环 origin 回显 ACAO，别的网页过不了预检；
+        //   ③ Sec-Fetch-Site（浏览器若给出）必须是 same-origin。
+        static bool FsCallerAllowed(HttpListenerContext context)
+        {
+            string host = context.Request.Headers["Host"] ?? "";
+            int colon = host.LastIndexOf(':');
+            if (colon > 0 && host.IndexOf(']') < colon) host = host.Substring(0, colon);
+            host = host.Trim('[', ']');
+            if (host != "127.0.0.1" && host != "localhost" && host != "::1") return false;
+            if (context.Request.Headers[FsHeader] != "1") return false;
+            string site = context.Request.Headers["Sec-Fetch-Site"];
+            if (!string.IsNullOrEmpty(site) && site != "same-origin") return false;
+            return true;
+        }
+
+        static void WriteText(HttpListenerContext context, int status, string mime, string body)
+        {
+            byte[] data = Encoding.UTF8.GetBytes(body ?? "");
+            context.Response.StatusCode = status;
+            context.Response.ContentType = mime;
+            context.Response.AddHeader("Cache-Control", "no-store");
+            context.Response.ContentLength64 = data.Length;
+            context.Response.OutputStream.Write(data, 0, data.Length);
+            context.Response.Close();
+        }
+
+        // 手写 JSON 转义（本工程不引用 System.Web.Extensions，为一条路由引一个程序集不值）
+        static string JsonStr(string text)
+        {
+            var sb = new StringBuilder("\"");
+            foreach (char c in text ?? "")
+            {
+                switch (c)
+                {
+                    case '"': sb.Append("\\\""); break;
+                    case '\\': sb.Append("\\\\"); break;
+                    case '\n': sb.Append("\\n"); break;
+                    case '\r': sb.Append("\\r"); break;
+                    case '\t': sb.Append("\\t"); break;
+                    default:
+                        if (c < ' ') sb.Append("\\u").Append(((int)c).ToString("x4"));
+                        else sb.Append(c);
+                        break;
+                }
+            }
+            return sb.Append('"').ToString();
+        }
+
+        static string FsErrorJson(string message)
+        {
+            return "{\"ok\":false,\"error\":" + JsonStr(message) + "}";
+        }
+
+        // read 的白名单：HDL 源码 + 文件表 + 纯文本，其余（可执行文件 / 二进制）一律拒读。
+        static bool IsReadableSourceExt(string ext)
+        {
+            switch ((ext ?? "").ToLowerInvariant())
+            {
+                case ".v": case ".sv": case ".vh": case ".svh":
+                case ".f": case ".lst": case ".vlg": case ".verilog":
+                case ".txt": case ".md": case ".cfg": case ".h": case ".json":
+                    return true;
+                default: return false;
+            }
+        }
+
+        static bool IsHdlExt(string ext)
+        {
+            switch ((ext ?? "").ToLowerInvariant())
+            {
+                case ".v": case ".sv": case ".vh": case ".svh": return true;
+                default: return false;
+            }
+        }
+
+        // 递归扫目录时跳过的重目录（与前端 SOURCE_DIR_SKIP_RE 同口径，另加系统级大目录）
+        static bool SkipDirName(string name)
+        {
+            switch ((name ?? "").ToLowerInvariant())
+            {
+                case "node_modules": case ".git": case ".svn": case ".hg": case ".e2e-tmp":
+                case ".codex": case ".vscode": case "build": case "out": case "dist":
+                case "target": case "obj": case "bin": case "csrc": case "simv":
+                case "__pycache__": case "temp": case "tmp": case "$recycle.bin":
+                case "system volume information": case "windows": case "program files":
+                case "program files (x86)": case "appdata":
+                    return true;
+                default: return false;
+            }
+        }
+
+        static int ParseIntOr(string raw, int fallback, int min, int max)
+        {
+            int value;
+            if (!int.TryParse(raw, out value)) return fallback;
+            if (value < min) return min;
+            return value > max ? max : value;
+        }
+
+        static void WalkHdlIndex(string dir, int depth, int max, List<string> files, ref bool truncated)
+        {
+            if (truncated) return;
+            string[] subDirs;
+            string[] subFiles;
+            try { subDirs = Directory.GetDirectories(dir); subFiles = Directory.GetFiles(dir); }
+            catch (Exception) { return; }   // 单个目录无权限 → 跳过，不影响其它兄弟目录
+            foreach (string f in subFiles)
+            {
+                if (files.Count >= max) { truncated = true; return; }
+                if (IsHdlExt(Path.GetExtension(f))) files.Add(f);
+            }
+            if (depth <= 0) return;
+            foreach (string d in subDirs)
+            {
+                if (truncated) return;
+                if (SkipDirName(Path.GetFileName(d))) continue;
+                WalkHdlIndex(d, depth - 1, max, files, ref truncated);
+            }
+        }
+
+        // 查询参数解析：**必须**自己拆 RawUrl，不能用 HttpListenerRequest.QueryString。
+        // QueryString 按「请求的内容编码」解百分号转义，而这个编码在中文 Windows 上默认是
+        // 系统 ANSI（GBK/CP936）⇒ `%E6%B3%A2%E5%BD%A2`（"波形" 的 UTF-8）会被解成
+        // "娉㈠舰"，含中文的工程路径全部读不到（2026-09-15 真机 fs-api-probe 抓到）。
+        // 前端用的是 encodeURIComponent（UTF-8）⇒ 这里必须配 Uri.UnescapeDataString（UTF-8）。
+        static string QueryParam(HttpListenerContext context, string key)
+        {
+            string raw = context.Request.RawUrl ?? "";
+            int mark = raw.IndexOf('?');
+            if (mark < 0) return null;
+            foreach (string pair in raw.Substring(mark + 1).Split('&'))
+            {
+                if (pair.Length == 0) continue;
+                int eq = pair.IndexOf('=');
+                string name = eq < 0 ? pair : pair.Substring(0, eq);
+                if (!string.Equals(Uri.UnescapeDataString(name), key, StringComparison.Ordinal)) continue;
+                string value = eq < 0 ? "" : pair.Substring(eq + 1);
+                return Uri.UnescapeDataString(value);
+            }
+            return null;
+        }
+
+        // GET api/fs?op=probe | list&path= | index&path=&depth=&max= | read&path=
+        static void HandleFs(HttpListenerContext context)
+        {
+            if (!FsCallerAllowed(context))
+            {
+                WriteText(context, 403, "text/plain; charset=utf-8", "fs api not allowed");
+                return;
+            }
+            lastActivity = Environment.TickCount;
+            string op = QueryParam(context, "op") ?? "";
+
+            if (op == "probe")
+            {
+                WriteText(context, 200, "text/plain; charset=utf-8", FsTag + "\n1\n" + buildStamp + "\n");
+                return;
+            }
+
+            string raw = QueryParam(context, "path") ?? "";
+            if (string.IsNullOrEmpty(raw) || !Path.IsPathRooted(raw))
+            {
+                WriteText(context, 400, "application/json; charset=utf-8", FsErrorJson("path 必须是绝对路径"));
+                return;
+            }
+            string full;
+            try { full = Path.GetFullPath(raw); }
+            catch (Exception ex)
+            {
+                WriteText(context, 400, "application/json; charset=utf-8", FsErrorJson("路径非法：" + ex.Message));
+                return;
+            }
+
+            try
+            {
+                if (op == "read")
+                {
+                    if (!File.Exists(full)) { WriteText(context, 404, "application/json; charset=utf-8", FsErrorJson("文件不存在")); return; }
+                    if (!IsReadableSourceExt(Path.GetExtension(full)))
+                    {
+                        WriteText(context, 400, "application/json; charset=utf-8", FsErrorJson("扩展名不在可读白名单内"));
+                        return;
+                    }
+                    if (new FileInfo(full).Length > FsMaxReadBytes)
+                    {
+                        WriteText(context, 400, "application/json; charset=utf-8", FsErrorJson("文件超过 8 MB 上限"));
+                        return;
+                    }
+                    WriteText(context, 200, "text/plain; charset=utf-8", File.ReadAllText(full, Encoding.UTF8));
+                    return;
+                }
+
+                if (op == "list")
+                {
+                    if (!Directory.Exists(full)) { WriteText(context, 404, "application/json; charset=utf-8", FsErrorJson("目录不存在")); return; }
+                    var sb = new StringBuilder();
+                    sb.Append("{\"ok\":true,\"path\":").Append(JsonStr(full)).Append(",\"entries\":[");
+                    bool first = true;
+                    foreach (string dir in Directory.GetDirectories(full))
+                    {
+                        if (!first) sb.Append(',');
+                        first = false;
+                        sb.Append("{\"name\":").Append(JsonStr(Path.GetFileName(dir))).Append(",\"dir\":true}");
+                    }
+                    foreach (string f in Directory.GetFiles(full))
+                    {
+                        if (!first) sb.Append(',');
+                        first = false;
+                        sb.Append("{\"name\":").Append(JsonStr(Path.GetFileName(f))).Append(",\"dir\":false}");
+                    }
+                    sb.Append("]}");
+                    WriteText(context, 200, "application/json; charset=utf-8", sb.ToString());
+                    return;
+                }
+
+                if (op == "index")
+                {
+                    if (!Directory.Exists(full)) { WriteText(context, 404, "application/json; charset=utf-8", FsErrorJson("目录不存在")); return; }
+                    int depth = ParseIntOr(QueryParam(context, "depth"), 6, 0, 32);
+                    int max = ParseIntOr(QueryParam(context, "max"), 400, 1, FsMaxIndexFiles);
+                    bool truncated = false;
+                    var files = new List<string>();
+                    WalkHdlIndex(full, depth, max, files, ref truncated);
+                    var sb = new StringBuilder();
+                    sb.Append("{\"ok\":true,\"path\":").Append(JsonStr(full))
+                      .Append(",\"truncated\":").Append(truncated ? "true" : "false")
+                      .Append(",\"files\":[");
+                    for (int i = 0; i < files.Count; i++)
+                    {
+                        if (i > 0) sb.Append(',');
+                        string rel = files[i].Length > full.Length
+                            ? files[i].Substring(full.Length).TrimStart('\\', '/') : Path.GetFileName(files[i]);
+                        sb.Append("{\"name\":").Append(JsonStr(Path.GetFileName(files[i])))
+                          .Append(",\"path\":").Append(JsonStr(files[i]))
+                          .Append(",\"rel\":").Append(JsonStr(rel)).Append('}');
+                    }
+                    sb.Append("]}");
+                    WriteText(context, 200, "application/json; charset=utf-8", sb.ToString());
+                    return;
+                }
+
+                WriteText(context, 400, "application/json; charset=utf-8", FsErrorJson("未知 op：" + op));
+            }
+            catch (Exception ex)
+            {
+                WriteText(context, 500, "application/json; charset=utf-8", FsErrorJson(ex.Message));
+            }
+        }
+
+        // GET api/pick?mode=file|dir&multi=0|1 → { ok, canceled, paths:[绝对路径] }
+        // 一定要在 STA 线程上跑：WinForms 的通用对话框要求 STA，而本函数是被
+        // HttpListener 的线程池线程调用的（MTA）。
+        static void HandlePick(HttpListenerContext context)
+        {
+            if (!FsCallerAllowed(context))
+            {
+                WriteText(context, 403, "text/plain; charset=utf-8", "fs api not allowed");
+                return;
+            }
+            lastActivity = Environment.TickCount;
+            string mode = QueryParam(context, "mode") ?? "file";
+            bool multi = (QueryParam(context, "multi") ?? "1") != "0";
+            string[] chosen = null;
+            Exception failure = null;
+            var worker = new Thread(() =>
+            {
+                try { chosen = PickWithNativeDialog(mode, multi); }
+                catch (Exception ex) { failure = ex; }
+            });
+            worker.SetApartmentState(ApartmentState.STA);
+            worker.IsBackground = true;
+            worker.Start();
+            worker.Join();
+            if (failure != null)
+            {
+                WriteText(context, 500, "application/json; charset=utf-8", FsErrorJson(failure.Message));
+                return;
+            }
+            bool canceled = chosen == null || chosen.Length == 0;
+            var sb = new StringBuilder();
+            sb.Append("{\"ok\":true,\"canceled\":").Append(canceled ? "true" : "false").Append(",\"paths\":[");
+            if (!canceled)
+            {
+                for (int i = 0; i < chosen.Length; i++)
+                {
+                    if (i > 0) sb.Append(',');
+                    sb.Append(JsonStr(chosen[i]));
+                }
+            }
+            sb.Append("]}");
+            WriteText(context, 200, "application/json; charset=utf-8", sb.ToString());
+        }
+
+        // 原生对话框。用一只 1×1、放到屏幕外的 TopMost owner 把对话框提到前台：
+        // Edge 是**另一个进程**，没有 owner 时对话框可能被 Edge 窗口盖住，用户会以为
+        // 「点了没反应」（历史事故：仿真请求无响应）。owner 本身不可见，不干扰观感。
+        static string[] PickWithNativeDialog(string mode, bool multi)
+        {
+            using (var owner = new System.Windows.Forms.Form())
+            {
+                owner.FormBorderStyle = System.Windows.Forms.FormBorderStyle.None;
+                owner.ShowInTaskbar = false;
+                owner.StartPosition = System.Windows.Forms.FormStartPosition.Manual;
+                owner.Left = -4000;
+                owner.Top = -4000;
+                owner.Width = 1;
+                owner.Height = 1;
+                owner.TopMost = true;
+                owner.Show();
+                owner.Activate();
+                try
+                {
+                    if (string.Equals(mode, "dir", StringComparison.OrdinalIgnoreCase))
+                    {
+                        using (var dlg = new System.Windows.Forms.FolderBrowserDialog())
+                        {
+                            dlg.Description = "选择源码目录（依赖自动补齐会在该目录里递归查找缺失的模块）";
+                            dlg.ShowNewFolderButton = false;
+                            dlg.RootFolder = Environment.SpecialFolder.MyComputer;
+                            return dlg.ShowDialog(owner) == System.Windows.Forms.DialogResult.OK
+                                ? new[] { dlg.SelectedPath } : new string[0];
+                        }
+                    }
+                    using (var dlg = new System.Windows.Forms.OpenFileDialog())
+                    {
+                        dlg.Title = "打开 Verilog / SystemVerilog 源码";
+                        dlg.Multiselect = multi;
+                        dlg.Filter = "HDL 源码 (*.v;*.sv;*.vh;*.svh)|*.v;*.sv;*.vh;*.svh|文件表 (*.f;*.lst)|*.f;*.lst|所有文件 (*.*)|*.*";
+                        dlg.RestoreDirectory = true;
+                        return dlg.ShowDialog(owner) == System.Windows.Forms.DialogResult.OK
+                            ? dlg.FileNames : new string[0];
+                    }
+                }
+                finally { try { owner.Close(); } catch { } }
+            }
         }
 
         // P3-2：进程退出时删掉自己的端口文件。原来从不清理，%TEMP% 里会越堆越多

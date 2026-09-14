@@ -111,3 +111,19 @@ body.wpv-no-gutter #tb-cm-host .cm-gutters {
 .wpv-about-sub { font-size: 12px; color: var(--text-muted, #5a6a5a); margin-bottom: 10px; }
 .wpv-about-line { font-size: 12px; line-height: 1.9; }
 .wpv-swatches { display: flex; gap: 6px; }
+
+/* ── 5. 源码搜索目录列表（第 54 轮 · 面板与视图设置 §9.5）────────────────────
+   每行 = 「路径（深度 N · 自动/手动）」+「移除」按钮。路径可能很长（工程在深层
+   目录里），所以路径那一格允许收缩 + 省略号，按钮永远贴右不被挤掉。 */
+.wpv-roots { display: flex; flex-direction: column; gap: 3px; margin: 2px 0 4px; }
+.wpv-root {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 11px; padding: 2px 0;
+}
+.wpv-root-path {
+    flex: 1 1 auto; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-family: ui-monospace, Consolas, monospace;
+    color: var(--text-color, #1a1f1a);
+}
+.wpv-root > .wpv-btn { flex: 0 0 auto; padding: 2px 8px; font-size: 11px; }

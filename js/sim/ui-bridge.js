@@ -428,6 +428,7 @@ function initRefs() {
   // 直接把文本转发进日志流（用户裁决：那一行白占界面高度，内容与日志重复）。
   refs.recoverBtn = el("sim-recover"); // 服务彻底死亡时的手动自愈入口（index.html 默认隐藏）
   refs.addFile = el("sim-addfile");
+  refs.depFill = el("sim-depfill");   // 第 54 轮：「自动补齐」按钮（紧挨「＋」右侧，缺口闭合即隐藏）
   refs.importFile = el("sim-import");
   refs.removeFile = el("sim-removefile");
   refs.parseBtn = el("sim-parse");
@@ -1219,9 +1220,11 @@ function parseDesign() {
   syncTopSelector();
   refreshStructureTrees();
   render();
-  // #123：若本次会话已授权过源码目录，解析后自动把「顶层例化图里缺定义」的模块
-  // 从该目录读进来（异步、不阻塞；重入由 resolveMissingDependencies 内部守卫）。
-  if (sourceDirHandle) { resolveMissingDependencies().catch(() => {}); }
+  // #123 / #124：解析后自动把「顶层例化图里缺定义」的模块读进来（异步、不阻塞）。
+  // 第 52 轮只认「已授权的 FSA 目录」；第 54 轮起源码搜索根（默认 = 打开的顶层所在
+  // 目录 + 往上 3 层）同样是合法来源 —— 「＋」导入一个顶层文件就自动带出依赖，用户
+  // 不必再单独选一次文件夹。触发条件与重入守卫见 scheduleAutoFill()。
+  scheduleAutoFill();
 }
 
 function buildTbPreview() {
@@ -1729,6 +1732,33 @@ function readSourceFilesViaInput() {
 }
 
 async function pickSourceFilesFromDisk() {
+  // ① 本地服务在线 → 系统原生「打开文件」对话框（api/pick）。
+  //    两个好处：a) 与「保存 / 打开波形」同一套 Windows 原生逻辑（用户第 49 轮口径）；
+  //              b) 拿到的是**绝对路径** ⇒ 顺手派生源码搜索根（第 54 轮 notePickedSourcePaths），
+  //                 之后依赖自动补齐就能零手势直接读盘，用户不必再选一次文件夹。
+  if (await fsApiReady()) {
+    let paths = [];
+    try {
+      paths = await fsApiPick("file", true);
+    } catch (error) {
+      consoleOut(`打开文件对话框失败：${(error && error.message) || error}`, "error");
+      return [];
+    }
+    if (!paths.length) {
+      // 与 FSA showOpenFilePicker 的取消同语义（调用方按 AbortError 出一句「已取消导入」）
+      const cancelled = new Error("用户取消选择源码文件");
+      cancelled.name = "AbortError";
+      throw cancelled;
+    }
+    notePickedSourcePaths(paths);
+    const items = [];
+    for (const full of paths) {
+      const text = await fsApiReadMaybe(full);
+      if (text == null) { consoleOut(`跳过不可读的源码文件：${full}`, "warn"); continue; }
+      items.push({ name: pathBaseName(full), content: text });
+    }
+    return items;
+  }
   if (typeof window.showOpenFilePicker === "function") {
     const handles = await window.showOpenFilePicker({
       multiple: true,
@@ -1874,26 +1904,18 @@ function missingDependencyModules(topName) {
   return missing;
 }
 
-// 日志流里的「补齐依赖」按钮（同时只保留一个；见下方 reportMissingDependencies）。
-let depActionBtn = null;
-
-function clearDepAction() {
-  if (!depActionBtn) return;
-  const line = depActionBtn.parentNode;
-  if (line && line.parentNode) line.parentNode.removeChild(line);
-  depActionBtn = null;
-}
-
-// 汇报：齐全 → 一条 info；有缺口 → 一条 warn，并给出可执行的补齐路径。
+// 汇报：齐全 → 一条 info；有缺口 → 一条 warn + 让标签条的「自动补齐」按钮现身。
 //
-// ★ 第 53 轮补齐的口子：光写「去点菜单 / 去点＋」还不够 —— 触发汇报的那些路径
-//   （`<input type=file>` 的 change、切顶层的 change）都把手势用掉了，调用方**没法**
-//   顺手弹 showDirectoryPicker。于是在这里挂一个**行内动作按钮**（workspace.js 的
-//   wpConsoleAction）：用户点它的那一刻是全新手势，picker 正常弹出 ⇒ 缺口一键补齐。
-//   没有缺口时按钮不出现（自动清掉），所以它不占固定界面高度。
+// ★ 第 54 轮口径变更（用户裁决）：「自动添加信号」的补齐入口位置不对 —— 应当放在源码
+//   标签条「＋」的**右边**、点一次就消失、文案缩短成「自动补齐」。于是：
+//     · 补齐入口从「日志流行内按钮」（第 53 轮 wpConsoleAction 那套）**整体搬到**
+//       `#sim-depfill`（index.html / CSS 见 #source-tabs .source-depfill）；
+//     · 本函数只负责「① 写一句缺口汇报 + ② 按缺口同步按钮显隐」；
+//     · 按钮的点击实现见 autoFillDependencies()（三层策略：搜索根 → 原生选目录 → FSA）。
+//   ⚠ 日志流里那句「或点下面这行按钮」一并删掉 —— 按钮已经不在日志流里了，留着会指错地方。
 function reportMissingDependencies() {
-  clearDepAction();
   const missing = missingDependencyModules();
+  syncDepFillButton(missing);
   if (!missing.length) {
     consoleOut(`依赖扫描：${state.files.length} 个源文件的例化依赖已闭合，没有被例化却缺失定义的模块。`, "info");
     return missing;
@@ -1901,21 +1923,33 @@ function reportMissingDependencies() {
   consoleOut([
     `⚠ 依赖扫描：以下 ${missing.length} 个模块被例化，但当前源码里没有定义 ——`,
     `　${missing.join("、")}`,
-    "　→ 点源码标签条末尾的「＋」选择这些源码文件（可多选）；",
+    "　→ 点源码标签条「＋」右边那颗「自动补齐」按钮（默认会在顶层目录 + 往上 3 层的源码里找）；",
+    "　→ 或点「＋」手动选择这些源码文件（可多选）；",
     sourceDirHandle
-      ? "　→ 或直接重试（已记住源码目录，会自动读入）；若权限已过期，重选一次目录即可。"
-      : "　→ 或用菜单「文件 → 打开源码目录（自动扫描依赖）…」一次性扫描整个工程目录补齐；"
-        + "或直接点下面这行的按钮。"
+      ? "　→ 已记住源码目录：松开按钮后后台也会自动读入；若权限已过期，重选一次目录即可。"
+      : "　→ 或用菜单「文件 → 打开源码目录（自动扫描依赖）…」一次性扫描整个工程目录补齐。"
   ].join("\n"), "warn");
-  // 有已授权目录时不需要按钮（下一次解析会自动补齐）；浏览器不支持 FSA 时也不挂。
-  // ⚠ 点击处理器里**不要**把 depActionBtn 置空 —— 那一行要留给本次流程末尾的
-  //   reportMissingDependencies() → clearDepAction() 自己摘掉（否则点击后那行会赖着不走）。
-  if (!sourceDirHandle && typeof window.wpConsoleAction === "function") {
-    depActionBtn = window.wpConsoleAction("扫描工程目录，自动补齐依赖…", () => {
-      return openSourceDirAndResolve();
-    }, "warn");
-  }
   return missing;
+}
+
+// 解析落定后的自动补齐调度（第 54 轮 · #124）。
+// 一次解析会牵动多处（导入源码 / 切换顶层 / 自动补齐自己读进新模块后重解析），
+// 用「微任务合流」把同一拍里的重复调度压成一次，避免空转。
+//   触发条件（任一成立才真的扫）：① 已有源码搜索根（默认根 = 顶层目录 + 往上 3 层）；
+//                                ② 本次会话已授权过源码目录（第 52 轮 FSA 通道）。
+// ⚠ 这里**不**把 `fsApiState !== false`（服务在线/未探完）当触发条件：页面初始化时
+//   探活往往还没回来，空工程也会白扫一轮并往日志流写一行缺口汇报。只有用户手势路径
+//   （autoScanForTop）才需要「还没探完也先静默」的那条判据。
+let autoFillQueued = false;
+function scheduleAutoFill() {
+  if (autoFillQueued) return;
+  autoFillQueued = true;
+  Promise.resolve().then(() => {
+    autoFillQueued = false;
+    if (depResolving) return;                                  // 上游补齐流程正在跑，它会自己接到下一轮
+    if (!depSearchRoots.length && !sourceDirHandle) return;     // 没有任何可用来源 → 留给「自动补齐」按钮
+    resolveMissingDependencies().catch(() => {});
+  });
 }
 
 // 目录句柄当前是否可读（不弹框；无权限且当前没有用户手势时返回 false）。
@@ -2021,6 +2055,482 @@ async function loadMissingModulesFromDir(names) {
   return { loaded: added, unresolved, needsPermission: false };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 源码搜索根（第 54 轮 · #124）：不依赖 filelist、也不需要手选文件夹的依赖补齐
+// ─────────────────────────────────────────────────────────────────────────────
+// 用户裁决（第 54 轮原文口径）：
+//   「自动加信号的逻辑不需要再手动去选文件夹。① 文件夹配置改为可更改：一般情况下与
+//     top 同文件夹；另一种情况下 std 可能会在其他单独的文件夹。② 默认搜索逻辑：
+//     打开的 top 文件夹及其同文件夹，并往上遍历 3 层，从这里去找。」
+//   「补充排查方向：Verdi 似乎也有不依赖 file list 打开 top 的方式。」
+//
+// ── Verdi 的免 filelist 方式（已查实，本实现对齐它）──────────────────────────
+//   Verilog-XL 系编译器 / vericom 的源库（source library）机制：命令行给的源文件
+//   全部编译完之后，**只要有未解析的模块/UDP 引用**，就去源库里找：
+//     · `-y <directory>`  源库目录；**只编译「文件名与被引用模块名匹配」的文件**；
+//     · `+libext+.v+.sv`  搜索时给未解析名追加的后缀（按顺序试，只能给一个 +libext）；
+//     · 多轮：库里新引入的引用会**再次**触发源库搜索，直到全部解析或无新增。
+//   即「惰性按需拉取 + 文件名约定 + 多轮收敛」—— 正是下面这套逻辑：
+//     搜索根 = 多个目录（-y 可重复）；文件名约定 <name>.v/.sv/.vh/.svh（+libext）；
+//     内容兜底（文件名与模块名不一致的工程）；最多 DEP_RESOLVE_MAX_ROUNDS 轮。
+//
+// ── 为什么必须走本地服务（api/fs），而不是浏览器 File System Access API ──────
+//   FileSystemDirectoryHandle **没有 getParent()**（真机实测：原型上不存在该方法），
+//   从 showDirectoryPicker 拿到的句柄既不能上溯、也不能跨目录树 —— 而「往上遍历
+//   3 层」正是本需求的核心。页面由本地服务同源提供，加一条只走回环的读盘路由即可。
+//   服务不可用时（dev-server / 直接用浏览器打开）整条新链路自动退化：
+//   仍可用「＋」/菜单选目录（FSA 句柄那条老路径），行为与第 52 轮一致。
+const FS_API_TAG = "WAVEPAINT-FS";
+const DEP_ROOT_UP_LEVELS = 3;                        // 顶层所在目录往上遍历 3 层（用户点名）
+const DEP_ROOT_LOCAL_DEPTH = SOURCE_DIR_MAX_DEPTH;   // 顶层自己那一层：递归到底（默认 6）
+const DEP_ROOT_ANCESTOR_DEPTH = 2;                   // 上溯到的祖先层：只下探 2 层（覆盖兄弟目录）
+const DEP_CONTENT_FALLBACK_MAX = 200;                // 内容兜底只在索引不超过这么多文件时做
+const DEP_ROOT_LS_KEY = "wavepaint.sourceRoots.v1";  // 搜索根持久化（与工作区布局键分开）
+const DRIVE_ROOT_RE = /^[a-zA-Z]:[\\/]?$/;           // 盘符根（"D:" / "D:\"）——见 notePickedSourcePaths
+
+let fsApiState = null;        // null = 未探测；true = 可用；false = 不可用
+let fsApiFailedAt = 0;        // 上一次探测失败的时间（失败结果只缓存 15s，便于服务重启后自愈）
+let fsApiProbe = null;        // 并发探活合流（同一时刻只探一次）
+const fsTextCache = new Map();    // 绝对路径(小写) → 文本
+const fsListCache = new Map();    // 目录绝对路径(小写) → Map<小写文件名, { name, dir, path }>
+const fsIndexCache = new Map();   // 根路径(小写) → { files:[{name,path,rel}], truncated }
+
+// 搜索根：[{ path, depth, auto }]，**有序**（越靠前越先命中）；auto = 由打开顶层自动派生
+let depSearchRoots = [];
+let depRootsCustomized = false;   // 用户手动增删过 → 打开顶层时不再整体覆盖（只补进顶层目录）
+
+// ── 路径字符串工具（只做字符串运算，不问磁盘；Windows 口径）──────────────────
+function pathBaseName(full) {
+  const s = String(full || "").replace(/[\\/]+$/, "");
+  const i = Math.max(s.lastIndexOf("\\"), s.lastIndexOf("/"));
+  return i < 0 ? s : s.slice(i + 1);
+}
+
+function pathDirname(full) {
+  const s = String(full || "").replace(/[\\/]+$/, "");
+  const i = Math.max(s.lastIndexOf("\\"), s.lastIndexOf("/"));
+  if (i < 0) return "";
+  if (i === 0) return s.slice(0, 1);
+  if (i === 2 && s.charAt(1) === ":") return s.slice(0, 3);   // D:\a → D:\
+  return s.slice(0, i);
+}
+
+// 上一层目录。⚠ 盘符根的上一层就是它自己（调用方靠 `parent === cur` 收尾，避免死循环）。
+function pathParent(dir) {
+  const s = String(dir || "").replace(/[\\/]+$/, "");
+  if (!s) return "";
+  if (/^[a-zA-Z]:$/.test(s)) return s + "\\";
+  const i = Math.max(s.lastIndexOf("\\"), s.lastIndexOf("/"));
+  if (i < 0) return "";
+  if (i === 2 && s.charAt(1) === ":") return s.slice(0, 3);
+  return s.slice(0, i);
+}
+
+function normPathKey(full) {
+  return String(full || "").replace(/[\\/]+$/, "").replace(/\//g, "\\").toLowerCase();
+}
+
+function joinPath(dir, name) {
+  const d = String(dir || "").replace(/[\\/]+$/, "");
+  if (!d) return String(name || "");
+  const sep = d.indexOf("/") >= 0 && d.indexOf("\\") < 0 ? "/" : "\\";
+  return d + sep + String(name || "");
+}
+
+// ── 本地服务读盘通道 ─────────────────────────────────────────────────────────
+function fsApiUrl(params) {
+  const query = Object.keys(params)
+    .map((key) => `${encodeURIComponent(key)}=${encodeURIComponent(params[key])}`)
+    .join("&");
+  return simApiUrl("api/fs?" + query);
+}
+
+// 探活（区分「本应用的本地读盘通道」与「别的程序占同一端口 / dev-server 只回 OK」）。
+// 成功后永久为真；失败结果只保留 15s（服务重启后下一次调用即可自愈）。
+function fsApiReady() {
+  if (fsApiState === true) return Promise.resolve(true);
+  if (fsApiState === false && (Date.now() - fsApiFailedAt) < 15000) return Promise.resolve(false);
+  if (fsApiProbe) return fsApiProbe;
+  fsApiProbe = (async () => {
+    try {
+      const response = await fetch(fsApiUrl({ op: "probe", _: Date.now() }), {
+        headers: { "X-WavePaint-Fs": "1" }, cache: "no-store"
+      });
+      const text = (await response.text()).trim();
+      fsApiState = response.ok && text.split("\n")[0].trim() === FS_API_TAG;
+    } catch (error) {
+      fsApiState = false;   // 网络失败（服务不在线 / 页面不是本服务提供的）
+    }
+    if (fsApiState !== true) fsApiFailedAt = Date.now();
+    fsApiProbe = null;
+    return fsApiState;
+  })();
+  return fsApiProbe;
+}
+
+async function fsApiJson(params) {
+  const response = await fetch(fsApiUrl(params), {
+    headers: { "X-WavePaint-Fs": "1" }, cache: "no-store"
+  });
+  const text = await response.text();
+  let data = null;
+  try { data = JSON.parse(text); } catch (error) { data = null; }
+  if (!data || data.ok !== true) {
+    const failure = new Error((data && data.error) || `本地读盘接口 ${params.op} 失败（HTTP ${response.status}）`);
+    failure.fsError = true;
+    throw failure;
+  }
+  return data;
+}
+
+// 读一个绝对路径的源码文本；文件不存在 / 扩展名被拒 → null（用于「按文件名约定试探」）。
+async function fsApiReadMaybe(full) {
+  const key = String(full).toLowerCase();
+  if (fsTextCache.has(key)) return fsTextCache.get(key);
+  try {
+    const response = await fetch(fsApiUrl({ op: "read", path: full }), {
+      headers: { "X-WavePaint-Fs": "1" }, cache: "no-store"
+    });
+    if (!response.ok) return null;
+    const text = await response.text();
+    fsTextCache.set(key, text);
+    return text;
+  } catch (error) {
+    return null;
+  }
+}
+
+// 原生「打开文件 / 选择文件夹」对话框 → 绝对路径数组（用户取消 → []）。
+async function fsApiPick(mode, multi) {
+  const data = await fsApiJson({ op: "pick", mode, multi: multi ? 1 : 0 });
+  return Array.isArray(data.paths) ? data.paths : [];
+}
+
+async function fsListDir(dirPath) {
+  const key = normPathKey(dirPath);
+  if (fsListCache.has(key)) return fsListCache.get(key);
+  let map = new Map();
+  try {
+    const data = await fsApiJson({ op: "list", path: dirPath });
+    map = new Map((data.entries || []).map((entry) => [
+      String(entry.name).toLowerCase(),
+      { name: entry.name, dir: !!entry.dir, path: joinPath(dirPath, entry.name) }
+    ]));
+  } catch (error) {
+    map = new Map();     // 目录不存在 / 无权限 → 空表（不打断其它搜索根）
+  }
+  fsListCache.set(key, map);
+  return map;
+}
+
+async function fsIndexRoot(root) {
+  const key = normPathKey(root.path);
+  if (fsIndexCache.has(key)) return fsIndexCache.get(key);
+  const data = await fsApiJson({ op: "index", path: root.path, depth: root.depth, max: SOURCE_DIR_MAX_FILES });
+  const entry = { files: Array.isArray(data.files) ? data.files : [], truncated: !!data.truncated };
+  fsIndexCache.set(key, entry);
+  return entry;
+}
+
+function clearFsCaches() {
+  fsTextCache.clear();
+  fsListCache.clear();
+  fsIndexCache.clear();
+}
+
+// 文本里是否**真的**声明了 `module <name>`（与 findModuleFileInDir 同口径：
+// 先屏蔽字符串、再挖空注释，避免注释/字符串里的假 module 声明骗过判定）。
+function declaresModuleIn(text, name) {
+  return new RegExp(`\\bmodule\\s+${escapeRe(name)}\\b`, "i")
+    .test(maskStrings(blankComments(String(text))));
+}
+
+// 在**搜索根集合**里找一个模块的源码（对齐 Verdi `-y` + `+libext` 的惰性取用）：
+//   ① 文件名约定：每个根的**本级目录**里试 <name>.v/.sv/.vh/.svh（命中要求真有 module 声明）；
+//   ② 递归索引：各根按各自 depth 递归索引，再按文件名匹配（覆盖工程分目录存放）；
+//   ③ 内容兜底：只在「顶层所在目录」（第一个根）内、索引规模可控时扫内容，
+//      照顾「文件名与模块名不一致」的工程。
+// claimed / existing 都是「小写文件名或路径」的集合，用来避免重复导入与同轮重复认领。
+async function fsFindModule(name, claimed, existing) {
+  const lower = String(name).toLowerCase();
+  const usable = (key) => key && !claimed.has(key) && !existing.has(key);
+
+  for (const root of depSearchRoots) {
+    const listing = await fsListDir(root.path);
+    for (const ext of HDL_EXTS) {
+      const hit = listing.get(lower + ext);
+      if (!hit || hit.dir) continue;
+      const key = normPathKey(hit.path);
+      if (!usable(key)) continue;
+      const content = await fsApiReadMaybe(hit.path);
+      if (content != null && declaresModuleIn(content, name)) {
+        return { key, name: hit.name, path: hit.path, content };
+      }
+    }
+  }
+
+  for (const root of depSearchRoots) {
+    let index = null;
+    try { index = await fsIndexRoot(root); }
+    catch (error) { continue; }
+    for (const file of index.files) {
+      const fileName = String(file.name || "").toLowerCase();
+      if (!HDL_EXTS.some((ext) => fileName === lower + ext)) continue;
+      const key = normPathKey(file.path);
+      if (!usable(key)) continue;
+      const content = await fsApiReadMaybe(file.path);
+      if (content != null && declaresModuleIn(content, name)) {
+        return { key, name: file.name, path: file.path, content };
+      }
+    }
+  }
+
+  const first = depSearchRoots[0];
+  if (first) {
+    let index = null;
+    try { index = await fsIndexRoot(first); }
+    catch (error) { index = null; }
+    if (index && index.files.length <= DEP_CONTENT_FALLBACK_MAX) {
+      for (const file of index.files) {
+        const key = normPathKey(file.path);
+        if (!usable(key)) continue;
+        const content = await fsApiReadMaybe(file.path);
+        if (content != null && declaresModuleIn(content, name)) {
+          return { key, name: file.name, path: file.path, content };
+        }
+      }
+    }
+  }
+  return null;
+}
+
+// 把一批「缺失模块」从**搜索根集合**读进源码集合（不抢占当前活动标签，与
+// loadMissingModulesFromDir 同契约，便于 resolveMissingDependencies 统一处理）。
+async function loadMissingModulesFromRoots(names) {
+  const list = (Array.isArray(names) ? names : []).filter(Boolean);
+  if (!list.length) return { loaded: [], unresolved: [], needsPermission: false, via: "roots" };
+  if (!depSearchRoots.length || !(await fsApiReady())) {
+    return { loaded: [], unresolved: list.slice(), needsPermission: false, via: "roots" };
+  }
+  const existing = new Set(state.files.map((file) => String(file.name || "").toLowerCase()));
+  const claimed = new Set();
+  const items = [];
+  const unresolved = [];
+  for (const name of list) {
+    const hit = await fsFindModule(name, claimed, existing);
+    if (!hit) { unresolved.push(name); continue; }
+    claimed.add(hit.key);
+    existing.add(String(hit.name).toLowerCase());
+    items.push({ name: hit.name, content: hit.content });
+  }
+  const { added } = addSourceFiles(items, { activate: false });
+  return { loaded: added, unresolved, needsPermission: false, via: "roots" };
+}
+
+// ── 搜索根的增删 / 持久化 / 自动派生 ─────────────────────────────────────────
+function dedupeRoots(list) {
+  const seen = new Set();
+  const out = [];
+  for (const item of (Array.isArray(list) ? list : [])) {
+    const path = String((item && item.path) || "").trim();
+    if (!path) continue;
+    const key = normPathKey(path);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      path,
+      depth: Math.max(0, Math.min(Number(item.depth) || DEP_ROOT_LOCAL_DEPTH, SOURCE_DIR_MAX_DEPTH)),
+      auto: item.auto !== false
+    });
+  }
+  return out;
+}
+
+function persistDepRoots() {
+  try {
+    localStorage.setItem(DEP_ROOT_LS_KEY, JSON.stringify({
+      roots: depSearchRoots, customized: depRootsCustomized
+    }));
+  } catch (error) { /* 隐私模式 / 配额：忽略，不影响本次会话 */ }
+}
+
+// 启动时恢复上一次的搜索根。⚠ 只在**本会话还没有任何根**时恢复：用户新打开的顶层
+// 文件派生出来的根永远优先（notePickedSourcePaths 会覆盖）。
+function restoreDepRoots() {
+  if (depSearchRoots.length) return;
+  let data = null;
+  try { data = JSON.parse(localStorage.getItem(DEP_ROOT_LS_KEY) || "null"); } catch (error) { data = null; }
+  if (!data || !Array.isArray(data.roots)) return;
+  depSearchRoots = dedupeRoots(data.roots);
+  depRootsCustomized = !!data.customized;
+}
+
+// 打开 / 导入源码时拿到**绝对路径** → 派生搜索根。
+// 默认集合 = 每个被选中文件所在目录 + 其父 / 祖父 / 曾祖父（往上 3 层，用户点名）；
+// 第一层递归到底（DEP_ROOT_LOCAL_DEPTH），上溯层只下探 2 层（覆盖「同文件夹」的兄弟目录）。
+// 用户手动增删过（depRootsCustomized）则不再整体覆盖，只把「顶层所在目录」补到最前面。
+function notePickedSourcePaths(paths) {
+  const list = (Array.isArray(paths) ? paths : []).filter(Boolean);
+  if (!list.length) return [];
+  const derived = [];
+  for (const full of list) {
+    let cur = pathDirname(full);
+    for (let level = 0; level <= DEP_ROOT_UP_LEVELS; level += 1) {
+      if (!cur) break;
+      derived.push({
+        path: cur,
+        // 盘符根本身几乎不可能是「工程目录」，整盘下探既慢又容易命中**别的工程**里
+        // 同名模块 —— 只下探 1 层（覆盖「标准单元库就摆在 D:\lib」这类常见摆法）。
+        depth: DRIVE_ROOT_RE.test(cur)
+          ? 1
+          : (level === 0 ? DEP_ROOT_LOCAL_DEPTH : DEP_ROOT_ANCESTOR_DEPTH),
+        auto: true
+      });
+      const parent = pathParent(cur);
+      if (!parent || parent === cur) break;
+      cur = parent;
+    }
+  }
+  const merged = dedupeRoots(derived);
+  if (!merged.length) return [];
+  const before = depSearchRoots.map((root) => normPathKey(root.path)).join("|");
+  if (depRootsCustomized) {
+    const own = merged.filter((root) => root.depth === DEP_ROOT_LOCAL_DEPTH);
+    depSearchRoots = dedupeRoots([...own, ...depSearchRoots]);
+  } else {
+    depSearchRoots = merged;
+  }
+  const after = depSearchRoots.map((root) => normPathKey(root.path)).join("|");
+  if (after !== before) clearFsCaches();   // 搜索根变了 → 目录索引 / 文本缓存作废
+  persistDepRoots();
+  if (after !== before) {
+    consoleOut([
+      `源码搜索根（${depSearchRoots.length} 个）：依赖自动补齐会在这些目录里按 <模块名>.v/.sv/.vh/.svh 惰性查找`,
+      ...depSearchRoots.map((root) => `　· ${root.path}（深度 ${root.depth}）`)
+    ].join("\n"), "info");
+  }
+  return depSearchRoots;
+}
+
+// 用户手工追加一个搜索目录（如标准单元库 std 放在别的目录树）。
+function addDepSearchRoot(dirPath, depth) {
+  const path = String(dirPath || "").trim();
+  if (!path) return depSearchRoots;
+  depRootsCustomized = true;
+  depSearchRoots = dedupeRoots([
+    ...depSearchRoots,
+    { path, depth: depth || DEP_ROOT_LOCAL_DEPTH, auto: false }
+  ]);
+  clearFsCaches();
+  persistDepRoots();
+  return depSearchRoots;
+}
+
+function removeDepSearchRootAt(index) {
+  const at = Number(index);
+  if (!Number.isFinite(at) || at < 0 || at >= depSearchRoots.length) return depSearchRoots;
+  depRootsCustomized = true;
+  depSearchRoots.splice(at, 1);
+  clearFsCaches();
+  persistDepRoots();
+  return depSearchRoots;
+}
+
+// 恢复「默认搜索逻辑」：下一次打开顶层时按「顶层目录 + 往上 3 层」重新派生。
+function resetDepSearchRoots() {
+  depRootsCustomized = false;
+  depSearchRoots = [];
+  clearFsCaches();
+  persistDepRoots();
+  return depSearchRoots;
+}
+
+// ── 「自动补齐」按钮（#sim-depfill，紧挨标签条「＋」右侧）────────────────────
+// 语义由用户点名：① 位置在「＋」右边；② 只有存在依赖缺口时才出现；③ 补齐成功即消失。
+// depFillBusy：整次补齐动作期间把按钮压住不显示 —— 用户口径是「点一次就消失」，
+//   中途（尤其是正在弹系统选目录框时）不该再冒出来；动作结束若缺口仍在才允许它回来，
+//   那是唯一能让用户重试 / 换一个目录的入口。
+let depFillBusy = false;
+
+function syncDepFillButton(missing) {
+  const btn = refs.depFill;
+  if (!btn) return;
+  const gap = (Array.isArray(missing) ? missing : missingDependencyModules()).length;
+  btn.hidden = gap === 0 || depFillBusy;
+  btn.disabled = gap === 0 || depResolving || depFillBusy;
+  btn.textContent = "自动补齐";
+  btn.title = gap
+    ? `自动补齐：${gap} 个模块被例化却没有定义 —— 在 ${depSearchRoots.length
+      ? `${depSearchRoots.length} 个源码搜索目录` : "源码搜索目录"}里自动查找（无结果时会请你选一次目录）`
+    : "依赖已闭合";
+}
+
+// 「自动补齐」按钮的点击实现。三层策略，逐级降级：
+//   ① 搜索根（默认 = 顶层目录 + 往上 3 层；服务可用时无需任何用户手势）→ 静默补齐；
+//   ② 仍缺 → 原生「选择文件夹」对话框（走 api/pick，**不受** transient activation 限制）
+//      把选中的目录加进搜索根，再补齐一次；
+//   ③ 服务不可用（dev-server / 浏览器直开）→ 退回原来的 FSA 手选目录流程
+//      （openSourceDirAndResolve 内部同步发起选择框，手势仍然有效）。
+async function autoFillDependencies() {
+  if (depResolving) return { loaded: [], unresolved: missingDependencyModules() };
+  depFillBusy = true;
+  syncDepFillButton();                         // 立刻压住按钮：用户口径「点一次就消失」
+  let result = { loaded: [], unresolved: missingDependencyModules() };
+  try {
+    if (!result.unresolved.length) return result;
+    if (await fsApiReady()) {
+      result = await resolveMissingDependencies();   // ① 搜索根（+ 已授权目录）静默补齐
+      if (!missingDependencyModules().length) return result;
+    } else {                                          // ③ 服务不可用 → FSA 手选目录（有手势）
+      await openSourceDirAndResolve();
+      return result;
+    }
+
+    let picked = [];
+    try {
+      picked = await fsApiPick("dir", false);    // ② 原生选择文件夹（绝对路径，不需要手势）
+    } catch (error) {
+      consoleOut(`打开文件夹选择框失败：${(error && error.message) || error}`, "error");
+      return result;
+    }
+    if (!picked.length) {                        // 用户取消：动作结束，缺口还在 → 按钮回来
+      setStatus("已取消选择源码目录。");
+      return result;
+    }
+    addDepSearchRoot(picked[0]);
+    consoleOut(`已把「${picked[0]}」加入源码搜索根。`, "info");
+    await resolveMissingDependencies();
+    return result;
+  } finally {
+    depFillBusy = false;
+    syncDepFillButton();                         // 缺口已闭合 → 保持隐藏；仍有缺口 → 允许重试
+  }
+}
+
+// 设置面板（js/editor/view-menu.js §9.5「＋ 添加目录」）的入口：弹**系统原生**文件夹
+// 选择框，把选中的绝对路径登记成一个手工搜索根，并立刻重试一次补齐。
+// 「文件夹的配置需要改为可更改的」正是这条 —— 标准单元库 / 公共 IP 常在另一棵目录树里。
+// 服务不可用时退回 FSA 授权目录（拿不到绝对路径 ⇒ 派生不出搜索根，但同样能自动补齐）。
+async function pickAndAddDepSearchRoot() {
+  if (await fsApiReady()) {
+    let picked = [];
+    try {
+      picked = await fsApiPick("dir", false);
+    } catch (error) {
+      consoleOut(`打开文件夹选择框失败：${(error && error.message) || error}`, "error");
+      return depSearchRoots.map((root) => ({ ...root }));
+    }
+    if (picked.length) {
+      addDepSearchRoot(picked[0]);
+      consoleOut(`已把「${picked[0]}」加入源码搜索根（共 ${depSearchRoots.length} 个）。`, "info");
+      await resolveMissingDependencies();
+    }
+    return depSearchRoots.map((root) => ({ ...root }));
+  }
+  await openSourceDirAndResolve();
+  return depSearchRoots.map((root) => ({ ...root }));
+}
+
 // #123 自动补齐入口：解析后（或切换顶层后）调用 —— 有已授权目录就自动读入缺失模块。
 // 重入保护：本函数内部会再调 parseDesign()，而 parseDesign() 又会回调本函数，
 // 用 depResolving 把嵌套调用一次性挡掉（不会递归、也不会重复汇报）。
@@ -2031,12 +2541,23 @@ async function resolveMissingDependencies() {
   let unresolved = [];
   let needsPermission = false;
   let rounds = 0;
+  let via = "";                    // "roots" = 本地服务读盘的源码搜索根；"dir" = FSA 已授权目录
   try {
     while (rounds < DEP_RESOLVE_MAX_ROUNDS) {
       rounds += 1;
       unresolved = missingDependencyModules();
-      if (!unresolved.length || !sourceDirHandle) break;
-      const result = await loadMissingModulesFromDir(unresolved);
+      if (!unresolved.length) break;
+      // ① 源码搜索根（第 54 轮）：服务在线时**零手势、零弹框**，靠绝对路径直接读盘。
+      //    默认根 = 打开的顶层所在目录 + 往上 3 层（notePickedSourcePaths 派生）。
+      let result = await loadMissingModulesFromRoots(unresolved);
+      if (result.loaded.length) via = "roots";
+      // ② 搜索根没命中 → 退回「已授权目录」（FSA 句柄那条老路径，第 52 轮）。
+      //    ⚠ 不要写成「没有 sourceDirHandle 就 break」：那正是第 54 轮要拆掉的
+      //      「必须先手动选一次文件夹」的硬前提。
+      if (!result.loaded.length && sourceDirHandle) {
+        result = await loadMissingModulesFromDir(unresolved);
+        if (result.loaded.length) via = "dir";
+      }
       if (result.needsPermission) { needsPermission = true; unresolved = result.unresolved; break; }
       if (!result.loaded.length) { unresolved = result.unresolved; break; }
       loaded.push(...result.loaded);
@@ -2048,10 +2569,13 @@ async function resolveMissingDependencies() {
     depResolving = false;
   }
   if (loaded.length) {
-    consoleOut(`依赖自动补齐：已从源码目录「${sourceDirHandle ? sourceDirHandle.name : ""}」读入 ${loaded.length} 个源文件 —— ${loaded.join("、")}`, "ok");
+    const from = via === "roots"
+      ? `源码搜索根（${depSearchRoots.length} 个目录：${depSearchRoots.map((root) => root.path).join("、")}）`
+      : `源码目录「${sourceDirHandle ? sourceDirHandle.name : ""}」`;
+    consoleOut(`依赖自动补齐：已从${from}读入 ${loaded.length} 个源文件 —— ${loaded.join("、")}`, "ok");
   }
   reportMissingDependencies();
-  return { rounds, loaded, unresolved, needsPermission };
+  return { rounds, loaded, unresolved, needsPermission, via };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2167,19 +2691,27 @@ function openSourceDirectory() {
 // ─────────────────────────────────────────────────────────────────────────────
 // 语义（对齐 Verdi 的 `-top` + filelist 行为）：用户选定一个顶层后，工具应当自己去把
 // 该顶层**例化可达图**上缺定义的模块找出来，而不是让用户一个个地挑文件。
-//   ① 已有授权过的源码目录（sourceDirHandle）→ 后台静默补齐（resolveMissingDependencies）；
-//   ② 没有 → **在同一次用户手势里**直接弹系统「选择文件夹」，选完即递归读入并补齐；
+//   ① 有源码搜索根（第 54 轮，默认 = 顶层目录 + 往上 3 层）/ 已授权目录 / 本地服务在线
+//      → 后台静默补齐（resolveMissingDependencies）——**不弹任何框**，这就是用户要的
+//      「自动加信号的逻辑不需要再手动去选文件夹」；
+//   ② 确知本地服务不可用（dev-server / 浏览器直开）且没有任何授权目录 → 才回到第 52 轮
+//      的「同一次用户手势里弹系统选择文件夹」；
 //   ③ 用户取消过一次 → 本会话内不再弹框（避免每次切顶层都打扰），只往日志流写补齐提示，
-//      之后仍可走菜单「文件 → 打开源码目录（自动扫描依赖）…」或标签条「＋」。
+//      之后仍可走菜单「文件 → 打开源码目录（自动扫描依赖）…」、标签条「＋」或「自动补齐」。
 //
 // ⚠ showDirectoryPicker 必须有用户手势（transient activation）。因此本函数**同步**发起
-// 选择框，之后才 await —— 只能在点击 / change 这类事件处理器的同步段里调用。
+// 选择框（仅 ② 分支），之后才 await —— 只能在点击 / change 这类事件处理器的同步段里调用。
 // 没有手势（SecurityError）时只退回「写日志提示」，**不**记成用户拒绝。
 function autoScanForTop(topName) {
   if (depResolving) return;
   const missing = missingDependencyModules(topName);
-  if (!missing.length) return;                     // 依赖已闭合：什么都不做，不打扰用户
-  if (sourceDirHandle) {                           // ① 已授权目录 → 静默补齐
+  if (!missing.length) { syncDepFillButton([]); return; }   // 依赖已闭合：什么都不做，不打扰用户
+  syncDepFillButton(missing);                               // 有缺口 → 「自动补齐」按钮现身
+  // ① 静默补齐：有搜索根 / 有已授权目录 / 本地服务在线（含「还没探完」）都走这条路。
+  //    ⚠ 判据是 `fsApiState !== false` 而不是 `=== true`：首次打开顶层时探活可能还在飞，
+  //      这一拍若判成「不可用」就会退回弹文件夹框 —— 正是用户要求去掉的那一步。
+  //      只有**确知**服务不可用（dev-server / 浏览器直开）才回到第 52 轮的手选目录。
+  if (depSearchRoots.length || sourceDirHandle || fsApiState !== false) {
     resolveMissingDependencies().catch(() => {});
     return;
   }
@@ -2453,6 +2985,13 @@ function bindEvents() {
     render();
   });
   refs.addFile?.addEventListener("click", addFile);
+  // 第 54 轮「自动补齐」（位置由用户点名：紧挨「＋」右侧）：点一次即消失 ——
+  // 点击瞬间先自己藏起来（给反馈），整次动作由 depFillBusy 压住；动作结束时若缺口仍在，
+  // autoFillDependencies 的 finally → syncDepFillButton 会让它回来（那是重试的唯一入口）。
+  refs.depFill?.addEventListener("click", () => {
+    if (refs.depFill) refs.depFill.hidden = true;
+    autoFillDependencies().catch(() => {});
+  });
   refs.importFile?.addEventListener("click", importSourceFiles);
   refs.removeFile?.addEventListener("click", removeFile);
   refs.parseBtn?.addEventListener("click", parseDesign);
@@ -2527,6 +3066,13 @@ function initPanelLayout() {
 function init() {
   initRefs();
   if (!refs.panel || !refs.sourceEditor) return;
+  // 第 54 轮：① 恢复上次会话的源码搜索根（依赖自动补齐用）；
+  //          ② 提前探活本地读盘通道 —— 探活在后台飞，等用户切顶层时结果通常已落定，
+  //             autoScanForTop 就不会误判成「服务不可用」而退回弹文件夹框；
+  //          ③ 同步一次按钮显隐（初始无缺口 → 保持 hidden）。
+  restoreDepRoots();
+  fsApiReady().catch(() => {});
+  syncDepFillButton([]);
   initSourceCodeView();
   initTbCodeView();
   bindEvents();
@@ -2775,7 +3321,38 @@ window.__wpsim = {
   // 探针可先 stub window.showDirectoryPicker 返回 fake 句柄，再调它验证整条链。
   // resetAutoScanDecline()  —— 清掉「用户已取消过一次」的会话标志（探针用例间隔离用）。
   autoScanForTop,
-  resetAutoScanDecline() { autoScanDeclined = false; }
+  resetAutoScanDecline() { autoScanDeclined = false; },
+  // ── 第 54 轮 · 源码搜索根（#124）：不依赖 filelist、也不需要手选文件夹的依赖补齐 ──
+  //   get depSearchRoots() —— 当前搜索根快照 [{path, depth, auto}]（有序，越靠前越先命中）；
+  //   notePickedSourcePaths(paths) —— 由「打开 / 导入源码时拿到的绝对路径」派生搜索根
+  //     （默认 = 文件所在目录 + 往上 3 层；第一层递归到底，上溯层只下探 2 层）；
+  //   addDepSearchRoot / removeDepSearchRootAt / resetDepSearchRoots —— 设置里的增删改；
+  //   setDepSearchRoots(list) —— 直接灌入（探针用例间隔离用，避免上一条用例的根串味）；
+  //   autoFillDependencies() —— 「自动补齐」按钮的点击实现（搜索根 → 原生选目录 → FSA 三层降级）；
+  //   syncDepFillButton(missing) —— 按缺口同步按钮显隐（不传参 = 现算缺口）；
+  //   fsApiReady() —— 本地读盘通道（api/fs）是否可用。
+  //   ⚠ dev-server 只回 "OK"、不带 X-WavePaint-Fs 标识 ⇒ fsApiReady() 恒为 false，
+  //     本地读盘链路的断言必须跑真实 exe（见 tools/exe-smoke.mjs）或注入 stub。
+  get depSearchRoots() { return depSearchRoots.map((root) => ({ ...root })); },
+  notePickedSourcePaths,
+  addDepSearchRoot,
+  removeDepSearchRootAt,
+  resetDepSearchRoots,
+  setDepSearchRoots(list) {
+    depSearchRoots = dedupeRoots(list);
+    depRootsCustomized = true;
+    clearFsCaches();
+    persistDepRoots();
+    syncDepFillButton();
+    return depSearchRoots.map((root) => ({ ...root }));
+  },
+  autoFillDependencies,
+  pickAndAddDepSearchRoot,
+  syncDepFillButton,
+  fsApiReady,
+  // 探针用：清空「本地读盘通道」的探活缓存（注入 api/fs 替身、或真实服务重启后需要重探）。
+  resetFsApiProbe() { fsApiState = null; fsApiFailedAt = 0; fsApiProbe = null; return true; },
+  get depFillVisible() { return !!refs.depFill && !refs.depFill.hidden; }
 };
 
 if (document.readyState === "loading") {

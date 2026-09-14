@@ -352,7 +352,26 @@
         }
         /* ── 编辑栏（#toolbar）末尾的仿真操作（第 37 轮自源码面板迁入）──────────
            只含「自动加信号」+「运行仿真」。#sim-run 的绿色主按钮观感由上面那条
-           `#sim-panel button.primary-btn, #sim-run` 规则继续提供（id 选择器胜出）。 */
+            `#sim-panel button.primary-btn, #sim-run` 规则继续提供（id 选择器胜出）。 */
+        /* ── 「自动补齐」（第 54 轮）──────────────────────────────────────────
+           位置由用户点名：紧挨在「＋」的右边（同属「文件 / 目录」类操作）。
+           只在「有被例化但缺定义的模块」时出现（hidden 由 ui-bridge 的
+           syncDepFillButton 控制），补齐成功即消失 —— 即「点一次就消失」。
+           文案也按用户要求缩短为「自动补齐」（原标题是日志流里那句
+           「扫描工程目录，自动补齐依赖…」，位置在日志流里被认为不好找）。 */
+        #source-tabs .source-depfill {
+            flex: 0 0 auto;
+            height: 26px; padding: 0 10px;
+            border: 1px solid var(--warn-border, #e0a800);
+            border-radius: 999px;
+            background: var(--warn-soft, rgba(224,168,0,0.12));
+            color: var(--warn-text, #8a6116);
+            font-size: 12px; line-height: 1; cursor: pointer;
+            white-space: nowrap;
+        }
+        #source-tabs .source-depfill:hover { background: var(--warn-hover, rgba(224,168,0,0.24)); }
+        #source-tabs .source-depfill[hidden] { display: none !important; }
+        #source-tabs .source-depfill:disabled { opacity: .5; cursor: default; }
         .sim-tool-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
         .sim-tool-actions button {
             font-family: inherit; font-size: 12px; line-height: 16px; padding: 5px 10px;
@@ -1051,6 +1070,10 @@
                         <div class="source-tabs" id="source-tabs">
                             <div id="source-files" class="source-files"></div>
                             <button id="sim-addfile" type="button" class="source-add" title="添加源文件（打开文件选择框，可多选 .v/.sv/.vh/.svh）" aria-label="添加源文件">＋</button>
+                            <!-- 「自动补齐」（第 54 轮）：只在「有被例化却缺定义的模块」时显示；
+                                 点一次即尝试补齐，缺口闭合后自己消失（hidden 由 ui-bridge 控制）。 -->
+                            <button id="sim-depfill" type="button" class="source-depfill" hidden
+                                    title="自动补齐：在被例化却没有定义的模块的源码搜索目录里自动查找（默认 = 顶层目录 + 往上 3 层）">自动补齐</button>
                         </div>
                         <!-- ── 已按用户裁决移出界面的控件（id 全部保留 = 契约面，见 memory/08 §2.5；
                                  e2e-rtl E6 等按 id 断言存在性，故只 hidden、不删节点）────

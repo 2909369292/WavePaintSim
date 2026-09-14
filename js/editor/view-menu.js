@@ -465,7 +465,69 @@
       });
       hint(body, '仿真完成摘要 / 编译报错 / $display 输出 / 布局动作都追加在这里，只保留最近 300 行。');
 
-      // ── 9.5 恢复默认设置 ──────────────────────────────────────────────
+      // ── 9.5 源码搜索目录（依赖自动补齐 · 第 54 轮）─────────────────────
+      // 用户口径：「自动加信号的逻辑不需要再手动去选文件夹 …… 文件夹的配置需要改为
+      // 可更改的：一般情况下与 top 同文件夹；另一种情况下 std 可能会在其他单独的文件夹。」
+      //   默认根由「打开 / 导入源码时拿到的绝对路径」自动派生（文件所在目录 + 往上 3 层，
+      //   见 ui-bridge 的 notePickedSourcePaths）；这里给出**可改**的入口 ——
+      //   标准单元库 / 公共 IP 常常在另一棵目录树里，必须允许手工加一个根。
+      // ⚠ view-menu.js 是独立 IIFE，看不到 ui-bridge 的内部状态：一律经 window.__wpsim
+      //   **延迟取**（不缓存引用 —— 脚本加载顺序可能让 __wpsim 晚于本文件出现）。
+      function simApi() { return window.__wpsim || null; }
+      section(body, '源码搜索目录（依赖自动补齐）');
+      const rootsBox = document.createElement('div');
+      rootsBox.className = 'wpv-roots';
+      body.appendChild(rootsBox);
+      function renderRoots() {
+        rootsBox.replaceChildren();
+        const api = simApi();
+        const roots = (api && api.depSearchRoots) || [];
+        if (!roots.length) {
+          const empty = document.createElement('div');
+          empty.className = 'wpv-hint';
+          empty.textContent = '（还没有搜索目录）用源码标签条的「＋」导入源码后，会自动登记'
+            + '「文件所在目录 + 往上 3 层」。';
+          rootsBox.appendChild(empty);
+          return;
+        }
+        roots.forEach(function (root, index) {
+          const line = document.createElement('div');
+          line.className = 'wpv-root';
+          const path = document.createElement('span');
+          path.className = 'wpv-root-path';
+          path.textContent = root.path + '（深度 ' + root.depth + (root.auto ? ' · 自动' : ' · 手动') + '）';
+          path.title = root.path;
+          const del = document.createElement('button');
+          del.type = 'button';
+          del.className = 'wpv-btn';
+          del.textContent = '移除';
+          del.addEventListener('click', function () {
+            if (api) api.removeDepSearchRootAt(index);
+            renderRoots();
+          });
+          line.appendChild(path);
+          line.appendChild(del);
+          rootsBox.appendChild(line);
+        });
+      }
+      renderRoots();
+      const rootRow = row(body, '');
+      button(rootRow, '＋ 添加目录', false, function () {
+        const api = simApi();
+        if (!api) return;
+        // 添加目录会弹系统选择框（原生对话框，不占浏览器手势）—— 选完回来再刷列表
+        Promise.resolve(api.pickAndAddDepSearchRoot()).then(renderRoots, renderRoots);
+      });
+      button(rootRow, '恢复默认', false, function () {
+        const api = simApi();
+        if (api) api.resetDepSearchRoots();
+        renderRoots();
+        flash('已恢复默认搜索目录：下次打开顶层时按「顶层目录 + 往上 3 层」重新派生');
+      });
+      hint(body, '依赖自动补齐只在这些目录里按 <模块名>.v/.sv/.vh/.svh 惰性查找'
+        + '（对齐 Verdi 的 -y +libext）。标准单元库放在别处时，在这里加一条即可。');
+
+      // ── 9.6 恢复默认设置 ──────────────────────────────────────────────
       section(body, '恢复');
       const resetRow = row(body, '');
       button(resetRow, '恢复默认设置', false, function () {
